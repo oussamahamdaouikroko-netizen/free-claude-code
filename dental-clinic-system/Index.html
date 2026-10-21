@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>لوحة تحكم العيادة</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Tahoma, Arial, sans-serif;
+      background: #f0fdfa;
+      color: #1f2937;
+      padding: 16px;
+    }
+    header {
+      text-align: center;
+      padding: 18px 8px;
+    }
+    header h1 {
+      color: #0f766e;
+      font-size: 22px;
+      margin-bottom: 6px;
+    }
+    header p {
+      color: #6b7280;
+      font-size: 13px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+      max-width: 960px;
+      margin: 12px auto;
+    }
+    .card {
+      background: #ffffff;
+      border-radius: 12px;
+      padding: 14px;
+      box-shadow: 0 1px 4px rgba(15, 118, 110, 0.12);
+      border-top: 4px solid #0f766e;
+      text-align: center;
+    }
+    .card .label {
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 8px;
+    }
+    .card .value {
+      font-size: 22px;
+      font-weight: bold;
+      color: #0f766e;
+    }
+    .card.warn { border-top-color: #dc2626; }
+    .card.warn .value { color: #dc2626; }
+    .card.cash { border-top-color: #2563eb; }
+    .card.cash .value { color: #2563eb; }
+    section {
+      max-width: 960px;
+      margin: 18px auto;
+      background: #ffffff;
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 1px 4px rgba(15, 118, 110, 0.12);
+    }
+    section h2 {
+      color: #0f766e;
+      font-size: 16px;
+      margin-bottom: 10px;
+    }
+    ul { padding-right: 18px; }
+    li { padding: 4px 0; font-size: 14px; }
+    .empty { color: #9ca3af; font-size: 13px; }
+    footer {
+      text-align: center;
+      color: #9ca3af;
+      font-size: 11px;
+      padding: 20px 8px;
+      line-height: 1.8;
+    }
+    .refresh-btn {
+      display: inline-block;
+      margin: 8px auto 0;
+      padding: 8px 22px;
+      background: #0f766e;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .error {
+      max-width: 960px;
+      margin: 12px auto;
+      background: #fee2e2;
+      color: #b91c1c;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 13px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1 id="clinic-name">لوحة تحكم عيادة الأسنان</h1>
+    <p id="generated-at">جار التحميل...</p>
+    <button class="refresh-btn" onclick="loadData()">تحديث</button>
+  </header>
+
+  <div id="error" class="error"></div>
+
+  <div class="grid" id="cards"></div>
+
+  <section>
+    <h2>المستلزمات التي تحتاج إعادة شراء</h2>
+    <ul id="low-stock"><li class="empty">جار التحميل...</li></ul>
+  </section>
+
+  <section>
+    <h2>المواعيد القادمة</h2>
+    <ul id="upcoming"><li class="empty">جار التحميل...</li></ul>
+  </section>
+
+  <footer>
+    هذه اللوحة تعرض أرقاما إجمالية فقط — بدون أسماء المرضى أو أرقام هواتفهم أو تفاصيل طبية.<br>
+    إدارة العيادة الكاملة تتم من داخل Google Sheets.
+  </footer>
+
+  <script>
+    // Formats a number with thousands separators (Latin digits, reliable
+    // across browsers and locales).
+    function fmt(n) {
+      return Number(n || 0).toLocaleString('en-US');
+    }
+
+    function card(label, value, cssClass) {
+      return '<div class="card ' + (cssClass || '') + '">' +
+        '<div class="label">' + label + '</div>' +
+        '<div class="value">' + value + '</div></div>';
+    }
+
+    function render(d) {
+      document.getElementById('clinic-name').textContent =
+        'لوحة تحكم ' + (d.clinicName || 'العيادة');
+      document.getElementById('generated-at').textContent =
+        'آخر تحديث: ' + (d.generatedAt || '') + ' (التحديث التلقائي كل 5 دقائق)';
+
+      var cards = [
+        card('مرضى اليوم', fmt(d.todayPatients)),
+        card('في الانتظار الآن', fmt(d.waitingNow)),
+        card('تم علاجهم اليوم', fmt(d.treatedToday)),
+        card('مدفوعات اليوم (دج)', fmt(d.collectedToday), 'cash'),
+        card('مدفوعات الشهر (دج)', fmt(d.collectedMonth), 'cash'),
+        card('مصروفات الشهر (دج)', fmt(d.expensesMonth), 'warn'),
+        card('التدفق النقدي المقدر (دج)', fmt(d.netCashFlow), 'cash'),
+        card('المبالغ المتبقية على المرضى (دج)', fmt(d.outstanding), 'warn'),
+        card('مستلزمات منخفضة المخزون', fmt(d.lowStockCount), 'warn'),
+        card('مواعيد قادمة', fmt(d.upcomingCount))
+      ];
+      document.getElementById('cards').innerHTML = cards.join('');
+
+      var lowStock = document.getElementById('low-stock');
+      if (d.lowStockNames && d.lowStockNames.length > 0) {
+        lowStock.innerHTML = d.lowStockNames.map(function (name) {
+          return '<li>' + name + '</li>';
+        }).join('');
+      } else {
+        lowStock.innerHTML = '<li class="empty">لا توجد مستلزمات تحتاج إعادة شراء.</li>';
+      }
+
+      var upcoming = document.getElementById('upcoming');
+      if (d.upcomingDates && d.upcomingDates.length > 0) {
+        upcoming.innerHTML = d.upcomingDates.map(function (item) {
+          return '<li>' + item + '</li>';
+        }).join('');
+      } else {
+        upcoming.innerHTML = '<li class="empty">لا توجد مواعيد قادمة مسجلة.</li>';
+      }
+    }
+
+    function showError(err) {
+      var box = document.getElementById('error');
+      box.style.display = 'block';
+      box.textContent = 'تعذر تحميل البيانات: ' + (err && err.message ? err.message : err);
+    }
+
+    function loadData() {
+      document.getElementById('error').style.display = 'none';
+      google.script.run
+        .withSuccessHandler(render)
+        .withFailureHandler(showError)
+        .getPublicDashboardData();
+    }
+
+    document.addEventListener('DOMContentLoaded', loadData);
+    // Auto-refresh every 5 minutes.
+    setInterval(loadData, 5 * 60 * 1000);
+  </script>
+</body>
+</html>
