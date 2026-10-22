@@ -22,12 +22,38 @@
       const search = input({ placeholder: t('patients.search'), class: 'input', style: { maxWidth: '360px' } });
       const tableHost = h('div', {});
 
+      // «Tous» / «Débiteurs»: the dentist often needs the list of unpaid
+      // balances to call patients back, not the whole file.
+      let onlyDebtors = false;
+      const tabAll = h('button', { class: 'active', onClick: () => setFilter(false) }, t('patients.all'));
+      const tabDebtors = h('button', { onClick: () => setFilter(true) }, t('patients.onlyDebtors'));
+      const tabs = h('div', { class: 'tabs' }, tabAll, tabDebtors);
+
+      function setFilter(value) {
+        if (onlyDebtors === value) return;
+        onlyDebtors = value;
+        tabAll.classList.toggle('active', !value);
+        tabDebtors.classList.toggle('active', value);
+        load();
+      }
+
       const load = async () => {
         try {
-          const rows = await window.API.invoke('patients:list', { search: search.value.trim(), limit: 500 });
+          const rows = onlyDebtors
+            ? await window.API.invoke('patients:debtors')
+            : await window.API.invoke('patients:list', { search: search.value.trim(), limit: 500 });
           clear(tableHost);
           if (rows.length === 0) {
-            tableHost.append(emptyState(search.value ? t('common.searchEmpty') : t('patients.noHistory'), '👤'));
+            tableHost.append(
+              emptyState(
+                onlyDebtors
+                  ? t('patients.noDebtors')
+                  : search.value
+                    ? t('common.searchEmpty')
+                    : t('patients.noHistory'),
+                onlyDebtors ? '✅' : '👤',
+              ),
+            );
             return;
           }
           tableHost.append(
@@ -137,7 +163,7 @@
 
       search.addEventListener('input', debounce(load, 220));
       clear(root).append(
-        h('div', { class: 'row mb' }, search),
+        h('div', { class: 'row mb', style: { justifyContent: 'space-between' } }, search, tabs),
         h('div', { class: 'card' }, tableHost),
       );
       await load();

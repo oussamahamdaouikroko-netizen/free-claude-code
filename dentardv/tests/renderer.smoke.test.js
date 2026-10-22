@@ -100,6 +100,23 @@ test('the full UI boots and every screen renders', async (t) => {
   $('.modal-foot .btn').click();
   await waitFor(() => !$('.modal'), { label: 'modal closed' });
 
+  // Debtors filter: only the patients who still owe money are listed.
+  $('[data-page="patients"]').click();
+  await waitFor(() => $('.content .tabs'), { label: 'patients filters' });
+  const filters = $$('.content .tabs button');
+  assert.equal(filters.length, 2, 'two patient filters');
+  filters[1].click();
+  await waitFor(() => $$('table.list tbody tr').length > 0, { label: 'debtor rows' });
+  const debtorRows = $$('table.list tbody tr');
+  assert.ok(debtorRows.length >= 1, 'the demo data has patients with debts');
+  for (const row of debtorRows) {
+    assert.ok(row.querySelector('.badge.danger'), 'a listed patient must still owe money');
+  }
+  filters[0].click();
+  await waitFor(() => $$('table.list tbody tr').length > debtorRows.length, {
+    label: 'full list restored',
+  });
+
   // Reports: daily then monthly.
   $('[data-page="reports"]').click();
   await waitFor(() => $('.tabs'), { label: 'report tabs' });

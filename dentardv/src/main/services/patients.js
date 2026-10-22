@@ -196,7 +196,9 @@ function totalDebt() {
 function debtors() {
   return getDb()
     .prepare(
-      `SELECT p.id, p.full_name, p.phone, ${BALANCE_SQL} AS balance
+      `SELECT p.id, p.full_name, p.phone, p.notes, p.created_at, ${BALANCE_SQL} AS balance,
+         (SELECT MAX(a.day) FROM appointments a
+           WHERE a.patient_id = p.id AND a.status <> 'cancelled') AS last_visit
        FROM patients p
        WHERE balance > 0.009
        ORDER BY balance DESC`,

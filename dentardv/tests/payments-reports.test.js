@@ -70,6 +70,30 @@ test('paying a debt spreads the amount over the oldest visits first', (t) => {
   expectCode(() => payments.payDebt({ patient_id: p.id, amount: 100 }), 'NO_DEBT');
 });
 
+test('the debtors list carries the balance and the last visit', (t) => {
+  const ctx = fresh();
+  t.after(() => ctx.cleanup());
+
+  const today = dates.toISODate();
+  const owes = patients.create({ full_name: 'Ahmed Owes', phone: '0555222002' });
+  const clear = patients.create({ full_name: 'Zohra Paid', phone: '0555333003' });
+
+  const visit = appointments.create({ patient_id: owes.id, day: today, price: 6000 });
+  appointments.setStatus(visit.id, 'done');
+  payments.add({ patient_id: owes.id, appointment_id: visit.id, amount: 2000, method: 'cash' });
+
+  const paidVisit = appointments.create({ patient_id: clear.id, day: today, price: 3000 });
+  appointments.setStatus(paidVisit.id, 'done');
+  payments.add({ patient_id: clear.id, appointment_id: paidVisit.id, amount: 3000, method: 'cash' });
+
+  const rows = patients.debtors();
+  assert.equal(rows.length, 1, 'only the patient who still owes money is listed');
+  assert.equal(rows[0].id, owes.id);
+  assert.equal(rows[0].balance, 4000);
+  assert.equal(rows[0].full_name, 'Ahmed Owes');
+  assert.equal(rows[0].last_visit, today, 'the list shows when the patient was last seen');
+});
+
 test('deleting a payment restores the debt', (t) => {
   const ctx = fresh();
   t.after(() => ctx.cleanup());

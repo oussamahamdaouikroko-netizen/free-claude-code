@@ -28,7 +28,7 @@ npm run demo          # → http://localhost:4173
 # Application réelle (Electron)
 npm start
 
-# Tests (72 tests, sans réseau ni téléphone)
+# Tests (73 tests, sans réseau ni téléphone)
 npm test
 ```
 
@@ -96,7 +96,8 @@ patient du lendemain. Chaque rappel est journalisé : jamais deux fois.
 
 - **Agenda du jour** : file d'attente numérotée, statut (*prévu / terminé / absent*),
   report d'un patient, encaissement en un clic.
-- **Patients** : dossier, téléphone, notes, historique complet des visites, dettes.
+- **Patients** : dossier, téléphone, notes, historique complet des visites, dettes,
+  et filtre **Tous / Débiteurs** (les soldes impayés, du plus gros au plus petit).
 - **Soins & tarifs** : catalogue par défaut (prix du marché algérien, modifiable),
   prix **librement ajustable sur chaque rendez-vous** (l'historique ne bouge jamais).
 - **Paiements partiels** et **dettes** : acompte, paiement par visite, ou règlement
@@ -146,7 +147,7 @@ dentardv/
 ├── src/preload/index.js       pont contextBridge (API minimale)
 ├── src/renderer/              UI vanilla : 8 écrans, i18n FR/AR, RTL
 ├── demo/server.js             serveur d'aperçu navigateur (mêmes handlers)
-├── tests/                     72 tests node:test (dont smoke test du renderer)
+├── tests/                     73 tests node:test (dont smoke test du renderer)
 ├── scripts/after-pack.js      correctif better-sqlite3 pour l'app packagée
 └── electron-builder.yml       cible NSIS x64
 ```
@@ -168,7 +169,7 @@ dentardv/
 ## 5. Tests
 
 ```bash
-npm test     # 72 tests, ~20 s, sans réseau ni téléphone
+npm test     # 73 tests, ~20 s, sans réseau ni téléphone
 ```
 
 | Fichier | Couverture |
