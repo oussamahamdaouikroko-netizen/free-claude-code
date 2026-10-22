@@ -77,8 +77,21 @@ jobs:
 
       # Tests run on the Node ABI (prebuilds/), packaging rebuilds for Electron
       # (npmRebuild: true) and scripts/after-pack.js swaps the binary.
+      # The log is echoed on failure so the failing assertion is visible even
+      # when the full job log cannot be downloaded.
       - name: Run unit tests (Windows)
-        run: npm test
+        shell: bash
+        run: |
+          set +e
+          npm test 2>&1 | tee test-output.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            echo "::error::DentaRDV tests failed on Windows"
+            grep -E "^not ok|^# (tests|pass|fail)|Error|error" test-output.log | head -40 | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+            exit "$status"
+          fi
 
       - name: Build NSIS installer
         run: npx electron-builder --win nsis --x64 --publish never

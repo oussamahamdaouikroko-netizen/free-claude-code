@@ -7,7 +7,9 @@ copyright: Copyright © 2026 DentaRDV
 
 directories:
   output: release
-  buildResources: build
+  # Not "build": that folder is ignored by some tooling/snapshots, and the icon
+  # must be committed next to the sources.
+  buildResources: assets
 
 # Only what the app needs at runtime. Tests, demo server and docs stay out.
 files:
@@ -41,7 +43,7 @@ win:
     - target: nsis
       arch:
         - x64
-  icon: build/icon.png
+  icon: assets/icon.png
   artifactName: DentaRDV-Setup-${version}.${ext}
   legalTrademarks: DentaRDV
 
