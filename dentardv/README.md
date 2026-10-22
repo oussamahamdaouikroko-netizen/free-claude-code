@@ -28,7 +28,7 @@ npm run demo          # → http://localhost:4173
 # Application réelle (Electron)
 npm start
 
-# Tests (52 tests, sans réseau ni téléphone)
+# Tests (63 tests, sans réseau ni téléphone)
 npm test
 ```
 
@@ -137,7 +137,7 @@ dentardv/
 ├── src/preload/index.js       pont contextBridge (API minimale)
 ├── src/renderer/              UI vanilla : 8 écrans, i18n FR/AR, RTL
 ├── demo/server.js             serveur d'aperçu navigateur (mêmes handlers)
-├── tests/                     52 tests node:test (dont smoke test du renderer)
+├── tests/                     63 tests node:test (dont smoke test du renderer)
 ├── scripts/after-pack.js      correctif better-sqlite3 pour l'app packagée
 └── electron-builder.yml       cible NSIS x64
 ```
@@ -159,7 +159,7 @@ dentardv/
 ## 5. Tests
 
 ```bash
-npm test
+npm test     # 63 tests, ~20 s, sans réseau ni téléphone
 ```
 
 | Fichier | Couverture |
@@ -170,7 +170,10 @@ npm test
 | `bot.test.js` | intentions FR/AR, réservation, annulation, liste d'attente |
 | `whatsapp-transport.test.js` | JID, rate-limit, délais, anti-doublon, rappels |
 | `auth-backup.test.js` | mot de passe (scrypt), sauvegarde, restauration, purge |
+| `appointment-edit.test.js` | prix modifiable, garde-fou « prix < encaissé », liste d'attente |
+| `whatsapp-guard.test.js` | messages éphémères, réactions/éditions ignorées, backlog ancien |
 | `i18n.test.js` | clés FR/AR synchronisées, codes d'erreur traduits |
+| `packaging.test.js` | config electron-builder, hook afterPack, workflow GitHub Actions |
 | `electron-main.test.js` | démarrage du main process (stub Electron), IPC, sécurité |
 | `renderer.smoke.test.js` | l'UI réelle (jsdom) : 8 écrans, modales, RTL, verrouillage |
 
