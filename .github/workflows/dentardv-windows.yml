@@ -1,0 +1,102 @@
+name: Build DentaRDV for Windows
+
+# Free Windows builds on GitHub-hosted runners:
+#  - push a tag v*            → published GitHub Release with setup.exe
+#  - manual run (workflow_dispatch) → downloadable artifact
+on:
+  # v* tag  → installer + GitHub Release
+  # main    → installer as a downloadable artifact (no release)
+  # manual  → same as main
+  push:
+    tags: ["v*"]
+    branches: [main, master]
+    paths:
+      - "dentardv/**"
+      - ".github/workflows/dentardv-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dentardv-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: dentardv
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dentardv/package-lock.json
+
+      # Electron's binary is only needed for packaging, not for the unit tests.
+      # better-sqlite3 ships Node-ABI prebuilds, so no compile is needed here.
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+
+      - name: Run tests
+        run: npm test
+
+  build:
+    name: Windows installer
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: dentardv
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dentardv/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Tests run on the Node ABI (prebuilds/), packaging rebuilds for Electron
+      # (npmRebuild: true) and scripts/after-pack.js swaps the binary.
+      - name: Run unit tests (Windows)
+        run: npm test
+
+      - name: Build NSIS installer
+        run: npx electron-builder --win nsis --x64 --publish never
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DentaRDV-Setup-windows
+          path: |
+            dentardv/release/*.exe
+            dentardv/release/*.blockmap
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: DentaRDV ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            dentardv/release/DentaRDV-Setup-*.exe
+          body_path: dentardv/RELEASE_NOTES.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
