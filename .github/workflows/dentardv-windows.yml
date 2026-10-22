@@ -2,14 +2,20 @@ name: Build DentaRDV for Windows
 
 # Free Windows builds on GitHub-hosted runners:
 #  - push a tag v*            → published GitHub Release with setup.exe
-#  - manual run (workflow_dispatch) → downloadable artifact
+#  - pull request   → downloadable artifact, keeps its build log for 30 days
+#  - manual run     → same as main
 on:
   # v* tag  → installer + GitHub Release
   # main    → installer as a downloadable artifact (no release)
+  # PR      → same as main, so the installer can be reviewed before merging
   # manual  → same as main
   push:
     tags: ["v*"]
     branches: [main, master]
+    paths:
+      - "dentardv/**"
+      - ".github/workflows/dentardv-windows.yml"
+  pull_request:
     paths:
       - "dentardv/**"
       - ".github/workflows/dentardv-windows.yml"
