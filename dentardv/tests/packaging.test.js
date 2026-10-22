@@ -139,6 +139,28 @@ test('afterPack fails loudly when the module was not unpacked', async () => {
   }
 });
 
+test('better-sqlite3 ships a Node-API binary that Electron can load', () => {
+  // This is why afterPack can keep the packaged prebuild instead of rebuilding:
+  // a N-API addon exports napi_register_module_v1 and never the legacy
+  // node_register_module_v / NODE_MODULE_VERSION entry points. If a future
+  // better-sqlite3 release switched back to the Node ABI, the packaged app
+  // would crash on first launch, so fail here instead.
+  const binary = path.join(
+    ROOT,
+    'node_modules',
+    'better-sqlite3',
+    'prebuilds',
+    'win32-x64.node',
+  );
+  assert.ok(fs.existsSync(binary), 'the Windows prebuild is installed');
+  const symbols = fs.readFileSync(binary).toString('latin1');
+  assert.match(symbols, /napi_register_module_v1/, 'binary registers through N-API');
+  assert.doesNotMatch(symbols, /node_register_module_v/, 'binary is not tied to the Node ABI');
+
+  const version = require('better-sqlite3/package.json').version;
+  assert.match(version, /^\d+\./, 'better-sqlite3 version is readable');
+});
+
 test('the GitHub Actions workflow builds the Windows installer', () => {
   const workflow = yaml.load(
     fs.readFileSync(path.join(ROOT, '..', '.github', 'workflows', 'dentardv-windows.yml'), 'utf8'),

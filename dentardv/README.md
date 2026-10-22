@@ -28,7 +28,7 @@ npm run demo          # → http://localhost:4173
 # Application réelle (Electron)
 npm start
 
-# Tests (65 tests, sans réseau ni téléphone)
+# Tests (66 tests, sans réseau ni téléphone)
 npm test
 ```
 
@@ -136,7 +136,7 @@ dentardv/
 ├── src/preload/index.js       pont contextBridge (API minimale)
 ├── src/renderer/              UI vanilla : 8 écrans, i18n FR/AR, RTL
 ├── demo/server.js             serveur d'aperçu navigateur (mêmes handlers)
-├── tests/                     65 tests node:test (dont smoke test du renderer)
+├── tests/                     66 tests node:test (dont smoke test du renderer)
 ├── scripts/after-pack.js      correctif better-sqlite3 pour l'app packagée
 └── electron-builder.yml       cible NSIS x64
 ```
@@ -158,7 +158,7 @@ dentardv/
 ## 5. Tests
 
 ```bash
-npm test     # 65 tests, ~20 s, sans réseau ni téléphone
+npm test     # 66 tests, ~20 s, sans réseau ni téléphone
 ```
 
 | Fichier | Couverture |
