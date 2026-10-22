@@ -13,7 +13,7 @@
   "scripts": {
     "start": "electron .",
     "demo": "node demo/server.js",
-    "test": "node --test --test-concurrency=1 \"tests/*.test.js\"",
+    "test": "node tests/run.js",
     "rebuild": "electron-builder install-app-deps",
     "pack": "electron-builder --win --dir",
     "dist": "electron-builder --win nsis",

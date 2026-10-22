@@ -12,6 +12,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { safeRemove } = require('./helpers');
 const { JSDOM, VirtualConsole } = require('jsdom');
 const { startDemo } = require('../demo/server');
 
@@ -62,7 +63,7 @@ test('the full UI boots and every screen renders', async (t) => {
     dom.window.close();
     await sleep(150); // let pending fetches/timers settle before the server dies
     await demo.stop();
-    fs.rmSync(dataDir, { recursive: true, force: true });
+    safeRemove(dataDir);
   });
 
   // Demo mode auto-unlocks, so we land on the dashboard.

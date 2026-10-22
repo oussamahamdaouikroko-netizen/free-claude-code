@@ -226,10 +226,13 @@ async function startDemo(options = {}) {
     server.listen(port, host, resolve);
   });
   const actualPort = server.address().port;
+  // Use the bound address, not "localhost": on Windows localhost resolves to
+  // IPv6 first while the server may only listen on IPv4.
+  const displayHost = host === '0.0.0.0' || host === '::' ? 'localhost' : host;
   return {
     server,
     port: actualPort,
-    url: `http://localhost:${actualPort}`,
+    url: `http://${displayHost}:${actualPort}`,
     dataDir,
     dbFile,
     async stop() {

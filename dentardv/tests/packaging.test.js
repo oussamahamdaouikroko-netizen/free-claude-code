@@ -10,6 +10,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { safeRemove } = require('./helpers');
 const yaml = require('js-yaml');
 
 const ROOT = path.join(__dirname, '..');
@@ -89,7 +90,7 @@ test('afterPack replaces the Node prebuild with the Electron build', async () =>
     await hook({ ...context, electronPlatformName: 'linux' });
     assert.ok(fs.existsSync(path.join(prebuilds, 'linux-x64.node')));
   } finally {
-    fs.rmSync(outDir, { recursive: true, force: true });
+    safeRemove(outDir);
   }
 });
 
@@ -110,7 +111,7 @@ test('afterPack fails loudly when the native module was not rebuilt', async () =
       /missing Electron build/,
     );
   } finally {
-    fs.rmSync(outDir, { recursive: true, force: true });
+    safeRemove(outDir);
   }
 });
 

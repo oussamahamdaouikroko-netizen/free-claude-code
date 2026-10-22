@@ -10,7 +10,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { useTempDb } = require('./helpers');
+const { useTempDb, safeRemove } = require('./helpers');
 const { WhatsAppService, toJid, fromJid, extractText } = require('../src/main/whatsapp/service');
 const settings = require('../src/main/services/settings');
 const patients = require('../src/main/services/patients');
@@ -47,7 +47,7 @@ test('per-sender and global rate limits are enforced', (t) => {
   const { service, dir } = freshService();
   t.after(() => {
     ctx.cleanup();
-    fs.rmSync(dir, { recursive: true, force: true });
+    safeRemove(dir);
   });
 
   settings.setMany({ max_replies_per_hour: '3', max_replies_per_day: '100' });
@@ -67,7 +67,7 @@ test('human-like delays stay inside the configured window', (t) => {
   const { service, dir } = freshService();
   t.after(() => {
     ctx.cleanup();
-    fs.rmSync(dir, { recursive: true, force: true });
+    safeRemove(dir);
   });
 
   settings.setMany({ send_min_delay_ms: '3000', send_max_delay_ms: '8000' });
@@ -86,7 +86,7 @@ test('duplicate message ids are ignored', (t) => {
   const { service, dir } = freshService();
   t.after(() => {
     ctx.cleanup();
-    fs.rmSync(dir, { recursive: true, force: true });
+    safeRemove(dir);
   });
 
   assert.equal(service.isDuplicate('ABC123'), false);
@@ -100,7 +100,7 @@ test('incoming messages are answered with a human delay and logged', async (t) =
   const { service, dir } = freshService();
   t.after(() => {
     ctx.cleanup();
-    fs.rmSync(dir, { recursive: true, force: true });
+    safeRemove(dir);
   });
 
   settings.setMany({
@@ -148,7 +148,7 @@ test('groups, own messages and stale messages are never answered', async (t) => 
   const { service, dir } = freshService();
   t.after(() => {
     ctx.cleanup();
-    fs.rmSync(dir, { recursive: true, force: true });
+    safeRemove(dir);
   });
 
   service.sock = {
@@ -178,7 +178,7 @@ test('reminders are sent once, only for tomorrow, with a long pause', async (t) 
   const { service, dir } = freshService();
   t.after(() => {
     ctx.cleanup();
-    fs.rmSync(dir, { recursive: true, force: true });
+    safeRemove(dir);
   });
 
   settings.setMany({
@@ -229,7 +229,7 @@ test('numbers that are not on WhatsApp are marked, not retried forever', async (
   const { service, dir } = freshService();
   t.after(() => {
     ctx.cleanup();
-    fs.rmSync(dir, { recursive: true, force: true });
+    safeRemove(dir);
   });
 
   settings.setMany({
@@ -267,7 +267,7 @@ test('reminders are skipped when the bot is not connected', async (t) => {
   const { service, dir } = freshService();
   t.after(() => {
     ctx.cleanup();
-    fs.rmSync(dir, { recursive: true, force: true });
+    safeRemove(dir);
   });
   const result = await service.sendReminders({ force: true });
   assert.deepEqual(result, { skipped: 'not_connected' });

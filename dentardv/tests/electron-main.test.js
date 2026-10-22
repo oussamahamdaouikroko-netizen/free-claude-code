@@ -16,6 +16,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const Module = require('node:module');
+const { safeRemove } = require('./helpers');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -115,7 +116,14 @@ test('the Electron main process boots and wires everything', async (t) => {
   t.after(() => {
     Module._load = originalLoad;
     delete process.env.DENTARDV_DATA_DIR;
-    fs.rmSync(state.userData, { recursive: true, force: true });
+    // Windows keeps the SQLite file locked until the connection is closed.
+    try {
+      require('../src/main/db').close();
+    } catch (error) {
+      /* already closed */
+    }
+    for (const window of stub.windows) window.destroyed = true;
+    safeRemove(state.userData);
   });
 
   require('../src/main/index');

@@ -9,7 +9,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { useTempDb } = require('./helpers');
+const { useTempDb, safeRemove } = require('./helpers');
 const { WhatsAppService, extractText } = require('../src/main/whatsapp/service');
 const settings = require('../src/main/services/settings');
 
@@ -46,7 +46,7 @@ test('reactions, deletes and protocol messages never trigger a reply', async (t)
   const { instance, dir } = service();
   t.after(() => {
     ctx.cleanup();
-    fs.rmSync(dir, { recursive: true, force: true });
+    safeRemove(dir);
   });
   settings.setMany({
     clinic_name: 'Cabinet Test',
@@ -75,7 +75,7 @@ test('a stale backlog after reconnection stays unanswered', async (t) => {
   const { instance, dir } = service();
   t.after(() => {
     ctx.cleanup();
-    fs.rmSync(dir, { recursive: true, force: true });
+    safeRemove(dir);
   });
   settings.setMany({ clinic_name: 'Cabinet Test', working_days: '0,1,2,3,4,5,6' });
 

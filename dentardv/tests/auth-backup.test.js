@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { useTempDb } = require('./helpers');
+const { useTempDb, safeRemove } = require('./helpers');
 const auth = require('../src/main/services/auth');
 const backup = require('../src/main/services/backup');
 const patients = require('../src/main/services/patients');
@@ -60,7 +60,7 @@ test('a backup can be created, listed and restored', async (t) => {
   t.after(() => {
     backup.stopScheduler();
     ctx.cleanup();
-    fs.rmSync(dataDir, { recursive: true, force: true });
+    safeRemove(dataDir);
   });
 
   settings.setMany({ backup_enabled: '1', backup_keep: '5' });
@@ -89,7 +89,7 @@ test('backup pruning keeps only the configured number of files', (t) => {
   t.after(() => {
     backup.stopScheduler();
     ctx.cleanup();
-    fs.rmSync(dataDir, { recursive: true, force: true });
+    safeRemove(dataDir);
   });
 
   settings.setMany({ backup_enabled: '1', backup_keep: '2' });
