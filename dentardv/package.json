@@ -18,7 +18,7 @@
     "pack": "electron-builder --win --dir",
     "dist": "electron-builder --win nsis",
     "dist:portable": "electron-builder --win portable",
-    "test:watch": "node --test --watch \"tests/*.test.js\""
+    "test:watch": "node --test --watch --test-concurrency=1 tests/"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^7.0.0-rc14",
