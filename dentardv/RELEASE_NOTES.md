@@ -20,6 +20,17 @@ paiements, dépenses, rapports et réservation automatique par WhatsApp.
 - Tout est stocké localement dans `%APPDATA%\DentaRDV\data` (`dentardv.sqlite`).
 - Une sauvegarde automatique est créée chaque jour dans `data\backups`.
 - Aucun compte, aucun abonnement, aucune connexion cloud.
+- En cas de problème, le fichier `data\dentardv.log` contient tout l'historique
+  technique (version, erreurs, WhatsApp) — il suffit de l'envoyer au support.
+  Son chemin exact est affiché dans **Réglages → À propos**.
+
+### Nouveautés 1.0.0
+
+- Réservation WhatsApp : nom complet → premier jour libre + numéro de passage,
+  `إلغاء` / `ANNULER` et `موعدي` / `MON RDV`, rappel la veille.
+- Agenda numéroté, dossiers patients, soins tarifés, paiements partiels et dettes
+  (filtre **Tous / Débiteurs**), dépenses par catégorie, rapports jour/mois.
+- Interface arabe (RTL) / française commutable à chaud, installateur FR + AR.
 
 ### Gabarit
 
