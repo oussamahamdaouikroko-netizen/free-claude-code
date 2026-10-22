@@ -28,7 +28,7 @@ npm run demo          # → http://localhost:4173
 # Application réelle (Electron)
 npm start
 
-# Tests (63 tests, sans réseau ni téléphone)
+# Tests (65 tests, sans réseau ni téléphone)
 npm test
 ```
 
@@ -54,7 +54,6 @@ lance les tests sur Linux puis produit `DentaRDV-Setup-1.0.0.exe` sur un runner 
 ```powershell
 cd dentardv
 npm ci
-npx electron-builder install-app-deps     # recompile better-sqlite3 pour Electron
 npm test
 npm run dist                              # → release\DentaRDV-Setup-1.0.0.exe
 ```
@@ -137,7 +136,7 @@ dentardv/
 ├── src/preload/index.js       pont contextBridge (API minimale)
 ├── src/renderer/              UI vanilla : 8 écrans, i18n FR/AR, RTL
 ├── demo/server.js             serveur d'aperçu navigateur (mêmes handlers)
-├── tests/                     63 tests node:test (dont smoke test du renderer)
+├── tests/                     65 tests node:test (dont smoke test du renderer)
 ├── scripts/after-pack.js      correctif better-sqlite3 pour l'app packagée
 └── electron-builder.yml       cible NSIS x64
 ```
@@ -159,7 +158,7 @@ dentardv/
 ## 5. Tests
 
 ```bash
-npm test     # 63 tests, ~20 s, sans réseau ni téléphone
+npm test     # 65 tests, ~20 s, sans réseau ni téléphone
 ```
 
 | Fichier | Couverture |
