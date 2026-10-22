@@ -101,9 +101,11 @@ jobs:
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
             echo "::error::DentaRDV installer build failed on Windows (exit $status)"
-            tail -40 build-output.log | while IFS= read -r line; do
-              echo "::error::$line"
-            done
+            # GitHub keeps only 10 annotations per step, so print the errors only.
+            grep -nE '⨯|Error|error|Cannot|cannot|failed|ERR!' build-output.log \
+              | tail -8 | while IFS= read -r line; do
+                echo "::error::$line"
+              done
             exit "$status"
           fi
 
