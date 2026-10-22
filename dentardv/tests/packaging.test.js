@@ -139,6 +139,59 @@ test('afterPack fails loudly when the module was not unpacked', async () => {
   }
 });
 
+/** Every local file the renderer asks for must exist next to index.html. */
+test('the renderer only references files that exist', () => {
+  const renderer = path.join(ROOT, 'src', 'renderer');
+  const html = fs.readFileSync(path.join(renderer, 'index.html'), 'utf8');
+  const refs = [...html.matchAll(/(?:src|href)="([^"#]+)"/g)].map((m) => m[1]);
+  assert.ok(refs.length >= 14, `expected the full script list, got ${refs.length}`);
+  for (const ref of refs) {
+    if (/^(https?:|data:|mailto:)/.test(ref)) continue;
+    assert.ok(
+      fs.existsSync(path.join(renderer, ref)),
+      `index.html references a missing file: ${ref}`,
+    );
+  }
+});
+
+/** Every require('./x') inside src must resolve, or the app dies at launch. */
+test('every local require in the main process resolves', () => {
+  const srcDir = path.join(ROOT, 'src');
+  const files = [];
+  (function walk(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith('.js')) files.push(full);
+    }
+  })(srcDir);
+
+  assert.ok(files.length > 20, 'source tree was scanned');
+  for (const file of files) {
+    const code = fs.readFileSync(file, 'utf8');
+    for (const match of code.matchAll(/require\(\s*['"](\.{1,2}\/[^'"]+)['"]\s*\)/g)) {
+      const target = path.resolve(path.dirname(file), match[1]);
+      const found = [target, `${target}.js`, path.join(target, 'index.js')].some((candidate) =>
+        fs.existsSync(candidate),
+      );
+      assert.ok(found, `${path.relative(ROOT, file)} requires a missing module: ${match[1]}`);
+    }
+  }
+});
+
+/** electron-builder packs production dependencies; they must not be devDeps. */
+test('runtime dependencies are declared as dependencies', () => {
+  const pkg = require('../package.json');
+  const runtime = ['better-sqlite3', 'pino', 'qrcode'];
+  for (const name of runtime) {
+    assert.ok(pkg.dependencies[name], `${name} must be a production dependency`);
+    assert.ok(!pkg.devDependencies[name], `${name} must not be a devDependency`);
+  }
+  assert.ok(pkg.dependencies['@whiskeysockets/baileys'], 'baileys is a production dependency');
+  // The whole UI and the main process ship from src/.
+  assert.equal(pkg.main, 'src/main/index.js');
+});
+
 test('better-sqlite3 ships a Node-API binary that Electron can load', () => {
   // This is why afterPack can keep the packaged prebuild instead of rebuilding:
   // a N-API addon exports napi_register_module_v1 and never the legacy
