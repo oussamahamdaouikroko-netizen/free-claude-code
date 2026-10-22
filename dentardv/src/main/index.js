@@ -13,6 +13,7 @@
 const path = require('node:path');
 const { app, BrowserWindow, Menu, shell, dialog } = require('electron');
 const db = require('./db');
+const log = require('./log');
 const settings = require('./services/settings');
 const backup = require('./services/backup');
 const { registerIpc, reloadWindows } = require('./ipc');
@@ -101,6 +102,13 @@ function boot() {
   const dataDir = resolveDataDir();
   const databaseFile = path.join(dataDir, 'dentardv.sqlite');
 
+  // Log before anything else: a failure to open the database must leave a
+  // trace inside the data folder (a packaged app has no console).
+  log.init(path.join(dataDir, 'dentardv.log'));
+  log.attachConsole();
+  console.log('[boot] DentaRDV', app.getVersion(), '| electron', process.versions.electron);
+  console.log('[boot] data dir', dataDir);
+
   db.open(databaseFile);
   console.log('[db]', databaseFile);
 
@@ -116,6 +124,7 @@ function boot() {
   registerIpc({
     version: app.getVersion(),
     dataDir,
+    logFile: log.currentFile(),
     userData: app.getPath('userData'),
     printReceipt: printDocument,
     wa: waService,
@@ -176,6 +185,9 @@ if (!gotLock) {
     } catch (error) {
       console.warn('[db] close failed', error.message);
     }
+    console.log('[boot] shutdown');
+    log.detachConsole();
+    log.close();
   });
 }
 

@@ -28,7 +28,7 @@ npm run demo          # → http://localhost:4173
 # Application réelle (Electron)
 npm start
 
-# Tests (69 tests, sans réseau ni téléphone)
+# Tests (72 tests, sans réseau ni téléphone)
 npm test
 ```
 
@@ -117,6 +117,16 @@ Toute la monnaie est gérée en **DZD** avec arrondi au centime.
 - **Restauration** : vérifie l'intégrité (`PRAGMA integrity_check`), crée une copie de
   sécurité `before-restore-*.sqlite`, puis remplace la base et recharge l'interface.
 
+### 3.4 Journal (support à distance)
+
+Une version installée n'a pas de console : tout ce que l'application affiche est donc
+aussi écrit dans **`%APPDATA%\DentaRDV\data\dentardv.log`** (rotation à 1 Mo, deux
+archives conservées).
+
+> « L'application ne s'ouvre plus » → demander ce fichier : il contient la version,
+> le chemin des données, les erreurs SQLite et WhatsApp horodatées. Le chemin exact
+> est affiché dans **Réglages → À propos → Journal**.
+
 ---
 
 ## 4. Architecture
@@ -136,7 +146,7 @@ dentardv/
 ├── src/preload/index.js       pont contextBridge (API minimale)
 ├── src/renderer/              UI vanilla : 8 écrans, i18n FR/AR, RTL
 ├── demo/server.js             serveur d'aperçu navigateur (mêmes handlers)
-├── tests/                     69 tests node:test (dont smoke test du renderer)
+├── tests/                     72 tests node:test (dont smoke test du renderer)
 ├── scripts/after-pack.js      correctif better-sqlite3 pour l'app packagée
 └── electron-builder.yml       cible NSIS x64
 ```
@@ -158,7 +168,7 @@ dentardv/
 ## 5. Tests
 
 ```bash
-npm test     # 69 tests, ~20 s, sans réseau ni téléphone
+npm test     # 72 tests, ~20 s, sans réseau ni téléphone
 ```
 
 | Fichier | Couverture |

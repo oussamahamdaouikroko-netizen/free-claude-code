@@ -122,6 +122,13 @@ test('the Electron main process boots and wires everything', async (t) => {
     } catch (error) {
       /* already closed */
     }
+    try {
+      const log = require('../src/main/log');
+      log.detachConsole();
+      log.close();
+    } catch (error) {
+      /* logging was never initialised */
+    }
     for (const window of stub.windows) window.destroyed = true;
     safeRemove(state.userData);
   });

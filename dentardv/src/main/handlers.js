@@ -68,7 +68,7 @@ function dashboardToday(day = toISODate()) {
  * }} context
  */
 function createHandlers(context) {
-  const { version, dataDir, wa, printReceipt, dialogs = {}, demo = false } = context;
+  const { version, dataDir, logFile, wa, printReceipt, dialogs = {}, demo = false } = context;
 
   const requireWa = () => {
     if (!wa) throw new AppError('WA_UNAVAILABLE');
@@ -83,7 +83,7 @@ function createHandlers(context) {
       currency: settings.get('currency'),
       auth: auth.status(),
     }),
-    'app:info': () => ({ version, dataDir, demo }),
+    'app:info': () => ({ version, dataDir, logFile: logFile || null, demo }),
     'app:open-data-folder': () => {
       if (dialogs.openPath) dialogs.openPath(dataDir);
       return { ok: true };
