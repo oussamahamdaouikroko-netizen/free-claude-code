@@ -2,7 +2,7 @@
 /**
  * Packaging checks that do not need Electron:
  *  - electron-builder configuration is valid and points at real files;
- *  - the afterPack hook fixes better-sqlite3 for the packaged app.
+ *  - the afterPack hook keeps only the target better-sqlite3 binary.
  */
 
 const test = require('node:test');
@@ -59,12 +59,24 @@ test('electron-builder accepts the configuration (schema validation)', async () 
   assert.ok(config.nsis, 'nsis block was understood');
 });
 
-test('afterPack replaces the Node prebuild with the Electron build', async () => {
-  const hook = require('../scripts/after-pack').default;
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dentardv-pack-'));
+/** Build the folder structure electron-builder hands to the afterPack hook. */
+function packFixture(prefix) {
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   const moduleDir = path.join(outDir, 'resources', 'app.asar.unpacked', 'node_modules', 'better-sqlite3');
   const prebuilds = path.join(moduleDir, 'prebuilds');
   const release = path.join(moduleDir, 'build', 'Release');
+  const context = {
+    electronPlatformName: 'win32',
+    appOutDir: outDir,
+    arch: 1, // x64
+    packager: { appInfo: { productFilename: 'DentaRDV' } },
+  };
+  return { outDir, moduleDir, prebuilds, release, context };
+}
+
+test('afterPack prefers a native build and drops the other platforms', async () => {
+  const hook = require('../scripts/after-pack').default;
+  const { outDir, prebuilds, release, context } = packFixture('dentardv-pack-');
   fs.mkdirSync(prebuilds, { recursive: true });
   fs.mkdirSync(release, { recursive: true });
 
@@ -73,18 +85,10 @@ test('afterPack replaces the Node prebuild with the Electron build', async () =>
   }
   fs.writeFileSync(path.join(release, 'better_sqlite3.node'), 'electron-abi');
 
-  const context = {
-    electronPlatformName: 'win32',
-    appOutDir: outDir,
-    arch: 1, // x64
-    packager: { appInfo: { productFilename: 'DentaRDV' } },
-  };
-
   try {
     await hook(context);
     assert.deepEqual(fs.readdirSync(prebuilds), ['win32-x64.node'], 'other platforms removed');
     assert.equal(fs.readFileSync(path.join(prebuilds, 'win32-x64.node'), 'utf8'), 'electron-abi');
-    assert.equal(fs.readFileSync(path.join(release, 'better_sqlite3.node'), 'utf8'), 'electron-abi');
 
     // A second platform builds independently.
     await hook({ ...context, electronPlatformName: 'linux' });
@@ -94,22 +98,42 @@ test('afterPack replaces the Node prebuild with the Electron build', async () =>
   }
 });
 
-test('afterPack fails loudly when the native module was not rebuilt', async () => {
+test('afterPack keeps the Node-API prebuild when nothing was rebuilt', async () => {
+  // better-sqlite3 v13 is a Node-API addon: `prebuilds/<platform>-<arch>.node`
+  // is valid in Electron too, and @electron/rebuild produces no build/Release
+  // binary for it. The hook must not fail in that (normal) case.
   const hook = require('../scripts/after-pack').default;
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dentardv-pack-bad-'));
-  const moduleDir = path.join(outDir, 'resources', 'app.asar.unpacked', 'node_modules', 'better-sqlite3');
-  fs.mkdirSync(moduleDir, { recursive: true });
+  const { outDir, prebuilds, context } = packFixture('dentardv-pack-napi-');
+  fs.mkdirSync(prebuilds, { recursive: true });
+  fs.writeFileSync(path.join(prebuilds, 'win32-x64.node'), 'napi');
+  fs.writeFileSync(path.join(prebuilds, 'linux-x64.node'), 'napi');
+
   try {
-    await assert.rejects(
-      () =>
-        hook({
-          electronPlatformName: 'win32',
-          appOutDir: outDir,
-          arch: 1,
-          packager: { appInfo: { productFilename: 'DentaRDV' } },
-        }),
-      /missing Electron build/,
-    );
+    await hook(context);
+    assert.deepEqual(fs.readdirSync(prebuilds), ['win32-x64.node']);
+    assert.equal(fs.readFileSync(path.join(prebuilds, 'win32-x64.node'), 'utf8'), 'napi');
+  } finally {
+    safeRemove(outDir);
+  }
+});
+
+test('afterPack fails loudly when no binary exists for the target', async () => {
+  const hook = require('../scripts/after-pack').default;
+  const { outDir, prebuilds, context } = packFixture('dentardv-pack-bad-');
+  fs.mkdirSync(prebuilds, { recursive: true });
+  fs.writeFileSync(path.join(prebuilds, 'linux-x64.node'), 'napi');
+  try {
+    await assert.rejects(() => hook(context), /no better-sqlite3 binary for win32-x64/);
+  } finally {
+    safeRemove(outDir);
+  }
+});
+
+test('afterPack fails loudly when the module was not unpacked', async () => {
+  const hook = require('../scripts/after-pack').default;
+  const { outDir, context } = packFixture('dentardv-pack-missing-');
+  try {
+    await assert.rejects(() => hook(context), /was not unpacked from the asar/);
   } finally {
     safeRemove(outDir);
   }

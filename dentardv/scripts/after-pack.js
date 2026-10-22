@@ -2,14 +2,18 @@
 /**
  * electron-builder `afterPack` hook.
  *
- * better-sqlite3 v13 ships prebuilt binaries inside the npm package, compiled
- * for the Node ABI. Its loader tries `prebuilds/<platform>-<arch>.node` first,
- * so a binary rebuilt for Electron (in build/Release) would be ignored and the
- * packaged app would crash with a NODE_MODULE_VERSION mismatch.
+ * better-sqlite3 v13 is a Node-API (N-API) addon: its `prebuilds/<platform>-<arch>.node`
+ * binary works unchanged in Node and in Electron, so no rebuild is required.
  *
- * Fix: once the app is packed, replace the prebuild of the target platform by
- * the Electron-rebuilt binary. This only touches `app.asar.unpacked`, never the
- * developer's node_modules.
+ * This hook therefore:
+ *  1. keeps only the prebuild of the target platform (smaller installer, no
+ *     accidental load of another platform's binary),
+ *  2. replaces it with `build/Release/better_sqlite3.node` when a native build
+ *     does exist (older better-sqlite3 versions, or a forced `--build-from-source`),
+ *  3. fails loudly if neither binary is present, so a broken installer is never
+ *     published.
+ *
+ * It only touches `app.asar.unpacked`, never the developer's node_modules.
  */
 
 const fs = require('node:fs');
@@ -27,42 +31,58 @@ function archName(context) {
   return context.arch === 3 ? 'arm64' : context.arch === 0 ? 'ia32' : 'x64';
 }
 
+function resourcesDir(context) {
+  if (context.electronPlatformName === 'darwin') {
+    return path.join(
+      context.appOutDir,
+      `${context.packager.appInfo.productFilename}.app`,
+      'Contents',
+      'Resources',
+    );
+  }
+  return path.join(context.appOutDir, 'resources');
+}
+
 exports.default = async function afterPack(context) {
   const platform = context.electronPlatformName; // 'win32' | 'linux' | 'darwin'
   const arch = archName(context);
-  const resources =
-    platform === 'darwin'
-      ? path.join(
-          context.appOutDir,
-          `${context.packager.appInfo.productFilename}.app`,
-          'Contents',
-          'Resources',
-        )
-      : path.join(context.appOutDir, 'resources');
+  const resources = resourcesDir(context);
 
   const moduleDir = path.join(resources, 'app.asar.unpacked', 'node_modules', 'better-sqlite3');
   if (!fs.existsSync(moduleDir)) {
     throw new Error(`[after-pack] better-sqlite3 was not unpacked from the asar: ${moduleDir}`);
   }
 
-  const rebuilt = path.join(moduleDir, 'build', 'Release', 'better_sqlite3.node');
-  if (!fs.existsSync(rebuilt)) {
-    throw new Error(
-      '[after-pack] missing Electron build/Release/better_sqlite3.node.\n' +
-        'Run `npx electron-builder install-app-deps` (npmRebuild must stay true).',
-    );
-  }
-
   const prebuildsDir = path.join(moduleDir, 'prebuilds');
-  fs.mkdirSync(prebuildsDir, { recursive: true });
+  const targetName = `${platform}-${arch}.node`;
+  const targetPath = path.join(prebuildsDir, targetName);
+  const rebuiltPath = path.join(moduleDir, 'build', 'Release', 'better_sqlite3.node');
 
-  // Keep only the target platform/arch: smaller installer, no ABI surprises.
-  for (const file of fs.readdirSync(prebuildsDir)) {
-    if (file.endsWith('.node') && file !== `${platform}-${arch}.node`) {
-      fs.rmSync(path.join(prebuildsDir, file), { force: true });
+  // Keep only the target platform: the other binaries are dead weight.
+  if (fs.existsSync(prebuildsDir)) {
+    for (const file of fs.readdirSync(prebuildsDir)) {
+      if (file.endsWith('.node') && file !== targetName) {
+        fs.rmSync(path.join(prebuildsDir, file), { force: true });
+      }
     }
   }
 
-  fs.copyFileSync(rebuilt, path.join(prebuildsDir, `${platform}-${arch}.node`));
-  console.log(`[after-pack] better-sqlite3 prebuild replaced with the Electron build (${platform}-${arch})`);
+  if (fs.existsSync(rebuiltPath)) {
+    fs.mkdirSync(prebuildsDir, { recursive: true });
+    fs.copyFileSync(rebuiltPath, targetPath);
+    console.log(`[after-pack] better-sqlite3: using the native build (${targetName})`);
+    return;
+  }
+
+  if (fs.existsSync(targetPath)) {
+    console.log(
+      `[after-pack] better-sqlite3: keeping the shipped Node-API prebuild (${targetName})`,
+    );
+    return;
+  }
+
+  throw new Error(
+    `[after-pack] no better-sqlite3 binary for ${platform}-${arch}. ` +
+      `Looked for build/Release/better_sqlite3.node and prebuilds/${targetName}.`,
+  );
 };
