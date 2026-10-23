@@ -224,6 +224,23 @@ table.list td.actions { text-align: end; white-space: nowrap; }
 .empty { padding: 28px; text-align: center; color: var(--muted); }
 .empty .emoji { font-size: 2rem; display: block; margin-bottom: 8px; }
 
+.demo-banner {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  background: var(--warn-soft);
+  border-top: 1px solid #efd9b5;
+  color: var(--warn);
+  font-size: 0.8rem;
+  padding: 6px 16px;
+  text-align: center;
+  letter-spacing: 0.2px;
+}
+/* keep the last row of every screen above the banner */
+.demo-banner ~ .content { padding-bottom: 40px; }
+
 /* month picker / tabs */
 .tabs { display: inline-flex; background: var(--teal-100); border-radius: 999px; padding: 4px; gap: 4px; }
 .tabs button { border: 0; background: transparent; padding: 8px 16px; border-radius: 999px; font-weight: 600; min-height: 38px; }

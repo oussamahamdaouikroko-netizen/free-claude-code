@@ -10,18 +10,47 @@
  *  5. reconnect WhatsApp if it was enabled last time.
  */
 
+const fs = require('node:fs');
 const path = require('node:path');
 const { app, BrowserWindow, Menu, shell, dialog } = require('electron');
 const db = require('./db');
 const log = require('./log');
+const auth = require('./services/auth');
 const settings = require('./services/settings');
 const backup = require('./services/backup');
 const { registerIpc, reloadWindows } = require('./ipc');
 const { printDocument } = require('./print');
 const { WhatsAppService } = require('./whatsapp/service');
 
+/**
+ * Demo mode: the portable "DentaRDV-Demo.exe" handed to a dentist during a
+ * sales visit. It seeds sample data, auto-unlocks, never touches a real clinic
+ * database and cannot link WhatsApp (so a prospect never pairs their own
+ * phone inside a demo).
+ *
+ * Detected from:
+ *  - the DENTARDV_DEMO=1 environment variable (development), or
+ *  - a `demo.mode` marker packed next to the executable by
+ *    electron-builder.demo.yml.
+ */
+function isDemoMode() {
+  if (process.env.DENTARDV_DEMO === '1') return true;
+  const markers = [path.dirname(app.getPath('exe'))];
+  if (process.resourcesPath) markers.push(process.resourcesPath);
+  return markers.some((dir) => {
+    try {
+      return Boolean(dir) && fs.existsSync(path.join(dir, 'demo.mode'));
+    } catch (error) {
+      return false;
+    }
+  });
+}
+
+const DEMO = isDemoMode();
+
 // Pin the data folder to %APPDATA%\DentaRDV (npm package name is lowercase).
-if (typeof app.setName === 'function') app.setName('DentaRDV');
+// The demo gets its own folder so a sales demo can never mix with real data.
+if (typeof app.setName === 'function') app.setName(DEMO ? 'DentaRDV-Demo' : 'DentaRDV');
 
 const isDev = !app.isPackaged;
 let mainWindow = null;
@@ -31,7 +60,7 @@ let reminderTimer = null;
 /** All clinic data lives in one folder, easy to copy / backup. */
 function resolveDataDir() {
   if (process.env.DENTARDV_DATA_DIR) return path.resolve(process.env.DENTARDV_DATA_DIR);
-  return path.join(app.getPath('userData'), 'data');
+  return path.join(app.getPath('userData'), DEMO ? 'demo-data' : 'data');
 }
 
 function broadcastStatus(status) {
@@ -54,7 +83,7 @@ function createWindow() {
     minHeight: 680,
     show: false,
     backgroundColor: '#f4f8f7',
-    title: 'DentaRDV',
+    title: DEMO ? 'DentaRDV — Démonstration' : 'DentaRDV',
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'index.js'),
@@ -112,6 +141,16 @@ function boot() {
   db.open(databaseFile);
   console.log('[db]', databaseFile);
 
+  if (DEMO) {
+    // Sample data + instant access: the dentist sees a working cabinet in
+    // 2 seconds, with nothing to configure.
+    const { seedDemoData } = require('./db/demo-seed');
+    seedDemoData();
+    if (!auth.hasPassword()) auth.setup({ password: '1234', confirm: '1234' });
+    auth.login('1234');
+    console.log('[demo] demo mode active — data in', dataDir);
+  }
+
   backup.init(dataDir, { restored: reloadWindows });
   backup.startScheduler();
 
@@ -125,9 +164,12 @@ function boot() {
     version: app.getVersion(),
     dataDir,
     logFile: log.currentFile(),
+    demo: DEMO,
     userData: app.getPath('userData'),
     printReceipt: printDocument,
-    wa: waService,
+    // No WhatsApp pairing inside a demo build: the prospect must never link
+    // their own clinic phone to a throw-away installation.
+    wa: DEMO ? null : waService,
   });
 
   createWindow();
@@ -135,7 +177,7 @@ function boot() {
   startReminderScheduler();
 
   // Reconnect the bot automatically if the clinic left it enabled.
-  if (settings.getBool('bot_enabled')) {
+  if (!DEMO && settings.getBool('bot_enabled')) {
     setTimeout(() => {
       waService.start().catch((error) => console.error('[wa] autostart failed:', error.message));
     }, 2500);

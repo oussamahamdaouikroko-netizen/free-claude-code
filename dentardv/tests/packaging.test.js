@@ -230,9 +230,15 @@ test('the GitHub Actions workflow builds the Windows installer', () => {
   assert.match(script, /npm ci/);
   assert.match(script, /npm test/);
 
-  // The installer must be downloadable, and a tag must publish a release.
-  const upload = workflow.jobs.build.steps.find((step) => String(step.uses).includes('upload-artifact'));
-  assert.match(JSON.stringify(upload.with.path), /release\/\*\.exe/);
+  // The installer and the portable sales demo must be downloadable.
+  const uploads = workflow.jobs.build.steps.filter((step) => String(step.uses).includes('upload-artifact'));
+  const installer = uploads.find((step) => step.with.name === 'DentaRDV-Setup-windows');
+  assert.ok(installer, 'installer artifact');
+  assert.match(JSON.stringify(installer.with.path), /release\/DentaRDV-Setup-\*\.exe/);
+  const demo = uploads.find((step) => step.with.name === 'DentaRDV-Demo-portable');
+  assert.ok(demo, 'the portable demo is built too');
+  assert.match(JSON.stringify(demo.with.path), /DentaRDV-Demo-\*\.exe/);
+  assert.match(script, /electron-builder --win --config electron-builder\.demo\.yml/);
   const release = workflow.jobs.build.steps.find((step) => String(step.uses).includes('action-gh-release'));
   assert.ok(release, 'release step exists');
   assert.match(release.if, /refs\/tags\/v/);

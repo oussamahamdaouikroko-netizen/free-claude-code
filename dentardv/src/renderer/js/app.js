@@ -164,6 +164,18 @@
     }
 
     App.pageActions = h('div', { class: 'row' });
+
+  /**
+   * Shown only in the portable demo build: the dentist must never mistake the
+   * sample patients for real records (the demo runs on their own computer).
+   */
+  function demoBanner() {
+    return h(
+      'div',
+      { class: 'demo-banner' },
+      h('strong', {}, '🧪 ' + t('demo.banner')),
+    );
+  }
     App.content = h('main', { class: 'content', id: 'content' });
 
     const shell = h(
@@ -227,6 +239,7 @@
           ),
           App.pageActions,
         ),
+        App.demo ? demoBanner() : null,
         App.content,
       ),
     );

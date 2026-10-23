@@ -3,6 +3,7 @@
   'use strict';
 
   const fr = {
+    'demo.banner': "Version de démonstration — données d'exemple, rien n'est écrit dans une base réelle.",
     'app.name': 'DentaRDV',
     'app.tagline': 'Cabinet dentaire · 100% local',
     'nav.dashboard': 'Tableau de bord',
@@ -386,6 +387,7 @@
   };
 
   const ar = {
+    'demo.banner': 'نسخة تجريبية — بيانات نموذجية فقط، ولا تُسجَّل في قاعدة حقيقية.',
     'app.name': 'DentaRDV',
     'app.tagline': 'عيادة أسنان · 100% محلية',
     'nav.dashboard': 'لوحة التحكم',

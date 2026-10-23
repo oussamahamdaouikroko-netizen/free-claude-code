@@ -28,7 +28,7 @@ npm run demo          # → http://localhost:4173
 # Application réelle (Electron)
 npm start
 
-# Tests (78 tests, sans réseau ni téléphone)
+# Tests (81 tests, sans réseau ni téléphone)
 npm test
 ```
 
@@ -154,7 +154,7 @@ dentardv/
 ├── src/preload/index.js       pont contextBridge (API minimale)
 ├── src/renderer/              UI vanilla : 8 écrans, i18n FR/AR, RTL
 ├── demo/server.js             serveur d'aperçu navigateur (mêmes handlers)
-├── tests/                     78 tests node:test (dont smoke test du renderer)
+├── tests/                     81 tests node:test (dont smoke test du renderer)
 ├── scripts/after-pack.js      correctif better-sqlite3 pour l'app packagée
 └── electron-builder.yml       cible NSIS x64
 ```
@@ -176,7 +176,7 @@ dentardv/
 ## 5. Tests
 
 ```bash
-npm test     # 78 tests, ~20 s, sans réseau ni téléphone
+npm test     # 81 tests, ~20 s, sans réseau ni téléphone
 ```
 
 | Fichier | Couverture |
@@ -196,7 +196,21 @@ npm test     # 78 tests, ~20 s, sans réseau ni téléphone
 
 ---
 
-## 6. Licence & limites connues
+## 6. Vendre le logiciel
+
+Une trousse de vente complète est fournie dans
+[`docs/marketing/`](docs/marketing/README.md) : grille de prix pour le marché algérien,
+affiche A4 bilingue imprimable, devis, scripts WhatsApp/terrain, traitement des
+objections et plan sur 90 jours.
+
+Le build **portable de démonstration** (`npm run dist:demo`, ou l'artefact
+`DentaRDV-Demo-portable` des Actions) produit un seul `.exe` : données d'exemple,
+aucune installation, aucun accès WhatsApp, et un bandeau permanent « version de
+démonstration ». C'est l'outil à laisser 7 jours à un cabinet.
+
+---
+
+## 7. Licence & limites connues
 
 MIT (voir [`LICENSE`](../LICENSE)).
 

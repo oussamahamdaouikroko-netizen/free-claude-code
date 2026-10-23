@@ -109,13 +109,25 @@ jobs:
             exit "$status"
           fi
 
+      # Sales tool: one portable .exe with sample data, no installation.
+      - name: Build portable demo (sales tool)
+        run: npx electron-builder --win --config electron-builder.demo.yml --publish never
+
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: DentaRDV-Setup-windows
           path: |
-            dentardv/release/*.exe
-            dentardv/release/*.blockmap
+            dentardv/release/DentaRDV-Setup-*.exe
+            dentardv/release/DentaRDV-Setup-*.exe.blockmap
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload demo artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DentaRDV-Demo-portable
+          path: dentardv/release/DentaRDV-Demo-*.exe
           if-no-files-found: error
           retention-days: 30
 

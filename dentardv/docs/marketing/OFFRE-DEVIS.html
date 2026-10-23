@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>DentaRDV — Devis / Offre (A4)</title>
+<!--
+  DEVIS + OFFRE DÉTAILLÉE — à laisser au cabinet après la visite.
+  Imprimez-en 10 et gardez-les dans la voiture : votre taux de signature
+  double quand le patient (le dentiste) garde une trace écrite chiffrée.
+
+  À remplir : {{ }}. Numéroter les devis (DEV-2026-001…) pour suivre.
+-->
+<style>
+  :root {
+    --teal: #1f6f6b; --teal-dark: #144e4b; --teal-light: #e8f3f1;
+    --ink: #12262b; --muted: #5b6f74; --line: #d9e4e2;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", "Tahoma", Arial, sans-serif;
+    color: var(--ink); background: #e9eeed; font-size: 12px;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .page {
+    width: 210mm; min-height: 297mm; margin: 10mm auto; background: #fff;
+    padding: 14mm 15mm; box-shadow: 0 6px 24px rgba(0,0,0,.18);
+  }
+  @page { size: A4; margin: 0; }
+  @media print { body { background: #fff; } .page { margin: 0; box-shadow: none; } .screen-note { display: none !important; } }
+
+  .screen-note {
+    max-width: 210mm; margin: 8mm auto -4mm; padding: 10px 14px;
+    background: #fff7d6; border: 1px solid #e6cf7a; border-radius: 8px;
+    font-size: 13px; color: #6b5300;
+  }
+  .fill { background: #fff3a8; padding: 0 3px; border-radius: 3px; }
+  @media print { .fill { background: none; } }
+
+  header {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    border-bottom: 3px solid var(--teal); padding-bottom: 6mm; margin-bottom: 7mm;
+  }
+  .brand { display: flex; align-items: center; gap: 9px; }
+  .logo {
+    width: 30px; height: 30px; border-radius: 8px; background: var(--teal);
+    color: #fff; font-weight: 800; font-size: 18px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  h1 { font-size: 21px; letter-spacing: .3px; }
+  .sub { color: var(--muted); font-size: 10.5px; margin-top: 2px; }
+  .doc { text-align: right; font-size: 10.5px; color: var(--muted); line-height: 1.7; }
+  .doc b { color: var(--ink); font-size: 12px; }
+
+  h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px;
+    color: var(--teal); margin: 7mm 0 3mm;
+  }
+  h2:first-of-type { margin-top: 0; }
+
+  .parties { display: grid; grid-template-columns: 1fr 1fr; gap: 6mm; }
+  .party { border: 1px solid var(--line); border-radius: 8px; padding: 4mm; line-height: 1.7; }
+  .party .k { font-size: 9.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+  .party b { font-size: 13px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  th {
+    background: var(--teal-light); text-align: left; padding: 2.6mm 3mm;
+    font-size: 10px; text-transform: uppercase; letter-spacing: .8px; color: var(--teal-dark);
+  }
+  td { padding: 2.6mm 3mm; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr.option td { color: var(--muted); }
+  tr.total td { border-bottom: 0; font-weight: 800; font-size: 14px; padding-top: 4mm; }
+  .tag {
+    display: inline-block; background: var(--teal); color: #fff; font-size: 9px;
+    padding: 1px 7px; border-radius: 99px; letter-spacing: .5px; vertical-align: 1px;
+  }
+  .tag.gray { background: #7b8f93; }
+
+  .note {
+    background: var(--teal-light); border-left: 4px solid var(--teal);
+    border-radius: 6px; padding: 3.5mm 4mm; font-size: 11px; line-height: 1.65;
+    margin-top: 5mm;
+  }
+  .note b { color: var(--teal-dark); }
+
+  .compare { margin-top: 2mm; }
+  .compare td, .compare th { font-size: 10.5px; padding: 2mm 2.5mm; }
+  .compare .win { color: var(--teal-dark); font-weight: 700; }
+  .compare .lose { color: #8a5a00; }
+
+  .sign {
+    margin-top: 8mm; display: grid; grid-template-columns: 1fr 1fr; gap: 8mm;
+    font-size: 10.5px; color: var(--muted);
+  }
+  .sign .box { border: 1px solid var(--line); border-radius: 8px; height: 26mm; padding: 3mm; }
+  .sign .box b { color: var(--ink); font-size: 11px; display: block; margin-bottom: 1mm; }
+
+  footer {
+    margin-top: 8mm; padding-top: 3mm; border-top: 1px dashed #cbd9d7;
+    font-size: 9.5px; color: var(--muted); display: flex; justify-content: space-between;
+  }
+</style>
+</head>
+<body>
+
+<div class="screen-note">
+  ✏️ Devis à personnaliser (Ctrl+F « {{ ») puis Ctrl+P → PDF, marges « Aucune »,
+  cochez « Graphiques d'arrière-plan ». Numérotez : DEV-2026-001, 002…
+</div>
+
+<div class="page">
+
+  <header>
+    <div>
+      <div class="brand">
+        <div class="logo">D</div>
+        <div>
+          <h1>DentaRDV</h1>
+          <div class="sub">Gestion de cabinet dentaire — installation &amp; support</div>
+        </div>
+      </div>
+    </div>
+    <div class="doc">
+      <b>DEVIS N° <span class="fill">{{DEV-2026-001}}</span></b><br>
+      Date : <span class="fill">{{JJ/MM/AAAA}}</span><br>
+      Validité : 30 jours<br>
+      <span class="fill">{{VOTRE NOM}}</span> · <span class="fill">{{0X XX XX XX XX}}</span>
+    </div>
+  </header>
+
+  <div class="parties">
+    <div class="party">
+      <div class="k">Prestataire</div>
+      <b><span class="fill">{{VOTRE NOM / RAISON SOCIALE}}</span></b><br>
+      <span class="fill">{{ADRESSE}}</span><br>
+      Tél : <span class="fill">{{0X XX XX XX XX}}</span><br>
+      <span class="fill">{{RC / NIF — si disponible}}</span>
+    </div>
+    <div class="party">
+      <div class="k">Cabinet</div>
+      <b>Dr <span class="fill">{{NOM DU PRATICIEN}}</span></b><br>
+      <span class="fill">{{NOM DU CABINET}}</span><br>
+      <span class="fill">{{ADRESSE DU CABINET}}</span><br>
+      Tél : <span class="fill">{{0X XX XX XX XX}}</span>
+    </div>
+  </div>
+
+  <h2>Votre installation</h2>
+  <table>
+    <thead>
+      <tr><th>Prestation</th><th class="num">Montant</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>
+          <b>Licence DentaRDV — permanente, 1 poste</b>
+          <div class="sub">Agenda numéroté, dossiers patients, soins et tarifs, paiements partiels
+          et dettes, dépenses, rapports jour/mois, interface arabe / français.</div>
+        </td>
+        <td class="num">inclus</td>
+      </tr>
+      <tr>
+        <td>
+          <b>Bot WhatsApp de réservation</b>
+          <div class="sub">Réponse automatique aux patients, annulation, « mon RDV », rappel la veille.
+          Limites anti-blocage activées.</div>
+        </td>
+        <td class="num">inclus</td>
+      </tr>
+      <tr>
+        <td><b>Installation et réglages sur site</b>
+          <div class="sub">Nom du cabinet, capacité/jour, jours travaillés, catalogue de soins
+          à vos prix, mot de passe, sauvegarde automatique.</div>
+        </td>
+        <td class="num">inclus</td>
+      </tr>
+      <tr>
+        <td><b>Import de votre liste de patients</b>
+          <div class="sub">Jusqu'à 300 patients depuis Excel, Word ou papier — avec le solde de dette
+          de chacun.</div>
+        </td>
+        <td class="num">inclus</td>
+      </tr>
+      <tr>
+        <td><b>Formation 1 h</b> (praticien + assistante)
+          <div class="sub">Agenda du jour, encaisser, ajouter un patient, retrouver un dossier,
+          restaurer une sauvegarde.</div>
+        </td>
+        <td class="num">inclus</td>
+      </tr>
+      <tr>
+        <td><b>Test réel du WhatsApp devant vous</b>
+          <div class="sub">Vous écrivez depuis votre téléphone ; le rendez-vous apparaît dans l'agenda.</div>
+        </td>
+        <td class="num">inclus</td>
+      </tr>
+      <tr>
+        <td><b>Support téléphonique 30 jours</b> + une visite de correction offerte</td>
+        <td class="num">inclus</td>
+      </tr>
+
+      <tr class="option">
+        <td>Sauvegarde sur clé USB + démonstration de la restauration <span class="tag gray">option</span></td>
+        <td class="num">offert</td>
+      </tr>
+      <tr class="option">
+        <td>Installation sur un 2ᵉ ordinateur du cabinet (transfert de données) <span class="tag gray">option</span></td>
+        <td class="num">9 900 DA</td>
+      </tr>
+      <tr class="option">
+        <td>Support annuel après les 30 jours (téléphone, mises à jour, vérification des sauvegardes) <span class="tag gray">option</span></td>
+        <td class="num">8 000 DA / an</td>
+      </tr>
+      <tr class="total">
+        <td>Total — formule « Cabinet »</td>
+        <td class="num">34 900 DA</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="note">
+    <b>Offre de lancement</b> (10 premiers cabinets) : <b>27 900 DA</b> au lieu de 34 900 DA,
+    en échange d'un témoignage et de la permission de citer le nom du cabinet.
+    <br><b>Garantie 30 jours satisfait ou remboursé.</b> Le logiciel reste chez vous, vos données aussi.
+    <br><b>Paiement :</b> 50 % à la commande, 50 % à la mise en service.
+  </div>
+
+  <h2>Pourquoi ce prix (comparaison)</h2>
+  <table class="compare">
+    <thead>
+      <tr><th>Solution</th><th class="num">Coût année 1</th><th class="num">Coût sur 3 ans</th><th>Internet requis</th><th>Bénéfice</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Dentisapp</td><td class="num">48 000 – 60 000 DA</td><td class="num">144 000 – 180 000 DA</td><td>Oui</td><td>Agenda, paiements</td></tr>
+      <tr><td>NeoGestion</td><td class="num">21 000 – 66 000 DA</td><td class="num">63 000 – 198 000 DA</td><td>Oui</td><td>Agenda, finance</td></tr>
+      <tr><td>CabiSante (perpétuel)</td><td class="num">40 000 DA</td><td class="num">40 000 DA</td><td>Oui</td><td>Agenda, dossier</td></tr>
+      <tr>
+        <td><b>DentaRDV</b></td>
+        <td class="num win">27 900 DA</td>
+        <td class="num win">27 900 DA</td>
+        <td class="win">Non</td>
+        <td class="win">+ bot WhatsApp, hors ligne</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="note">
+    <b>Le calcul qui compte :</b> 10 patients/jour × 22 jours = 220 rendez-vous/mois.
+    Une absence non prévenue coûte 1 500 à 25 000 DA. Le rappel automatique de la veille
+    en récupère une grande partie : <b>le logiciel est remboursé par le premier rendez-vous sauvé.</b>
+  </div>
+
+  <div class="sign">
+    <div class="box">
+      <b>Le prestataire</b>
+      Nom, signature et cachet
+    </div>
+    <div class="box">
+      <b>Le cabinet (bon pour accord)</b>
+      Nom, signature et cachet<br>
+      <span class="sub">Date : ____ / ____ / ________</span>
+    </div>
+  </div>
+
+  <footer>
+    <span>DentaRDV — licence MIT · données stockées sur l'ordinateur du cabinet uniquement</span>
+    <span>Devis N° <span class="fill">{{DEV-2026-001}}</span></span>
+  </footer>
+</div>
+
+</body>
+</html>

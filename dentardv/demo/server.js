@@ -18,15 +18,11 @@ const path = require('node:path');
 const db = require('../src/main/db');
 const auth = require('../src/main/services/auth');
 const backup = require('../src/main/services/backup');
-const patients = require('../src/main/services/patients');
 const appointments = require('../src/main/services/appointments');
-const treatments = require('../src/main/services/treatments');
-const payments = require('../src/main/services/payments');
-const expenses = require('../src/main/services/expenses');
 const settings = require('../src/main/services/settings');
 const { createHandlers, PUBLIC } = require('../src/main/handlers');
 const { AppError } = require('../src/main/utils/common');
-const { toISODate, addDays } = require('../src/main/utils/dates');
+const { seedDemoData } = require('../src/main/db/demo-seed');
 
 const DEFAULT_PORT = Number(process.env.PORT || 4173);
 const DEFAULT_HOST = process.env.HOST || '0.0.0.0';
@@ -45,93 +41,6 @@ const MIME = {
 };
 
 /* ------------------------------- demo data -------------------------------- */
-
-function seedDemoData() {
-  if (patients.list('', { limit: 1 }).length > 0) return;
-  settings.set('clinic_name', 'Cabinet Dentaire El Oued');
-  settings.set('clinic_phone', '0555 12 34 56');
-  settings.set('clinic_address', 'Rue des Martyrs, El Oued');
-  settings.set('daily_capacity', '8');
-
-  const catalog = treatments.list();
-  const people = [
-    ['Mohamed Ben Ali', '0555111001'],
-    ['Amina Kaddour', '0661222002'],
-    ['Yacine Belkacem', '0770333003'],
-    ['Fatima Zohra Saidi', '0555444004'],
-    ['Karim Bouziane', '0661555005'],
-    ['Nadia Meziane', '0770666006'],
-    ['Sofiane Haddad', '0555777007'],
-    ['Imane Cherif', '0661888008'],
-  ];
-  const created = people.map(([name, phone]) => patients.create({ full_name: name, phone }));
-
-  const today = toISODate();
-  const yesterday = addDays(today, -1);
-
-  created.slice(0, 5).forEach((patient, index) => {
-    const treatment = catalog[index % catalog.length];
-    const appointment = appointments.create({
-      patient_id: patient.id,
-      day: today,
-      treatment_id: treatment.id,
-      price: treatment.default_price,
-      source: index % 2 === 0 ? 'whatsapp' : 'manual',
-      // Sample data, so it must exist even when "today" is a closed day
-      // (Friday): the demo is also a preview used on weekends.
-      historical: !settings.isWorkingDay(today),
-    });
-    if (index < 3) {
-      payments.add({
-        patient_id: patient.id,
-        appointment_id: appointment.id,
-        amount: Math.round(treatment.default_price * (index === 0 ? 1 : 0.5)),
-        method: 'cash',
-        note: 'Acompte',
-      });
-      if (index < 2) appointments.setStatus(appointment.id, 'done');
-    }
-  });
-
-  // Yesterday: completed visits + expenses, so the reports page is not empty.
-  created.slice(5).forEach((patient, index) => {
-    const treatment = catalog[(index + 2) % catalog.length];
-    const appointment = appointments.create({
-      patient_id: patient.id,
-      day: yesterday,
-      treatment_id: treatment.id,
-      price: treatment.default_price,
-      historical: true,
-    });
-    appointments.setStatus(appointment.id, 'done');
-    if (index === 0) {
-      payments.add({
-        patient_id: patient.id,
-        appointment_id: appointment.id,
-        amount: treatment.default_price,
-        method: 'cash',
-      });
-    }
-  });
-
-  const categories = expenses.categories();
-  const spend = [
-    [0, 12000, 'Gants, masques, composites'],
-    [3, 8000, 'Prothèse patient Ben Ali'],
-    [1, 35000, 'Loyer du mois'],
-    [4, 4500, 'Facture Sonelgaz'],
-  ];
-  spend.forEach(([index, amount, label], offset) => {
-    expenses.create({
-      category_id: categories[index % categories.length].id,
-      amount,
-      day: offset < 2 ? today : addDays(today, -offset),
-      label,
-    });
-  });
-
-  console.log('[demo] sample clinic data created');
-}
 
 /* --------------------------------- server --------------------------------- */
 
