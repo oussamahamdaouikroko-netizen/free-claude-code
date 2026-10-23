@@ -2,9 +2,12 @@
 
 كل ما تحتاجه لتبيع DentaRDV في الجزائر، من أول زيارة إلى الفاتورة.
 
-> ## 📦 تحميل الحزمة كاملة (ملف واحد ZIP)
-> **[اضغط هنا للتحميل المباشر](https://github.com/oussamahamdaouikroko-netizen/free-claude-code/releases/latest/download/DentaRDV-Marketing-Kit.zip)**
-> — الملفات التسعة كلها داخل الأرشيف، جاهزة للطباعة والنسخ.
+> ## 📦 تحميل الحزمة كاملة (ملف واحد ZIP — 155 كيلوبايت)
+> **[⬇️ اضغط هنا للتحميل المباشر](https://github.com/oussamahamdaouikroko-netizen/free-claude-code/raw/marketing-kit/dentardv/docs/marketing/DentaRDV-Marketing-Kit.zip)**
+>
+> بداخل الأرشيف مجلد `DentaRDV-Marketing-Kit` فيه الملفات التسعة كلها:
+> التسعير، الإعلان A4، عرض الأسعار، نصوص البيع، منشورات Ouedkniss، خطة 90 يومًا،
+> ملف تتبّع العيادات، والصورة. افتح `README.md` أولًا.
 > إن أردت ملفًا واحدًا فقط، تجده في الجدول أسفله.
 
 | الملف | ما هو | متى تستعمله |
