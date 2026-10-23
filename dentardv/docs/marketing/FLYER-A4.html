@@ -72,7 +72,10 @@
     background: linear-gradient(135deg, var(--teal-dark), var(--teal) 55%, #2a8a85);
     color: #fff;
     padding: 9mm 11mm 8mm;
-    position: relative;
+    display: grid;
+    grid-template-columns: 1fr minmax(70mm, 88mm);
+    gap: 4mm 7mm;
+    align-items: start;
   }
 
   .brand { display: flex; align-items: center; gap: 10px; }
@@ -88,7 +91,8 @@
   .brand .tag { font-size: 11px; opacity: 0.9; letter-spacing: 2px; text-transform: uppercase; margin-top: 2px; }
 
   header .pitch {
-    margin-top: 7mm;
+    grid-column: 1 / -1;
+    margin-top: 3mm;
     font-size: 30px;
     font-weight: 800;
     line-height: 1.2;
@@ -105,17 +109,16 @@
   }
 
   header .ar {
-    position: absolute;
-    top: 8mm; left: 11mm; /* en RTL le bloc arabe est à gauche */
+    justify-self: end;
     text-align: right;
     direction: rtl;
-    max-width: 82mm;
-    font-size: 13px;
+    font-size: 12px;
     line-height: 1.6;
     opacity: 0.97;
+    padding-top: 1mm;
   }
 
-  header .ar strong { font-size: 16px; display: block; margin-bottom: 3px; }
+  header .ar strong { font-size: 15px; display: block; margin-bottom: 2px; }
 
   /* -------------------------------- body -------------------------------- */
   main { padding: 7mm 11mm 0; flex: 1; }

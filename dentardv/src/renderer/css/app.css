@@ -224,6 +224,19 @@ table.list td.actions { text-align: end; white-space: nowrap; }
 .empty { padding: 28px; text-align: center; color: var(--muted); }
 .empty .emoji { font-size: 2rem; display: block; margin-bottom: 8px; }
 
+.callout {
+  background: var(--teal-50);
+  border: 1px solid var(--teal-100);
+  border-left: 3px solid var(--teal-700);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  color: var(--ink);
+  margin-top: 10px;
+}
+[dir="rtl"] .callout { border-left: 1px solid var(--teal-100); border-right: 3px solid var(--teal-700); }
+
 .demo-banner {
   position: fixed;
   bottom: 0;

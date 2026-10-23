@@ -26,7 +26,14 @@
     padding: 14mm 15mm; box-shadow: 0 6px 24px rgba(0,0,0,.18);
   }
   @page { size: A4; margin: 0; }
-  @media print { body { background: #fff; } .page { margin: 0; box-shadow: none; } .screen-note { display: none !important; } }
+  @media print {
+    body { background: #fff; }
+    .page { margin: 0; box-shadow: none; }
+    .screen-note { display: none !important; }
+    /* a row must never be cut in half between two pages */
+    tr, .note, .parties, .sign { break-inside: avoid; }
+    h2 { break-after: avoid; }
+  }
 
   .screen-note {
     max-width: 210mm; margin: 8mm auto -4mm; padding: 10px 14px;

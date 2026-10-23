@@ -60,7 +60,11 @@
       h(
         'div',
         { class: 'row mt wrap' },
-        status.state === 'connected'
+        // In the sales demo WhatsApp cannot be linked (the app has no socket),
+        // so show what it does instead of a button that would fail.
+        window.App.demo && status.state !== 'connected'
+          ? h('div', { class: 'callout' }, '💡 ' + t('wa.demoNote'))
+          : status.state === 'connected'
           ? h('button', { class: 'btn', onClick: async () => { await window.API.invoke('wa:stop'); toast(t('common.saved'), 'ok'); ctx.refresh(); } }, t('wa.stop'))
           : h('button', { class: 'btn primary', onClick: async () => {
               try {
