@@ -77,6 +77,9 @@ function seedDemoData() {
       treatment_id: treatment.id,
       price: treatment.default_price,
       source: index % 2 === 0 ? 'whatsapp' : 'manual',
+      // Sample data, so it must exist even when "today" is a closed day
+      // (Friday): the demo is also a preview used on weekends.
+      historical: !settings.isWorkingDay(today),
     });
     if (index < 3) {
       payments.add({

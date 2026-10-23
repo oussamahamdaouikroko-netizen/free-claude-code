@@ -28,7 +28,7 @@ npm run demo          # → http://localhost:4173
 # Application réelle (Electron)
 npm start
 
-# Tests (73 tests, sans réseau ni téléphone)
+# Tests (78 tests, sans réseau ni téléphone)
 npm test
 ```
 
@@ -82,6 +82,13 @@ L'installateur n'est pas signé numériquement (certificat payant) : Windows aff
 
 **Rappels** : la veille à 17 h (heure configurable), un message est envoyé à chaque
 patient du lendemain. Chaque rappel est journalisé : jamais deux fois.
+
+**Compatibilité WhatsApp** : les messages peuvent arriver adressés par numéro
+(`@s.whatsapp.net`) **ou par LID** (`@lid`, identifiant qui masque le numéro) — les deux
+sont traités, et les messages rejoués après une coupure (type `append`) sont acceptés
+tant qu'ils ont moins de 10 minutes. Si un message est ignoré, la raison est affichée
+dans **Réglages → WhatsApp** (compteurs « Messages reçus / Réponses envoyées » et
+« Dernier message ignoré ») et écrite dans `dentardv.log`.
 
 **Réduction du risque de blocage** (le numéro du cabinet doit rester sain) :
 
@@ -147,7 +154,7 @@ dentardv/
 ├── src/preload/index.js       pont contextBridge (API minimale)
 ├── src/renderer/              UI vanilla : 8 écrans, i18n FR/AR, RTL
 ├── demo/server.js             serveur d'aperçu navigateur (mêmes handlers)
-├── tests/                     73 tests node:test (dont smoke test du renderer)
+├── tests/                     78 tests node:test (dont smoke test du renderer)
 ├── scripts/after-pack.js      correctif better-sqlite3 pour l'app packagée
 └── electron-builder.yml       cible NSIS x64
 ```
@@ -169,7 +176,7 @@ dentardv/
 ## 5. Tests
 
 ```bash
-npm test     # 73 tests, ~20 s, sans réseau ni téléphone
+npm test     # 78 tests, ~20 s, sans réseau ni téléphone
 ```
 
 | Fichier | Couverture |

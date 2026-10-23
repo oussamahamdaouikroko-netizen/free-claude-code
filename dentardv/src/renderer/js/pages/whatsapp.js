@@ -5,6 +5,19 @@
   const { h, clear, toast, errorMessage, input } = window.UI;
   const Pages = window.Pages;
 
+  // Why the last message was ignored — shown so "connected but silent" is
+  // understandable without reading a log file.
+  const SKIP_KEY = {
+    not_a_private_chat: 'wa.skipNotPrivate',
+    own_message: 'wa.skipOwn',
+    not_a_question: 'wa.skipNotQuestion',
+    duplicate: 'wa.skipDuplicate',
+    too_old: 'wa.skipTooOld',
+    no_phone: 'wa.skipNoPhone',
+    rate_limit: 'wa.skipRateLimit',
+    no_reply: 'wa.skipNoReply',
+  };
+
   const STATE_KEY = {
     connected: 'wa.connected',
     connecting: 'wa.connecting',
@@ -29,6 +42,20 @@
       ),
       status.phone ? h('div', { class: 'info-line' }, h('span', { class: 'k' }, t('wa.phone')), h('strong', { dir: 'ltr' }, `+${status.phone}`)) : null,
       h('div', { class: 'info-line' }, h('span', { class: 'k' }, t('wa.repliesToday')), h('strong', {}, String(status.replies_today ?? 0))),
+      h('div', { class: 'info-line' }, h('span', { class: 'k' }, t('wa.received')), h('strong', {}, String(status.messages?.received ?? 0))),
+      h('div', { class: 'info-line' }, h('span', { class: 'k' }, t('wa.replied')), h('strong', {}, String(status.messages?.replied ?? 0))),
+      status.messages?.last_at
+        ? h('div', { class: 'info-line' }, h('span', { class: 'k' }, t('wa.lastMessage')), h('span', {}, formatDateTime(status.messages.last_at)))
+        : null,
+      status.messages?.last_skip
+        ? h(
+            'div',
+            { class: 'info-line' },
+            h('span', { class: 'k' }, t('wa.lastSkip')),
+            h('span', { class: 'small muted' },
+              `${t(SKIP_KEY[status.messages.last_skip.reason] || 'wa.skipOther')} · ${formatDateTime(status.messages.last_skip.at)}`),
+          )
+        : null,
       status.last_error ? h('div', { class: 'info-line' }, h('span', { class: 'k' }, t('wa.lastError')), h('span', { class: 'small', style: { color: 'var(--danger)' } }, status.last_error)) : null,
       h(
         'div',

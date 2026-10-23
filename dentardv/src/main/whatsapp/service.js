@@ -50,6 +50,27 @@ function fromJid(jid) {
   return String(jid || '').split('@')[0];
 }
 
+/**
+ * WhatsApp addresses a chat with either a phone number (`@s.whatsapp.net`) or,
+ * since the 2025 rollout, a LID (Linked ID, `@lid`) that hides the number.
+ * Baileys 7 fills `key.remoteJidAlt` with the other side of the pair, and
+ * `signalRepository.lidMapping` can translate when only the LID is known.
+ *
+ * Ignoring `@lid` used to make the bot completely silent: linked, but every
+ * message dropped. Both suffixes must be accepted.
+ */
+const isPnJid = (jid) => jid.endsWith('@s.whatsapp.net') || jid.endsWith('@hosted');
+const isLidJid = (jid) => jid.endsWith('@lid') || jid.endsWith('@hosted.lid');
+const isUserJid = (jid) => Boolean(jid) && (isPnJid(jid) || isLidJid(jid));
+
+/** Resolve a promise, but never wait more than `ms` for it. */
+function withTimeout(promise, ms, fallback = null) {
+  return Promise.race([
+    Promise.resolve(promise).catch(() => fallback),
+    new Promise((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
 function extractText(message) {
   if (!message) return '';
   // Unwrap the envelopes WhatsApp uses for ephemeral (disappearing) chats.
@@ -102,6 +123,17 @@ class WhatsAppService {
     this.globalDay = { day: toISODate(), count: 0 };
     this.remindersRunning = false;
     this.botEnabled = false;
+    // Diagnostics: the dentist must be able to see whether messages arrive at
+    // all. Silent drops are what made "connected but no reply" impossible to
+    // understand in the field.
+    this.stats = {
+      received: 0,
+      replied: 0,
+      skipped: 0,
+      lastAt: null,
+      lastFrom: null,
+      lastSkip: null,
+    };
   }
 
   publicStatus() {
@@ -113,6 +145,14 @@ class WhatsAppService {
       updated_at: this.updatedAt,
       replies_today: this.globalDay.day === toISODate() ? this.globalDay.count : 0,
       connected: this.state === 'connected',
+      messages: {
+        received: this.stats.received,
+        replied: this.stats.replied,
+        skipped: this.stats.skipped,
+        last_at: this.stats.lastAt,
+        last_from: this.stats.lastFrom,
+        last_skip: this.stats.lastSkip,
+      },
     };
   }
 
@@ -259,10 +299,48 @@ class WhatsAppService {
   }
 
   async onMessagesUpsert(event) {
-    if (event.type !== 'notify' || !this.sock) return;
+    if (!this.sock) return;
+    // `notify` = live message, `append` = message that was queued while the
+    // phone was offline/asleep. Accepting both is essential: the laptop of a
+    // clinic sleeps, and Baileys then replays recent messages as `append`.
+    // The 10-minute age filter below still discards a real backlog.
+    if (event.type !== 'notify' && event.type !== 'append') return;
     for (const msg of event.messages || []) {
       await this.handleIncoming(msg);
     }
+  }
+
+  /**
+   * Work out who wrote and where to answer.
+   * @returns {Promise<{replyJid:string, phone:string, lid:string|null, viaLid:boolean}|null>}
+   */
+  async resolveChat(key) {
+    const direct = String(key.remoteJid || '');
+    const alt = String(key.remoteJidAlt || '');
+    const pnJid = [direct, alt].find(isPnJid) || null;
+    const lidJid = [direct, alt].find(isLidJid) || null;
+    if (!isUserJid(direct) && !isUserJid(alt)) return null;
+
+    let phone = pnJid ? fromJid(pnJid) : null;
+    if (!phone && lidJid) {
+      const mapped = await withTimeout(
+        this.sock?.signalRepository?.lidMapping?.getPNForLID?.(lidJid),
+        4000,
+        null,
+      );
+      if (mapped) phone = fromJid(mapped);
+    }
+    // Last resort: keep the LID digits so the booking is not lost. Reminders
+    // verify the number with onWhatsApp() before writing to anyone.
+    if (!phone) phone = fromJid(lidJid || direct);
+
+    return {
+      // Prefer the phone JID for sending: it is the one every client accepts.
+      replyJid: pnJid || direct || lidJid,
+      phone,
+      lid: lidJid,
+      viaLid: !pnJid,
+    };
   }
 
   isDuplicate(id) {
@@ -277,31 +355,57 @@ class WhatsAppService {
     return false;
   }
 
+  /** Record why a message produced no answer (visible in the log + UI). */
+  skip(reason, details = {}) {
+    this.stats.skipped += 1;
+    this.stats.lastSkip = { reason, at: nowLocal(), ...details };
+    const extra = Object.keys(details).length ? ` ${JSON.stringify(details)}` : '';
+    console.log(`[wa] skipped (${reason})${extra}`);
+    this.onStatus(this.publicStatus());
+  }
+
   async handleIncoming(msg) {
     const key = msg.key || {};
     const jid = key.remoteJid || '';
+    const alt = key.remoteJidAlt || '';
     const kind = msg.message ? Object.keys(msg.message)[0] : '';
+    const tag = { jid, alt, kind, id: key.id };
 
-    // Only private chats, never our own messages, groups, statuses or channels.
-    if (!jid.endsWith('@s.whatsapp.net')) return;
-    if (key.fromMe) return;
+    if (key.fromMe) return this.skip('own_message', tag);
     // Receipts, reactions, deletions and edits are not patient questions and
     // must never trigger a reply (replying to a reaction looks like spam).
-    if (['protocolMessage', 'reactionMessage', 'senderKeyDistributionMessage'].includes(kind)) return;
-    if (this.isDuplicate(key.id)) return;
+    if (['protocolMessage', 'reactionMessage', 'senderKeyDistributionMessage'].includes(kind)) {
+      return this.skip('not_a_question', tag);
+    }
+    // Only private chats, never groups, statuses or channels. `@lid`
+    // (WhatsApp's number-hiding IDs) is a private chat too and must be
+    // accepted, otherwise every message from a LID-addressed patient is lost.
+    const chat = await this.resolveChat(key);
+    if (!chat) return this.skip('not_a_private_chat', tag);
+    if (this.isDuplicate(key.id)) return this.skip('duplicate', tag);
 
     const ageSeconds = Math.abs(Date.now() / 1000 - Number(msg.messageTimestamp || 0));
     if (msg.messageTimestamp && ageSeconds > MAX_MESSAGE_AGE_SECONDS) {
-      console.log('[wa] skipping old message', key.id);
-      return;
+      // No backlog flood after a reconnection: that looks exactly like a bot.
+      return this.skip('too_old', { ...tag, age_seconds: Math.round(ageSeconds) });
     }
 
+    const { phone, replyJid, lid, viaLid } = chat;
+    if (!phone) return this.skip('no_phone', tag);
+
     const text = extractText(msg.message);
-    const phone = fromJid(jid);
-    if (!phone) return;
+    this.stats.received += 1;
+    this.stats.lastAt = nowLocal();
+    this.stats.lastFrom = phone;
+    console.log(`[wa] message from ${phone}${viaLid ? ` (lid ${lid})` : ''}: ${text || `[${kind || 'media'}]`}`);
+
+    // Store every incoming message, even when it is not answered: this is the
+    // only proof for the dentist that the bot received something.
+    this.logMessage(phone, 'in', text || `[${kind || 'media'}]`);
+
+    if (!this.canReply(phone)) return this.skip('rate_limit', tag);
 
     if (!text) {
-      if (!this.canReply(phone)) return;
       const lang = settings.get('bot_language');
       const { message: tpl } = require('./messages');
       const answer = tpl(lang, 'unsupported', {
@@ -309,22 +413,22 @@ class WhatsAppService {
         phone: settings.get('clinic_phone'),
         currency: settings.get('currency'),
       });
-      await this.reply(phone, jid, answer);
+      if (await this.reply(phone, replyJid, answer)) this.stats.replied += 1;
       return;
     }
 
-    if (!this.canReply(phone)) {
-      console.log('[wa] rate limit reached for', phone);
-      return;
-    }
-
-    this.logMessage(phone, 'in', text);
     const result = bot.handle({ phone, text });
-    if (!result || !result.reply) return;
+    if (!result || !result.reply) return this.skip('no_reply', tag);
 
-    const sent = await this.reply(phone, jid, result.reply);
-    if (sent) this.logMessage(phone, 'out', result.reply);
+    const sent = await this.reply(phone, replyJid, result.reply);
+    if (sent) {
+      this.stats.replied += 1;
+      this.logMessage(phone, 'out', result.reply);
+    }
     this.onEvent({ type: 'message', payload: { phone, action: result.action } });
+    // Live counters in Réglages → WhatsApp: the dentist sees, message by
+    // message, that the bot is receiving and answering.
+    this.onStatus(this.publicStatus());
   }
 
   /** Sliding-window rate limit: per sender and globally. */
@@ -379,7 +483,11 @@ class WhatsAppService {
     }
     const task = async () => {
       try {
-        if (this.sock && this.state === 'connected') {
+        // `sock.user` is set once the session is authenticated, which is more
+        // reliable than our own state string right after a reconnection (the
+        // moment when WhatsApp replays the messages we just accepted).
+        const ready = this.sock && (this.state === 'connected' || Boolean(this.sock.user));
+        if (ready) {
           await this.sock.sendPresenceUpdate('composing', jid).catch(() => {});
           await sleep(this.typingDelay(text));
           await this.sock.sendMessage(jid, { text });

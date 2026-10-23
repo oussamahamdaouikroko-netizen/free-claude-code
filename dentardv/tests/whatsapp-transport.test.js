@@ -172,6 +172,178 @@ test('groups, own messages and stale messages are never answered', async (t) => 
   assert.equal(sent.length, 0);
 });
 
+/** Speed up replies: no 4-9 s typing delay during tests. */
+function fastSettings() {
+  settings.setMany({
+    clinic_name: 'Cabinet Test',
+    working_days: '0,1,2,3,4,5,6',
+    daily_capacity: '5',
+    send_min_delay_ms: '1500',
+    send_max_delay_ms: '1600',
+    max_replies_per_hour: '50',
+    max_replies_per_day: '500',
+  });
+}
+
+test('a message addressed by LID (no phone number) is still answered', async (t) => {
+  // WhatsApp now hides the number behind a LID: remoteJid = "<id>@lid" and the
+  // phone arrives in remoteJidAlt. Dropping those messages made the bot silent
+  // even though it was linked.
+  const ctx = useTempDb();
+  const sent = [];
+  const { service, dir } = freshService();
+  t.after(() => {
+    ctx.cleanup();
+    safeRemove(dir);
+  });
+
+  fastSettings();
+  service.sock = {
+    async sendPresenceUpdate() {},
+    async sendMessage(jid, payload) {
+      sent.push({ jid, payload });
+    },
+    async end() {},
+  };
+  service.state = 'connected';
+
+  await service.handleIncoming({
+    key: {
+      remoteJid: '271234567890123@lid',
+      remoteJidAlt: '213555100999@s.whatsapp.net',
+      id: 'LID1',
+      fromMe: false,
+    },
+    message: { conversation: 'Yacine Test' },
+    messageTimestamp: Math.floor(Date.now() / 1000),
+  });
+
+  assert.equal(sent.length, 1, 'the LID message is answered');
+  assert.equal(sent[0].jid, '213555100999@s.whatsapp.net', 'reply goes to the phone JID');
+  assert.match(sent[0].payload.text, /Rendez-vous confirmé/);
+
+  const patient = patients.findByPhone('213555100999');
+  assert.ok(patient, 'the patient is registered with the phone number, not the LID');
+  assert.ok(appointments.upcomingForPatient(patient.id), 'the appointment is booked');
+  assert.equal(service.stats.received, 1);
+  assert.equal(service.stats.replied, 1);
+});
+
+test('a LID-only message is mapped back to the phone number', async (t) => {
+  const ctx = useTempDb();
+  const sent = [];
+  const { service, dir } = freshService();
+  t.after(() => {
+    ctx.cleanup();
+    safeRemove(dir);
+  });
+
+  fastSettings();
+  let asked = null;
+  service.sock = {
+    signalRepository: {
+      lidMapping: {
+        async getPNForLID(jid) {
+          asked = jid;
+          return '213555100777@s.whatsapp.net';
+        },
+      },
+    },
+    async sendPresenceUpdate() {},
+    async sendMessage(jid, payload) {
+      sent.push({ jid, payload });
+    },
+    async end() {},
+  };
+  service.state = 'connected';
+
+  await service.handleIncoming({
+    key: { remoteJid: '999888777@lid', id: 'LID2', fromMe: false },
+    message: { conversation: 'Nadia LID' },
+    messageTimestamp: Math.floor(Date.now() / 1000),
+  });
+
+  assert.equal(asked, '999888777@lid', 'the LID mapping store is asked for the number');
+  assert.equal(sent.length, 1);
+  assert.ok(patients.findByPhone('213555100777'), 'stored under the real number');
+});
+
+test('messages replayed after a reconnection (upsert type "append") are handled', async (t) => {
+  // The laptop sleeps, the socket reconnects and Baileys replays recent
+  // messages as `append` instead of `notify`. Those are recent real messages
+  // and must be answered; only the age filter may drop a backlog.
+  const ctx = useTempDb();
+  const sent = [];
+  const { service, dir } = freshService();
+  t.after(() => {
+    ctx.cleanup();
+    safeRemove(dir);
+  });
+
+  fastSettings();
+  service.sock = {
+    async sendPresenceUpdate() {},
+    async sendMessage(jid, payload) {
+      sent.push({ jid, payload });
+    },
+    async end() {},
+  };
+  service.state = 'connected';
+
+  await service.onMessagesUpsert({
+    type: 'append',
+    messages: [
+      {
+        key: { remoteJid: '213555100555@s.whatsapp.net', id: 'APP1', fromMe: false },
+        message: { conversation: 'Samir Append' },
+        messageTimestamp: Math.floor(Date.now() / 1000) - 30,
+      },
+    ],
+  });
+
+  assert.equal(sent.length, 1, 'a recent appended message is answered');
+  assert.ok(patients.findByPhone('213555100555'));
+
+  // A stale backlog is still ignored, so a reconnection cannot spam patients.
+  await service.onMessagesUpsert({
+    type: 'append',
+    messages: [
+      {
+        key: { remoteJid: '213555100666@s.whatsapp.net', id: 'APP2', fromMe: false },
+        message: { conversation: 'Old Append' },
+        messageTimestamp: Math.floor(Date.now() / 1000) - 7200,
+      },
+    ],
+  });
+  assert.equal(sent.length, 1, 'a two-hour-old message is dropped');
+  assert.equal(service.stats.skipped, 1);
+  assert.equal(service.stats.last_skip?.reason || service.stats.lastSkip.reason, 'too_old');
+});
+
+test('every ignored message records a reason for the dentist', async (t) => {
+  const ctx = useTempDb();
+  const { service, dir } = freshService();
+  t.after(() => {
+    ctx.cleanup();
+    safeRemove(dir);
+  });
+
+  fastSettings();
+  service.sock = { async sendMessage() {}, async sendPresenceUpdate() {}, async end() {} };
+  service.state = 'connected';
+
+  await service.handleIncoming({
+    key: { remoteJid: '120363000000000000@g.us', id: 'GRP1', fromMe: false },
+    message: { conversation: 'hello' },
+    messageTimestamp: Math.floor(Date.now() / 1000),
+  });
+
+  const status = service.publicStatus();
+  assert.equal(status.messages.skipped, 1);
+  assert.equal(status.messages.last_skip.reason, 'not_a_private_chat');
+  assert.equal(status.messages.received, 0);
+});
+
 test('reminders are sent once, only for tomorrow, with a long pause', async (t) => {
   const ctx = useTempDb();
   const sent = [];
