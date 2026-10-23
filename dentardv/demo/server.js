@@ -124,8 +124,17 @@ async function startDemo(options = {}) {
     printReceipt: null,
     dialogs: {
       openPath: () => {},
+      // No OS clipboard in a plain browser tab: the renderer falls back to
+      // navigator.clipboard, so this handler must simply not exist here.
       chooseBackup: async () => ({ canceled: true }),
       saveBackup: async () => ({ canceled: true }),
+      // The browser preview writes the spreadsheet next to the demo database,
+      // exactly where a real export would land in the clinic's data folder.
+      saveExport: async (filename) => {
+        const dir = path.join(dataDir, 'exports');
+        fs.mkdirSync(dir, { recursive: true });
+        return { canceled: false, file: path.join(dir, filename) };
+      },
     },
   });
 

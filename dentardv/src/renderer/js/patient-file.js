@@ -109,7 +109,7 @@
           section(
             `${t('patients.history')} (${history.length})`,
             history.length === 0
-              ? emptyState(t('patients.noHistory'), '🦷')
+              ? emptyState(t('patients.noHistory'), 'clock')
               : h(
                   'div',
                   { class: 'table-wrap' },

@@ -28,7 +28,7 @@ npm run demo          # → http://localhost:4173
 # Application réelle (Electron)
 npm start
 
-# Tests (81 tests, sans réseau ni téléphone)
+# Tests (95 tests, sans réseau ni téléphone)
 npm test
 ```
 
@@ -42,7 +42,7 @@ npm test
 ### Option A — GitHub Actions (gratuit, recommandé)
 
 Le workflow [`.github/workflows/dentardv-windows.yml`](../.github/workflows/dentardv-windows.yml)
-lance les tests sur Linux puis produit `DentaRDV-Setup-1.0.0.exe` sur un runner Windows.
+lance les tests sur Linux puis produit `DentaRDV-Setup-1.1.0.exe` sur un runner Windows.
 
 - **Bouton manuel** : Actions → *Build DentaRDV for Windows* → *Run workflow*
   → télécharger l'artefact `DentaRDV-Setup-windows`.
@@ -113,10 +113,26 @@ dans **Réglages → WhatsApp** (compteurs « Messages reçus / Réponses envoy�
   publicité… avec catégories extensibles.
 - **Rapports** : journalier (caisse du jour) et mensuel (série par jour, meilleur jour,
   moyenne, dépenses par catégorie), **impression** du rapport et **reçu de paiement**.
+- **Export Google Sheets / Excel** : un vrai classeur `.xlsx` généré hors ligne
+  (Résumé, Patients, Dettes, Rendez-vous, Paiements, Dépenses, Soins), prêt à ouvrir
+  avec Google Drive → *Ouvrir avec → Google Sheets*, Excel ou LibreOffice. Un bouton
+  **Copier** colle aussi le tableau directement dans une feuille (Ctrl+V).
 - **Réglages** : capacité/jour, jours travaillés, nom du cabinet, devise (DZD),
-  sauvegarde automatique + restauration, changement de mot de passe.
+  sauvegarde automatique + restauration, changement de mot de passe, sons de
+  l'interface (actifs par défaut, muets en un clic).
 
 Toute la monnaie est gérée en **DZD** avec arrondi au centime.
+
+### 3.2 bis Interface
+
+- Style épuré inspiré de macOS : cartes blanches, coins arrondis, ombres douces,
+  barre supérieure et fenêtres translucides, bascule de langue segmentée.
+- **Icônes SVG** dessinées dans le code (aucune police, aucune bibliothèque,
+  aucun téléchargement) — nettes à toutes les tailles et noires à l'impression.
+- **Sons discrets** générés par le Web Audio (clic, validation, erreur) : aucun
+  fichier audio dans l'installateur, désactivables dans **Réglages → Interface**.
+- Animations courtes (apparition des cartes, compteurs, barres du graphique) —
+  automatiquement supprimées si Windows est réglé sur « réduire les animations ».
 
 ### 3.3 Sauvegardes
 
@@ -154,7 +170,7 @@ dentardv/
 ├── src/preload/index.js       pont contextBridge (API minimale)
 ├── src/renderer/              UI vanilla : 8 écrans, i18n FR/AR, RTL
 ├── demo/server.js             serveur d'aperçu navigateur (mêmes handlers)
-├── tests/                     81 tests node:test (dont smoke test du renderer)
+├── tests/                     95 tests node:test (dont smoke test du renderer)
 ├── scripts/after-pack.js      correctif better-sqlite3 pour l'app packagée
 └── electron-builder.yml       cible NSIS x64
 ```
@@ -176,7 +192,7 @@ dentardv/
 ## 5. Tests
 
 ```bash
-npm test     # 81 tests, ~20 s, sans réseau ni téléphone
+npm test     # 95 tests, ~30 s, sans réseau ni téléphone
 ```
 
 | Fichier | Couverture |

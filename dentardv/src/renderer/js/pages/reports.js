@@ -138,6 +138,7 @@
           h('div', { class: 'info-line' }, h('span', { class: 'k' }, t('reports.net')), h('strong', { style: { color: 'var(--teal-700)' } }, formatMoney(report.net, currency))),
         ),
       ),
+      exportCard('daily', report.day),
     );
   }
 
@@ -207,6 +208,91 @@
           h('div', { class: 'info-line' }, h('span', { class: 'k' }, t('reports.avgDay')), h('strong', {}, formatMoney(report.average_income_per_day, currency))),
         ),
       ),
+      exportCard('monthly', report.month),
+    );
+  }
+
+  /**
+   * Google Sheets / Excel export card.
+   *
+   * The file is generated locally as a real .xlsx (open it with Google Drive →
+   * « Ouvrir avec → Google Sheets », Excel or LibreOffice). Nothing is uploaded:
+   * the clinic can stay offline.
+   */
+  function exportCard(kind, period) {
+    const exporting = new Set();
+
+    const run = async (button, target) => {
+      if (exporting.has(target)) return;
+      exporting.add(target);
+      button.disabled = true;
+      try {
+        if (target === 'copy') {
+          const result = await window.API.invoke('export:clipboard', { kind, day: period, month: period });
+          const copied = await window.API.copyText(result.tsv);
+          toast(copied ? t('export.copied') : t('export.copyFailed'), copied ? 'ok' : 'error');
+          return;
+        }
+        const result = await window.API.invoke('export:sheet', {
+          kind: target === 'full' ? 'full' : kind,
+          day: period,
+          month: period,
+        });
+        if (result?.canceled) return;
+        toast(t('export.done', { file: result.filename || '' }), 'ok');
+        if (result.file) {
+          window.UI.modal({
+            title: t('export.sheetReady'),
+            body: h(
+              'div',
+              {},
+              h('p', { class: 'muted' }, t('export.sheetHelp')),
+              h('div', { class: 'callout' }, '📄 ' + (result.filename || '')),
+              h('div', { class: 'muted small mt-s' }, t('export.sheetOpenHow')),
+            ),
+            actions: [
+              {
+                label: t('export.openFolder'),
+                kind: 'primary',
+                onClick: () => window.API.invoke('export:reveal', { file: result.file }).catch(() => {}),
+              },
+              { label: t('common.close') },
+            ],
+          });
+        }
+      } catch (error) {
+        toast(errorMessage(error), 'error');
+      } finally {
+        exporting.delete(target);
+        button.disabled = false;
+      }
+    };
+
+    const button = (target, icon, label, kindClass = '') => {
+      const element = h('button', { class: `btn ${kindClass}` }, label);
+      if (window.Icons) window.Icons.decorate(element, icon, { size: 17 });
+      element.addEventListener('click', () => run(element, target));
+      return element;
+    };
+
+    return h(
+      'div',
+      { class: 'card mt' },
+      h(
+        'h2',
+        { class: 'card-title' },
+        t('export.title'),
+        h('span', { class: 'badge ok' }, t('export.offline')),
+      ),
+      h('p', { class: 'card-sub' }, t('export.subtitle')),
+      h(
+        'div',
+        { class: 'row wrap' },
+        button('sheet', 'sheet', t('export.thisPeriod'), 'primary'),
+        button('full', 'database', t('export.everything')),
+        button('copy', 'copy', t('export.copy')),
+      ),
+      h('div', { class: 'help mt-s' }, t('export.howToOpen')),
     );
   }
 

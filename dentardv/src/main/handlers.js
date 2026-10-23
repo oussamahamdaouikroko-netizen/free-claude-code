@@ -18,6 +18,7 @@ const payments = require('./services/payments');
 const expenses = require('./services/expenses');
 const reports = require('./services/reports');
 const backup = require('./services/backup');
+const sheets = require('./export/sheets');
 const auth = require('./services/auth');
 const { AppError } = require('./utils/common');
 const { toISODate } = require('./utils/dates');
@@ -176,6 +177,44 @@ function createHandlers(context) {
     },
     'backup:reveal': () => {
       if (dialogs.openPath) dialogs.openPath(backup.backupsDir());
+      return { ok: true };
+    },
+
+    /* ---------------------------- spreadsheet export ------------------------ */
+    // Google Sheets / Excel: .xlsx is opened natively by Google Drive
+    // ("Open with → Google Sheets"), Excel and LibreOffice. Everything is
+    // generated locally, nothing is uploaded.
+    'export:sheet': async (payload) => {
+      const kind = ['daily', 'monthly', 'full'].includes(payload?.kind) ? payload.kind : 'daily';
+      const workbook = sheets.build(kind, payload?.day || payload?.month);
+      if (!dialogs.saveExport) {
+        return {
+          ok: true,
+          canceled: false,
+          filename: workbook.filename,
+          sheets: workbook.sheets,
+          base64: workbook.buffer.toString('base64'),
+        };
+      }
+      const target = await dialogs.saveExport(workbook.filename);
+      if (target?.canceled || !target?.file) return { canceled: true };
+      require('node:fs').writeFileSync(target.file, workbook.buffer);
+      return { ok: true, file: target.file, filename: workbook.filename, sheets: workbook.sheets };
+    },
+    'export:clipboard': (payload) => ({
+      ok: true,
+      tsv: sheets.clipboardTable(payload?.kind === 'monthly' ? 'monthly' : 'daily', payload?.day || payload?.month),
+    }),
+    'export:reveal': (payload) => {
+      // Open the folder that holds the file, not the file itself.
+      if (payload?.file && dialogs.openPath) {
+        dialogs.openPath(require('node:path').dirname(payload.file));
+      }
+      return { ok: true };
+    },
+    'app:copy-text': (payload) => {
+      if (!dialogs.copyText) throw new AppError('CLIPBOARD_UNAVAILABLE');
+      dialogs.copyText(payload?.text ?? '');
       return { ok: true };
     },
 

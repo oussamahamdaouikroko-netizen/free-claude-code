@@ -34,8 +34,45 @@
     }
   }
 
+  /**
+   * Copy text to the system clipboard (used by « Copier pour Google Sheets »).
+   * Electron exposes the real clipboard through the preload bridge; in the
+   * browser preview we fall back to the async Clipboard API.
+   */
+  async function copyText(text) {
+    if (hasElectron) {
+      try {
+        await invoke('app:copy-text', { text });
+        return true;
+      } catch (error) {
+        return false;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (error) {
+      // Older browsers / blocked permissions: the textarea trick still works.
+      try {
+        const area = document.createElement('textarea');
+        area.value = text;
+        area.setAttribute('readonly', '');
+        area.style.position = 'fixed';
+        area.style.opacity = '0';
+        document.body.append(area);
+        area.select();
+        const ok = document.execCommand('copy');
+        area.remove();
+        return ok;
+      } catch (fallbackError) {
+        return false;
+      }
+    }
+  }
+
   window.API = {
     invoke,
+    copyText,
     demo: !hasElectron,
     onWhatsAppStatus: (cb) =>
       hasElectron ? window.dentardv.onWhatsAppStatus(cb) : () => {},

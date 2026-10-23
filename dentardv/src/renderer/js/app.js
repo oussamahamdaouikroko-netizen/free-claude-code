@@ -6,19 +6,21 @@
   const { h, clear, toast } = window.UI;
   const Pages = (window.Pages = window.Pages || {});
 
+  // Icônes SVG professionnelles (js/icons.js) : lisibles à toute taille,
+  // identiques en français et en arabe, et noires à l'impression.
   const NAV = [
-    ['dashboard', '📊', 'nav.dashboard'],
-    ['agenda', '🗓️', 'nav.agenda'],
-    ['patients', '👤', 'nav.patients'],
-    ['treatments', '🦷', 'nav.treatments'],
-    ['expenses', '💸', 'nav.expenses'],
-    ['reports', '📈', 'nav.reports'],
-    ['whatsapp', '💬', 'nav.whatsapp'],
-    ['settings', '⚙️', 'nav.settings'],
+    ['dashboard', 'dashboard', 'nav.dashboard'],
+    ['agenda', 'calendar', 'nav.agenda'],
+    ['patients', 'users', 'nav.patients'],
+    ['treatments', 'tooth', 'nav.treatments'],
+    ['expenses', 'wallet', 'nav.expenses'],
+    ['reports', 'chart', 'nav.reports'],
+    ['whatsapp', 'whatsapp', 'nav.whatsapp'],
+    ['settings', 'settings', 'nav.settings'],
   ];
 
   const App = {
-    version: '1.0.0',
+    version: '1.1.0', // replaced by app:info at boot (demo server / Electron)
     settings: {},
     language: getLanguage(),
     page: 'dashboard',
@@ -126,7 +128,7 @@
       h(
         'div',
         { class: 'auth-card' },
-        h('div', { class: 'auth-logo' }, '🦷'),
+        h('div', { class: 'auth-logo' }, window.Icons ? window.Icons.el('tooth', { size: 30, stroke: 1.8 }) : '🦷'),
         h('h1', {}, isSetup ? t('auth.setupTitle') : t('auth.welcome')),
         h('p', { class: 'sub' }, isSetup ? t('auth.setupSubtitle') : t('auth.loginSubtitle')),
         form,
@@ -148,7 +150,7 @@
   /* --------------------------------- shell --------------------------------- */
   function buildShell() {
     const nav = h('nav', { class: 'nav' });
-    for (const [key, emoji, label] of NAV) {
+    for (const [key, icon, label] of NAV) {
       nav.append(
         h(
           'button',
@@ -157,7 +159,7 @@
             dataset: { page: key },
             onClick: () => App.navigate(key),
           },
-          h('span', { class: 'emoji' }, emoji),
+          h('span', { class: 'emoji' }, window.Icons ? window.Icons.el(icon, { size: 19 }) : ''),
           h('span', { class: 'label' }, t(label)),
         ),
       );
@@ -187,7 +189,7 @@
         h(
           'div',
           { class: 'brand' },
-          h('div', { class: 'brand-mark' }, '🦷'),
+          h('div', { class: 'brand-mark' }, window.Icons ? window.Icons.el('tooth', { size: 22, stroke: 1.8 }) : '🦷'),
           h(
             'div',
             {},
@@ -256,6 +258,7 @@
     if (actions) {
       if (Array.isArray(actions)) App.pageActions.append(...actions);
       else App.pageActions.append(actions);
+      window.UI.iconize(App.pageActions);
     }
   };
 
@@ -272,12 +275,14 @@
     clear(App.content);
     App.setHeader('', '', null);
     const page = Pages[App.page] || Pages.dashboard;
-    page.render(App.content, {
-      refresh: App.renderPage,
-      navigate: App.navigate,
-      setHeader: App.setHeader,
-      state: App,
-    });
+    Promise.resolve(
+      page.render(App.content, {
+        refresh: App.renderPage,
+        navigate: App.navigate,
+        setHeader: App.setHeader,
+        state: App,
+      }),
+    ).then(() => window.UI.iconize(App.content));
   };
 
   async function rerender() {
@@ -290,6 +295,7 @@
     }
     const activePage = App.page;
     clear(document.body).append(buildShell());
+    window.UI.iconize(document.body);
     App.page = activePage;
     App.navigate(activePage);
   }
@@ -305,6 +311,7 @@
     App.language = getLanguage();
 
     clear(document.body).append(buildShell());
+    window.UI.iconize(document.body);
 
     // Default landing page: dashboard.
     App.page = 'dashboard';
@@ -314,7 +321,7 @@
   async function boot() {
     try {
       App.bootInfo = await window.API.invoke('app:bootstrap');
-      const info = await window.API.invoke('app:info').catch(() => ({ version: '1.0.0' }));
+      const info = await window.API.invoke('app:info').catch(() => ({ version: '1.1.0' }));
       App.version = info.version || App.version;
       App.demo = Boolean(info.demo) || window.API.demo;
 
@@ -361,5 +368,8 @@
   }
 
   window.App = App;
-  document.addEventListener('DOMContentLoaded', boot);
+  document.addEventListener('DOMContentLoaded', () => {
+    if (window.SFX) window.SFX.install();
+    boot();
+  });
 })();

@@ -7,7 +7,7 @@
  * preload can rebuild a clean Error with a translatable `code`.
  */
 
-const { ipcMain, dialog, shell, BrowserWindow } = require('electron');
+const { ipcMain, dialog, shell, clipboard, BrowserWindow } = require('electron');
 const path = require('node:path');
 const auth = require('./services/auth');
 const backup = require('./services/backup');
@@ -28,6 +28,9 @@ function registerIpc(context = {}) {
     printReceipt: context.printReceipt,
     dialogs: {
       openPath: (target) => shell.openPath(target),
+      // « Copier pour Google Sheets » : the renderer cannot touch the OS
+      // clipboard (sandboxed preload), so the main process does it.
+      copyText: (text) => clipboard.writeText(String(text ?? '')),
       chooseBackup: async () => {
         const { canceled, filePaths } = await dialog.showOpenDialog({
           title: 'Choisir une sauvegarde / اختر نسخة احتياطية',
@@ -36,6 +39,18 @@ function registerIpc(context = {}) {
           properties: ['openFile'],
         });
         return { canceled, file: filePaths?.[0] };
+      },
+      saveExport: async (filename) => {
+        // The default folder must exist, otherwise Windows opens the dialog
+        // in an unrelated place (Documents, Desktop…).
+        const exportsDir = path.join(dataDir, 'exports');
+        require('node:fs').mkdirSync(exportsDir, { recursive: true });
+        const { canceled, filePath } = await dialog.showSaveDialog({
+          title: 'Exporter vers Google Sheets / Excel',
+          defaultPath: path.join(exportsDir, filename),
+          filters: [{ name: 'Classeur Excel / Google Sheets', extensions: ['xlsx'] }],
+        });
+        return { canceled, file: filePath };
       },
       saveBackup: async () => {
         const { canceled, filePath } = await dialog.showSaveDialog({

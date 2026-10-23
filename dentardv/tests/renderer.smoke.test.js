@@ -117,12 +117,31 @@ test('the full UI boots and every screen renders', async (t) => {
     label: 'full list restored',
   });
 
-  // Reports: daily then monthly.
+  // Navigation uses real SVG icons, not emoji.
+  assert.equal($$('.nav-item svg').length, 8, 'one icon per navigation entry');
+  assert.doesNotMatch($$('.nav-item .label').map((node) => node.textContent).join(''), /[\u{1F300}-\u{1FAFF}]/u);
+
+  // Reports: daily then monthly, with the Google Sheets export card.
   $('[data-page="reports"]').click();
   await waitFor(() => $('.tabs'), { label: 'report tabs' });
+  await waitFor(() => $$('.content .btn').some((btn) => /Google Sheets/.test(btn.textContent)), {
+    label: 'export card',
+  });
+  const exportButton = $$('.content .btn').find((btn) => /Google Sheets/.test(btn.textContent) && btn.querySelector('svg'));
+  assert.ok(exportButton, 'the export button carries an SVG icon');
+
   $$('.tabs button')[1].click();
   await waitFor(() => $('.chart'), { label: 'monthly chart' });
   assert.ok($$('.chart .bar').length > 10);
+
+  // Downloading the .xlsx through the demo server produces a real file.
+  window.API.invoke('export:sheet', { kind: 'daily' }).then((result) => {
+    window.__exportResult = result;
+  });
+  await waitFor(() => window.__exportResult, { label: 'generated workbook' });
+  assert.equal(window.__exportResult.ok, true);
+  assert.match(window.__exportResult.filename, /\.xlsx$/);
+  assert.ok(window.__exportResult.file, 'the demo server stores it on disk');
 
   // Language switch to Arabic flips the document direction and translates the UI.
   $('.sidebar-foot button').click();

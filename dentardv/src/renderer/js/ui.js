@@ -57,8 +57,15 @@
 
   function toast(message, type = '') {
     const node = h('div', { class: `toast ${type}` }, message);
+    iconize(node);
     toastHost().append(node);
     setTimeout(() => node.remove(), 3200);
+    // One place for feedback sounds: every success or failure is heard, even
+    // when the caller forgot to call SFX itself.
+    if (window.SFX) {
+      if (type === 'ok' || type === 'success') window.SFX.success();
+      else if (type === 'error') window.SFX.error();
+    }
   }
 
   /* --------------------------------- modals -------------------------------- */
@@ -99,7 +106,11 @@
         'div',
         { class: 'modal-head' },
         h('h2', {}, options.title || ''),
-        h('button', { class: 'btn ghost icon', onClick: closeModal, 'aria-label': 'close' }, '✕'),
+        h(
+          'button',
+          { class: 'btn ghost icon', onClick: closeModal, 'aria-label': 'close' },
+          window.Icons ? window.Icons.el('close', { size: 18 }) : '✕',
+        ),
       ),
       h('div', { class: 'modal-body' }, body),
       foot,
@@ -115,6 +126,7 @@
       if (event.key === 'Escape') closeModal();
     };
     document.addEventListener('keydown', onKey);
+    iconize(overlay);
     document.body.append(overlay);
     openModal = { overlay, dialog, onKey, onClose: options.onClose };
 
@@ -234,8 +246,15 @@
     };
   }
 
-  function emptyState(text, emoji = '🗓️') {
-    return h('div', { class: 'empty' }, h('span', { class: 'emoji' }, emoji), text);
+  /**
+   * Empty state. Accepts either the legacy emoji or an icon name from
+   * js/icons.js (all call sites below now pass icon names).
+   */
+  function emptyState(text, icon = 'calendar') {
+    const glyph = window.Icons && window.Icons.has(icon)
+      ? window.Icons.el(icon, { size: 34, stroke: 1.6 })
+      : h('span', { class: 'emoji' }, icon);
+    return h('div', { class: 'empty' }, h('span', { class: 'emoji' }, glyph), text);
   }
 
   function statusBadge(status) {
@@ -253,6 +272,93 @@
     const now = new Date();
     const pad = (n) => String(n).padStart(2, '0');
     return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  }
+
+  /* ------------------------------ icon mapping ------------------------------ */
+  /**
+   * Replaces the emoji used as a bullet in labels with the SVG icon of
+   * js/icons.js. Emoji render differently on every Windows version (and are
+   * greyed out by some printers); the SVG set is identical everywhere and
+   * inherits the text colour, which matters in RTL Arabic screens.
+   *
+   * The call sites keep writing an emoji before the translated label — readable
+   * in the source — and this single pass upgrades them at render time. Emoji
+   * without a match are left untouched.
+   */
+  const EMOJI_ICONS = {
+    '💵': 'cash',
+    '💲': 'cash',
+    '💰': 'wallet',
+    '💸': 'wallet',
+    '🖨️': 'print',
+    '🖨': 'print',
+    '📅': 'calendar',
+    '🗓️': 'calendar',
+    '🗓': 'calendar',
+    '👤': 'user',
+    '👥': 'users',
+    '🦷': 'tooth',
+    '📝': 'note',
+    '📄': 'file',
+    '📂': 'folder',
+    '📤': 'upload',
+    '📥': 'download',
+    '📊': 'dashboard',
+    '📈': 'chart',
+    '⚙️': 'settings',
+    '⚙': 'settings',
+    '🔒': 'lock',
+    '💾': 'save',
+    '✏️': 'edit',
+    '✏': 'edit',
+    '🗑️': 'trash',
+    '🗑': 'trash',
+    '🚫': 'ban',
+    '✅': 'checkCircle',
+    '✓': 'check',
+    '✕': 'close',
+    '↩️': 'undo',
+    '↩': 'undo',
+    '💡': 'info',
+    '💬': 'whatsapp',
+    '🌐': 'globe',
+    '🏷️': 'tag',
+    '🏷': 'tag',
+    '🧪': 'sparkles',
+    '🎉': 'sparkles',
+  };
+
+  const EMOJI_PATTERN = new RegExp(
+    '^\\s*(' +
+      Object.keys(EMOJI_ICONS)
+        .sort((a, b) => b.length - a.length)
+        .map((emoji) => emoji.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .join('|') +
+      ')\\s*',
+  );
+
+  function iconizeNode(node) {
+    if (!window.Icons || !node) return;
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    const targets = [];
+    while (walker.nextNode()) targets.push(walker.currentNode);
+    for (const textNode of targets) {
+      const match = EMOJI_PATTERN.exec(textNode.nodeValue || '');
+      if (!match) continue;
+      const icon = EMOJI_ICONS[match[1]];
+      if (!icon || !window.Icons.has(icon)) continue;
+      textNode.nodeValue = textNode.nodeValue.slice(match[0].length);
+      const svg = window.Icons.el(icon, { size: 17 });
+      svg.setAttribute('aria-hidden', 'true');
+      const host = textNode.parentNode;
+      host.insertBefore(svg, textNode);
+      if (host.nodeType === 1 && host.matches('button, a')) host.classList.add('has-icon');
+    }
+  }
+
+  /** Upgrade every emoji bullet inside a rendered subtree. */
+  function iconize(root = document.body) {
+    iconizeNode(root);
   }
 
   window.UI = {
@@ -275,6 +381,7 @@
     debounce,
     emptyState,
     statusBadge,
+    iconize,
     todayISO,
   };
 })();

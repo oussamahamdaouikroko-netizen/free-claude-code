@@ -84,7 +84,7 @@
             { class: 'card' },
             h('h2', { class: 'card-title' }, `${t('expenses.period')} : ${formatDate(start)} → ${formatDate(end)}`, h('span', { class: 'badge warn' }, t('reports.expenseCount', { n: rows.length }))),
             rows.length === 0
-              ? emptyState(t('expenses.none'), '💸')
+              ? emptyState(t('expenses.none'), 'wallet')
               : h(
                   'div',
                   { class: 'table-wrap' },

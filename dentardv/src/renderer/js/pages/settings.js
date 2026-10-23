@@ -336,8 +336,38 @@
               backupTable,
             ),
             card(
+              t('settings.interface'),
+              switchRow(
+                t('settings.sounds'),
+                (() => {
+                  const box = h('input', { type: 'checkbox', checked: window.SFX ? window.SFX.isEnabled() : false });
+                  box.addEventListener('change', () => {
+                    window.SFX.setEnabled(box.checked);
+                    toast(t('common.saved'), 'ok');
+                  });
+                  return h('label', { class: 'switch' }, box, h('span', {}));
+                })(),
+              ),
+              h('div', { class: 'muted small' }, t('settings.soundsHint')),
+              h(
+                'button',
+                {
+                  class: 'btn mt-s',
+                  onClick: () => {
+                    if (window.SFX) window.SFX.success();
+                  },
+                },
+                window.Icons ? window.Icons.el('bell', { size: 17 }) : '🔔',
+                h('span', {}, t('settings.testSound')),
+              ),
+            ),
+            card(
               t('settings.security'),
-              h('button', { class: 'btn', onClick: passwordDialog }, '🔒 ', t('settings.changePassword')),
+              (() => {
+                const button = h('button', { class: 'btn', onClick: passwordDialog }, t('settings.changePassword'));
+                if (window.Icons) window.Icons.decorate(button, 'lock', { size: 17 });
+                return button;
+              })(),
             ),
             card(
               t('settings.about'),

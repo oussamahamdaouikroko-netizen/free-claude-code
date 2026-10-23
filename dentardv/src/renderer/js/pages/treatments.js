@@ -82,7 +82,7 @@
           'div',
           { class: 'card' },
           rows.length === 0
-            ? emptyState(t('reports.noData'), '🦷')
+            ? emptyState(t('reports.noData'), 'tooth')
             : h(
                 'div',
                 { class: 'table-wrap' },

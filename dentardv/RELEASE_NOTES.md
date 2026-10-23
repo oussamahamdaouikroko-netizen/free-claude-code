@@ -24,6 +24,28 @@ paiements, dépenses, rapports et réservation automatique par WhatsApp.
   technique (version, erreurs, WhatsApp) — il suffit de l'envoyer au support.
   Son chemin exact est affiché dans **Réglages → À propos**.
 
+### Nouveautés 1.1.0
+
+- **Export Google Sheets / Excel** : depuis *Rapports*, un vrai classeur `.xlsx`
+  est créé **sur l'ordinateur**, sans Internet. Il s'ouvre directement dans
+  Google Sheets (Google Drive → *Ouvrir avec → Google Sheets*), Excel ou
+  LibreOffice. Trois formats : la **période affichée** (jour ou mois), **tout le
+  cabinet** (patients, dettes, rendez-vous, paiements, dépenses, soins), ou un
+  simple **copier-coller** du tableau (Ctrl+V dans une feuille Google).
+  Les en-têtes sont figés, les dates sont de vraies dates et les montants au
+  format monétaire : les filtres et les sommes fonctionnent immédiatement.
+- **Nouvelle interface** inspirée de macOS : cartes blanches, coins arrondis,
+  ombres douces, barre translucide, bascules segmentées, interrupteurs iOS.
+- **Icônes professionnelles** : plus d'emoji — 47 icônes SVG dessinées dans
+  l'application (aucune police, aucun téléchargement), identiques en français
+  et en arabe, lisibles à l'impression.
+- **Sons discrets** : clic, validation, erreur, ouverture — générés par le
+  système, sans fichier audio. Désactivables dans *Réglages → Interface*.
+- **Animations** courtes et sobres (apparition, compteurs, graphique), coupées
+  automatiquement si Windows est réglé sur « réduire les animations ».
+- Les rapports gardent le même contenu : le tableau de bord, l'agenda, les
+  dossiers et WhatsApp ne changent pas.
+
 ### Nouveautés 1.0.1 (correctif)
 
 - **Le robot répond enfin à tous les patients.** WhatsApp envoie maintenant
