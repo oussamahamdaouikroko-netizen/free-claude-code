@@ -24,6 +24,21 @@ paiements, dépenses, rapports et réservation automatique par WhatsApp.
   technique (version, erreurs, WhatsApp) — il suffit de l'envoyer au support.
   Son chemin exact est affiché dans **Réglages → À propos**.
 
+### Nouveautés 1.0.1 (correctif)
+
+- **Le robot répond enfin à tous les patients.** WhatsApp envoie maintenant
+  certains messages avec un identifiant LID (`@lid`) au lieu du numéro de
+  téléphone : ils étaient ignorés. Les deux formats sont traités, et le numéro
+  est retrouvé automatiquement (`remoteJidAlt` puis table de correspondance).
+- Les messages arrivés pendant une coupure ou une mise en veille de l'ordinateur
+  (rejoués par WhatsApp) sont traités s'ils ont moins de 10 minutes, au lieu
+  d'être perdus.
+- Nouveaux compteurs dans **Réglages → WhatsApp** : *Messages reçus*, *Réponses
+  envoyées*, *Dernier message reçu* et *Dernier message ignoré* avec sa raison
+  (groupe, doublon, message trop ancien, limite atteinte…). Plus de silence
+  inexpliqué.
+- Corrigé : l'agenda de démonstration plantait le vendredi (jour de fermeture).
+
 ### Nouveautés 1.0.0
 
 - Réservation WhatsApp : nom complet → premier jour libre + numéro de passage,
