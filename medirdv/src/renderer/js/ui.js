@@ -10,7 +10,7 @@
    */
   function h(tag, props, ...children) {
     const el = document.createElement(tag);
-    if (props) {
+    if (props && typeof props === 'object' && !Array.isArray(props)) {
       for (const [key, value] of Object.entries(props)) {
         if (value === undefined || value === null || value === false) continue;
         if (key === 'class') el.className = value;
@@ -22,7 +22,7 @@
           el.addEventListener(key.slice(2).toLowerCase(), value);
         } else if (key === 'value') el.value = value;
         else if (key === 'checked' || key === 'disabled' || key === 'selected') el[key] = Boolean(value);
-        else el.setAttribute(key, value);
+        else if (/^[A-Za-z_:][A-Za-z0-9_.:-]*$/.test(key)) el.setAttribute(key, value);
       }
     }
     append(el, children);
@@ -186,12 +186,24 @@
   }
 
   function select(options, props = {}) {
-    const el = h('select', { class: 'select', ...props });
+    const normProps =
+      props !== null && typeof props === 'object' && !Array.isArray(props)
+        ? { ...props }
+        : props !== undefined && props !== null
+          ? { value: String(props) }
+          : {};
+    const initialValue = normProps.value;
+    delete normProps.value;
+    const el = h('select', { class: 'select', ...normProps });
     for (const option of options) {
+      const isSelected =
+        Boolean(option.selected) ||
+        (initialValue !== undefined && String(option.value) === String(initialValue));
       el.append(
-        h('option', { value: option.value, selected: option.selected }, option.label),
+        h('option', { value: option.value, selected: isSelected }, option.label),
       );
     }
+    if (initialValue !== undefined) el.value = String(initialValue);
     return el;
   }
 

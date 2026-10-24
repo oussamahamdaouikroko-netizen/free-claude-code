@@ -52,6 +52,14 @@ test('the full UI boots and every screen renders', async (t) => {
         addEventListener() {},
         removeEventListener() {},
       }));
+      // Enforce Chromium-strict attribute name validation (catches string-spread bugs like ...'A5').
+      const origSetAttr = window.Element.prototype.setAttribute;
+      window.Element.prototype.setAttribute = function setAttributeStrict(name, val) {
+        if (!/^[A-Za-z_:][A-Za-z0-9_.:-]*$/.test(String(name))) {
+          throw new Error(`InvalidCharacterError: '${name}' is not a valid attribute name`);
+        }
+        return origSetAttr.call(this, name, val);
+      };
     },
   });
 
@@ -162,6 +170,11 @@ test('the full UI boots and every screen renders', async (t) => {
     { label: 'Arabic navigation labels' },
   );
   assert.match($('[data-page="agenda"] .label').textContent, /[\u0600-\u06FF]/);
+
+  // Verify Settings screen renders all cards cleanly in Arabic RTL (regression guard).
+  $('[data-page="settings"]').click();
+  await waitFor(() => $$('.content .card').length >= 10, { label: 'Arabic Settings cards' });
+  assert.ok(!$('.content .error-text'), 'no render error card in Arabic Settings');
 
   // Mini Chat + Secretary queue advance in Arabic RTL.
   $('[data-page="dashboard"]').click();

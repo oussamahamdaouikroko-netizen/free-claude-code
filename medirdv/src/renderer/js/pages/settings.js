@@ -460,7 +460,7 @@
           : h(
               'table',
               { class: 'list' },
-              h('thead', {}, h('tr', {}, h('th', {}, t('common.date')), h('th', {}, 'Taille'), h('th', { class: 'actions' }, ''))),
+              h('thead', {}, h('tr', {}, h('th', {}, t('common.date')), h('th', {}, t('settings.fileSize')), h('th', { class: 'actions' }, ''))),
               h(
                 'tbody',
                 {},
@@ -605,7 +605,7 @@
         departmentsCard,
         h(
           'div',
-          { class: 'grid two', alignItems: 'start' },
+          { class: 'grid two', style: { alignItems: 'start' } },
           card(
             t('settings.clinic'),
             field(t('settings.clinicName'), clinicName),
@@ -977,7 +977,7 @@
                       { value: 'A5', label: 'A5 (148 × 210 mm)' },
                       { value: 'A4', label: 'A4 (210 × 297 mm)' },
                     ],
-                    settings.print_paper_size || 'A5',
+                    { value: settings.print_paper_size || 'A5' },
                   );
                   sel.addEventListener('change', async () => {
                     await window.API.invoke('settings:set', { print_paper_size: sel.value });

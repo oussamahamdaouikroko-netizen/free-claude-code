@@ -866,6 +866,7 @@
     'print.doc_cert_vaccination': 'Certificat de vaccination',
     'print.recipientDoc': 'Confrère / Spécialité destinataire',
     'print.summaryLabel': 'Résumé clinique / Constatations',
+    'settings.fileSize': 'Taille',
   };
 
   const ar = {
@@ -1732,6 +1733,7 @@
     'print.doc_cert_vaccination': 'شهادة التلقيح الطبي',
     'print.recipientDoc': 'الطبيب الموجه إليه أو الاختصاص',
     'print.summaryLabel': 'الملخص السريري والمعاينات الطبية',
+    'settings.fileSize': 'الحجم',
   };
 
   const DICT = { fr, ar };

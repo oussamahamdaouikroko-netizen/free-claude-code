@@ -294,7 +294,19 @@
         setHeader: App.setHeader,
         state: App,
       }),
-    ).then(() => window.UI.iconize(App.content));
+    )
+      .then(() => window.UI.iconize(App.content))
+      .catch((err) => {
+        console.error('[render]', err);
+        clear(App.content).append(
+          h(
+            'div',
+            { class: 'card error-text' },
+            h('strong', {}, t('common.error')),
+            h('div', { class: 'small muted mt-s' }, errorText(err)),
+          ),
+        );
+      });
   };
 
   async function rerender() {

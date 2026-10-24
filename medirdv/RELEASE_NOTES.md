@@ -1,4 +1,6 @@
-# MediRDV v2.0.0 — Suite Clinique Complète Hors-Ligne pour Cabinets & Polycliniques (Algérie)
+# MediRDV v2.0.1 — Suite Clinique Complète Hors-Ligne pour Cabinets & Polycliniques (Algérie)
+
+Correctif `v2.0.1` : correction d’un problème d’affichage de la page **Paramètres / الإعدادات** sous Chromium/Windows (`InvalidCharacterError` lors du rendu du sélecteur de format papier `A5/A4`). Toutes les cartes de configuration s’affichent désormais intégralement en Français et en Arabe RTL.
 
 Mise à niveau majeure en **10 phases** de **MediRDV** (`SCHEMA_VERSION = 10`, migration automatique sans aucune perte depuis `v1.0.0`) — **100 % gratuit, 100 % hors-ligne (hors connecteur WhatsApp existant), données stockées exclusivement en Algérie sur le poste de la clinique (conformité Loi algérienne n° 18-07)**.
 
