@@ -1,0 +1,146 @@
+name: Build DentaRDV for Windows
+
+# Free Windows builds on GitHub-hosted runners:
+#  - push a tag v*            → published GitHub Release with setup.exe
+#  - pull request   → downloadable artifact, keeps its build log for 30 days
+#  - manual run     → same as main
+on:
+  # v* tag  → installer + GitHub Release
+  # main    → installer as a downloadable artifact (no release)
+  # PR      → same as main, so the installer can be reviewed before merging
+  # manual  → same as main
+  push:
+    tags: ["v*"]
+    branches: [main, master]
+    paths:
+      - "dentardv/**"
+      - ".github/workflows/dentardv-windows.yml"
+  pull_request:
+    paths:
+      - "dentardv/**"
+      - ".github/workflows/dentardv-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dentardv-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: dentardv
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dentardv/package-lock.json
+
+      # Electron's binary is only needed for packaging, not for the unit tests.
+      # better-sqlite3 ships Node-ABI prebuilds, so no compile is needed here.
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+
+      - name: Run tests
+        run: npm test
+
+  build:
+    name: Windows installer
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: dentardv
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dentardv/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Tests run on the Node ABI (prebuilds/), packaging rebuilds for Electron
+      # (npmRebuild: true) and scripts/after-pack.js swaps the binary.
+      # The log is echoed on failure so the failing assertion is visible even
+      # when the full job log cannot be downloaded.
+      - name: Run unit tests (Windows)
+        shell: bash
+        run: |
+          set +e
+          npm test 2>&1 | tee test-output.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            echo "::error::DentaRDV tests failed on Windows"
+            grep -E "^not ok|^# (tests|pass|fail)|Error|error" test-output.log | head -40 | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+            exit "$status"
+          fi
+
+      - name: Build NSIS installer
+        shell: bash
+        run: |
+          set +e
+          npx electron-builder --win nsis --x64 --publish never 2>&1 | tee build-output.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            echo "::error::DentaRDV installer build failed on Windows (exit $status)"
+            # GitHub keeps only 10 annotations per step, so print the errors only.
+            grep -nE '⨯|Error|error|Cannot|cannot|failed|ERR!' build-output.log \
+              | tail -8 | while IFS= read -r line; do
+                echo "::error::$line"
+              done
+            exit "$status"
+          fi
+
+      # Sales tool: one portable .exe with sample data, no installation.
+      - name: Build portable demo (sales tool)
+        run: npx electron-builder --win --config electron-builder.demo.yml --publish never
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DentaRDV-Setup-windows
+          path: |
+            dentardv/release/DentaRDV-Setup-*.exe
+            dentardv/release/DentaRDV-Setup-*.exe.blockmap
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload demo artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DentaRDV-Demo-portable
+          path: dentardv/release/DentaRDV-Demo-*.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: DentaRDV ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            dentardv/release/DentaRDV-Setup-*.exe
+          body_path: dentardv/RELEASE_NOTES.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

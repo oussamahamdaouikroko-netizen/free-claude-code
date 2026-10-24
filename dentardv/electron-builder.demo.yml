@@ -1,0 +1,56 @@
+# DentaRDV — DÉMO PORTABLE (outil de vente)
+#
+#   npm run dist:demo   →   release/DentaRDV-Demo-1.1.0.exe
+#
+# Un seul fichier, aucune installation : le dentiste double-clique et voit un
+# cabinet qui fonctionne déjà (données d'exemple, accès direct sans mot de passe).
+# Ses vraies données ne sont jamais touchées : la démo utilise
+# %APPDATA%\DentaRDV-Demo et ne peut pas lier WhatsApp.
+#
+# À graver sur une clé USB et à laisser en essai 7 jours.
+
+appId: dz.dentardv.desktop.demo
+productName: DentaRDV-Demo
+copyright: Copyright © 2026 DentaRDV
+
+directories:
+  output: release
+  buildResources: assets
+
+files:
+  - src/**/*
+  - package.json
+  - "!**/*.map"
+  - "!**/README*"
+  - "!**/.github/**"
+  - "!**/test/**"
+
+# The marker that switches the app into demo mode (see src/main/index.js).
+extraFiles:
+  - from: assets/demo.mode
+    to: demo.mode
+
+asar: true
+
+asarUnpack:
+  - node_modules/better-sqlite3/**
+  - node_modules/@whiskeysockets/**
+  - node_modules/whatsapp-rust-bridge/**
+  - node_modules/libsignal/**
+  - node_modules/sharp/**
+  - node_modules/@img/**
+
+npmRebuild: true
+afterPack: scripts/after-pack.js
+
+win:
+  target:
+    - target: portable
+      arch:
+        - x64
+  icon: assets/icon.png
+  artifactName: DentaRDV-Demo-${version}.${ext}
+  legalTrademarks: DentaRDV
+
+portable:
+  artifactName: DentaRDV-Demo-${version}.${ext}
