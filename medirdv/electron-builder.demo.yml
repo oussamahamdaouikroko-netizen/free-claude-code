@@ -1,0 +1,46 @@
+# MediRDV — DÉMO PORTABLE (outil de vente pour cabinets médicaux & polycliniques)
+
+appId: dz.medirdv.desktop.demo
+productName: MediRDV-Demo
+copyright: Copyright © 2026 MediRDV
+
+directories:
+  output: release
+  buildResources: assets
+
+files:
+  - src/**/*
+  - package.json
+  - "!**/*.map"
+  - "!**/README*"
+  - "!**/.github/**"
+  - "!**/test/**"
+
+extraFiles:
+  - from: assets/demo.mode
+    to: demo.mode
+
+asar: true
+
+asarUnpack:
+  - node_modules/better-sqlite3/**
+  - node_modules/@whiskeysockets/**
+  - node_modules/whatsapp-rust-bridge/**
+  - node_modules/libsignal/**
+  - node_modules/sharp/**
+  - node_modules/@img/**
+
+npmRebuild: true
+afterPack: scripts/after-pack.js
+
+win:
+  target:
+    - target: portable
+      arch:
+        - x64
+  icon: assets/icon.png
+  artifactName: MediRDV-Demo-${version}.${ext}
+  legalTrademarks: MediRDV
+
+portable:
+  artifactName: MediRDV-Demo-${version}.${ext}
