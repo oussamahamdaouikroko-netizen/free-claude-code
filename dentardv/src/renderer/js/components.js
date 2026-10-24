@@ -200,6 +200,7 @@
           notes: notes.value.trim(),
         });
         toast(t('common.saved'), 'ok');
+        if (window.MiniChat) window.MiniChat.refresh({ scrollBottom: true });
         if (onSaved) onSaved();
         return true;
       } catch (err) {
@@ -477,6 +478,140 @@
     } catch (error) {
       toast(errorMessage(error), 'error');
     }
+  };
+
+  /* --------------------------- live clinic queue --------------------------- */
+  C.completeAppointment = async function completeAppointment(appointment, onChanged) {
+    try {
+      const isToday = appointment.day === todayISO();
+      if (isToday) {
+        const res = await window.API.invoke('appointments:complete', { id: appointment.id });
+        if (window.MiniChat) window.MiniChat.refresh({ scrollBottom: true });
+        if (res?.next_patient && res.distant_count > 0) {
+          toast(
+            t('queue.completedAndNotifiedMany', {
+              next: res.next_patient.full_name,
+              n: res.distant_count,
+            }),
+            'ok',
+          );
+        } else if (res?.next_patient) {
+          toast(t('queue.completedAndNotifiedOne', { next: res.next_patient.full_name }), 'ok');
+        } else {
+          toast(t('agenda.done'), 'ok');
+        }
+      } else {
+        await window.API.invoke('appointments:status', { id: appointment.id, status: 'done' });
+        toast(t('agenda.done'), 'ok');
+      }
+      if (onChanged) onChanged();
+    } catch (error) {
+      toast(errorMessage(error), 'error');
+    }
+  };
+
+  C.cancelAppointment = async function cancelAppointment(appointment, onChanged) {
+    const ok = await window.UI.confirmDialog(
+      t('agenda.cancelConfirm', {
+        name: appointment.full_name,
+        date: window.I18N.formatDate(appointment.day),
+      }),
+    );
+    if (!ok) return;
+    try {
+      await window.API.invoke('appointments:cancel', { id: appointment.id });
+      if (window.MiniChat) window.MiniChat.refresh({ scrollBottom: true });
+      toast(t('queue.autoRemovedToast'), 'ok');
+      if (onChanged) onChanged();
+    } catch (error) {
+      toast(errorMessage(error), 'error');
+    }
+  };
+
+  C.queueEtaBadge = function queueEtaBadge(appointment, day = todayISO()) {
+    if (!appointment || appointment.status !== 'booked' || day !== todayISO()) return null;
+    const ahead = Number(appointment.ahead_count ?? 0);
+    const min = Number(appointment.eta_minutes ?? 0);
+    if (ahead <= 0) {
+      return h('span', { class: 'badge ok queue-eta' }, t('queue.currentNow'));
+    }
+    if (ahead === 1) {
+      return h('span', { class: 'badge queue-eta' }, t('queue.nextEta', { min }));
+    }
+    return h('span', { class: 'badge warn queue-eta' }, t('queue.aheadEta', { n: ahead, min }));
+  };
+
+  C.queueLiveBanner = function queueLiveBanner(agendaRows = [], { day = todayISO(), onChanged } = {}) {
+    if (day !== todayISO()) return null;
+    const booked = agendaRows.filter((item) => item.status === 'booked');
+    if (booked.length === 0) return null;
+
+    const current = booked[0];
+    const next = booked[1] || null;
+    const avg = Number(window.App?.settings?.avg_session_minutes) || 20;
+    const finishBtn = h(
+      'button',
+      {
+        type: 'button',
+        class: 'btn primary',
+        onClick: async () => {
+          finishBtn.disabled = true;
+          try {
+            await C.completeAppointment(current, onChanged);
+          } finally {
+            finishBtn.disabled = false;
+          }
+        },
+      },
+      window.Icons ? window.Icons.el('checkCircle', { size: 18 }) : '✓',
+      h('span', {}, next ? t('queue.finishAndCallNext') : t('queue.finishTreatment')),
+    );
+
+    const openChatBtn = h(
+      'button',
+      {
+        type: 'button',
+        class: 'btn sm ghost',
+        onClick: () => {
+          if (window.MiniChat) window.MiniChat.open();
+        },
+      },
+      window.Icons ? window.Icons.el('chat', { size: 16 }) : '',
+      h('span', {}, t('chat.openBtn')),
+    );
+
+    const subtitleParts = [];
+    if (next) {
+      subtitleParts.push(t('queue.nextUp', { q: next.queue_number, name: next.full_name }));
+      if (booked.length > 2) {
+        subtitleParts.push(t('queue.waitingCount', { n: booked.length - 1, avg }));
+      }
+    } else {
+      subtitleParts.push(t('queue.lastPatient'));
+    }
+
+    return h(
+      'div',
+      { class: 'queue-live-bar mb' },
+      h(
+        'div',
+        { class: 'queue-live-info' },
+        h('div', { class: 'queue current-pill num' }, `#${current.queue_number}`),
+        h(
+          'div',
+          { class: 'who' },
+          h(
+            'div',
+            { class: 'row wrap', style: { gap: '8px' } },
+            h('span', { class: 'badge ok' }, t('queue.barTitle')),
+            h('strong', { class: 'queue-live-name' }, current.full_name),
+            current.treatment_name ? h('span', { class: 'muted small' }, `· ${current.treatment_name}`) : null,
+          ),
+          h('div', { class: 'queue-live-sub muted small' }, subtitleParts.join(' · ')),
+        ),
+      ),
+      h('div', { class: 'row wrap', style: { gap: '8px' } }, openChatBtn, finishBtn),
+    );
   };
 
   C.methodOptions = methodOptions;

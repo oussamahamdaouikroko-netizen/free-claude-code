@@ -167,6 +167,7 @@ function boot() {
     demo: DEMO,
     userData: app.getPath('userData'),
     printReceipt: printDocument,
+    onEvent: broadcastEvent,
     // No WhatsApp pairing inside a demo build: the prospect must never link
     // their own clinic phone to a throw-away installation.
     wa: DEMO ? null : waService,
