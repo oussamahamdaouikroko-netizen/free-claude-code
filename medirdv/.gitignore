@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# electron-builder output
+release/
+dist/
+
+# Local databases (demo + tests)
+demo/data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Logs
+*.log
+npm-debug.log*
