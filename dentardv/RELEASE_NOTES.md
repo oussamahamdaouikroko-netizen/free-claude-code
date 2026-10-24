@@ -24,6 +24,21 @@ paiements, dépenses, rapports et réservation automatique par WhatsApp.
   technique (version, erreurs, WhatsApp) — il suffit de l'envoyer au support.
   Son chemin exact est affiché dans **Réglages → À propos**.
 
+### Nouveautés 1.2.0
+
+- **Mini-chat intégré (`Messages & File`)** : fenêtre flottante dans le coin de
+  l'écran affichant en direct les confirmations de rendez-vous, les annulations
+  et les appels de tour, avec compteur de non-lus et filtres rapides.
+- **Retrait automatique à l'annulation** : dès qu'un patient annule sur WhatsApp
+  (`إلغاء` / `ANNULER`) ou depuis l'accueil, il disparaît automatiquement de la
+  liste active et le compteur d'attente des patients suivants se recalcule.
+- **Bouton « Soin terminé · Appeler le suivant » pour la secrétaire** : en un
+  clic, le patient actuel passe en *Terminé*, le patient suivant reçoit
+  immédiatement l'alerte *« C'est votre tour ! / حان دوركم الآن »*, et les
+  patients plus loin dans la file reçoivent le nombre de personnes restantes
+  avant eux ainsi que le temps d'attente estimé (selon la durée moyenne réglable
+  dans *Réglages → Agenda*).
+
 ### Nouveautés 1.1.0
 
 - **Export Google Sheets / Excel** : depuis *Rapports*, un vrai classeur `.xlsx`

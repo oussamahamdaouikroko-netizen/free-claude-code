@@ -16,6 +16,9 @@ const DEFAULT_SETTINGS = {
   // Patients can take today's slot when room is left.
   allow_same_day_booking: '1',
   booking_horizon_days: '45',
+  // Average session duration (minutes), used to estimate waiting time in queue.
+  avg_session_minutes: '20',
+  queue_notify_enabled: '1',
   password_hash: '',
   password_salt: '',
   // WhatsApp

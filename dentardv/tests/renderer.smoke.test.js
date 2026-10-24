@@ -152,6 +152,20 @@ test('the full UI boots and every screen renders', async (t) => {
   );
   assert.match($('[data-page="agenda"] .label').textContent, /[\u0600-\u06FF]/);
 
+  // Mini Chat + Secretary queue advance in Arabic RTL.
+  $('[data-page="dashboard"]').click();
+  await waitFor(() => $('.queue-live-bar'), { label: 'live queue bar on dashboard' });
+  assert.ok($('.chat-fab'), 'floating Mini Chat button is rendered');
+  $('.chat-fab').click();
+  await waitFor(() => $('.mini-chat:not(.hidden)'), { label: 'Mini Chat panel opened' });
+  await waitFor(() => $$('.mini-chat .chat-item').length >= 3, { label: 'seeded Mini Chat items' });
+
+  const initialItems = $$('.mini-chat .chat-item').length;
+  $('.queue-live-bar .btn.primary').click();
+  await waitFor(() => $$('.mini-chat .chat-item').length > initialItems, {
+    label: 'new turn_now and queue_ahead messages in Mini Chat',
+  });
+
   // Lock → login screen appears (proves the auth guard works end-to-end).
   const lockButton = $$('.sidebar-foot button')[1];
   lockButton.click();

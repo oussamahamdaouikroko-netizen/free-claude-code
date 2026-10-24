@@ -54,7 +54,15 @@
     const buttons = h('div', { class: 'row' });
     if (appointment.status === 'booked') {
       buttons.append(
-        h('button', { class: 'btn icon sm', title: t('agenda.done'), onClick: () => action('done', t('agenda.done')) }, '✓'),
+        h(
+          'button',
+          {
+            class: 'btn icon sm soft',
+            title: t('queue.finishAndCallNext'),
+            onClick: () => window.Components.completeAppointment(appointment, ctx.refresh),
+          },
+          '✓',
+        ),
         h('button', { class: 'btn icon sm', title: t('agenda.noShow'), onClick: () => action('no_show', t('agenda.noShow')) }, '🚫'),
       );
     }
@@ -90,9 +98,16 @@
       h('button', { class: 'btn icon sm', title: t('common.delete'), onClick: () => ctx.cancel(appointment) }, '✕'),
     );
 
+    const badges = h(
+      'div',
+      { class: 'row wrap', style: { gap: '6px', justifyContent: 'flex-end' } },
+      window.Components.queueEtaBadge(appointment, appointment.day),
+      statusBadge(appointment.status),
+    );
+
     return h(
       'div',
-      { class: 'appt' },
+      { class: `appt ${appointment.is_current_turn && appointment.day === todayISO() ? 'current-turn' : ''}` },
       h('div', { class: `queue ${appointment.status === 'done' ? 'done' : appointment.status === 'no_show' ? 'missed' : ''}` }, appointment.queue_number),
       h(
         'div',
@@ -109,7 +124,7 @@
         h('div', { class: 'meta' }, [appointment.phone, appointment.treatment_name].filter(Boolean).join(' · ') || t('common.none')),
         appointment.notes ? h('div', { class: 'meta' }, '📝 ' + appointment.notes) : null,
       ),
-      h('div', { class: 'col', style: { gap: '6px', alignItems: 'flex-end' } }, statusBadge(appointment.status), buttons),
+      h('div', { class: 'col', style: { gap: '6px', alignItems: 'flex-end' } }, badges, buttons),
       h(
         'div',
         { class: 'money' },
@@ -155,19 +170,7 @@
         ),
       );
 
-      ctx.cancel = async (appointment) => {
-        const ok = await window.UI.confirmDialog(
-          t('agenda.cancelConfirm', { name: appointment.full_name, date: formatDate(appointment.day) }),
-        );
-        if (!ok) return;
-        try {
-          await window.API.invoke('appointments:cancel', { id: appointment.id });
-          toast(t('agenda.cancelled'), 'ok');
-          ctx.refresh();
-        } catch (error) {
-          toast(errorMessage(error), 'error');
-        }
-      };
+      ctx.cancel = (appointment) => window.Components.cancelAppointment(appointment, ctx.refresh);
 
       clear(root).append(
         h(
@@ -182,6 +185,7 @@
           h('span', { class: 'badge' }, `${t('dash.appointmentsToday')} : ${agenda.filter((a) => a.status !== 'cancelled').length}`),
           h('span', { class: 'badge warn' }, `${t('agenda.totalDue')} : ${formatMoney(totalDue, window.App.settings.currency)}`),
         ),
+        window.Components.queueLiveBanner(agenda, { day, onChanged: ctx.refresh }),
         h(
           'div',
           { class: 'card' },

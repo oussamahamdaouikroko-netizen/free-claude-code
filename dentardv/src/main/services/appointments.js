@@ -13,7 +13,9 @@
 
 const { getDb } = require('../db');
 const settings = require('./settings');
-const { AppError, money, cleanText, nowLocal, requireId } = require('../utils/common');
+const chat = require('./chat');
+const { message } = require('../whatsapp/messages');
+const { AppError, money, cleanText, nowLocal, requireId, phoneKey } = require('../utils/common');
 const { isValidISODate, addDays, toISODate, diffDays, formatLong } = require('../utils/dates');
 
 const ACTIVE_STATUSES = ['booked', 'done', 'no_show'];
@@ -253,12 +255,161 @@ function setStatus(id, status) {
   return get(appointment.id);
 }
 
-const cancel = (id) => setStatus(id, 'cancelled');
+/** Remove any pending waiting-list entry matching a phone number. */
+function cancelWaitingByPhone(phone) {
+  const key = phoneKey(phone);
+  if (!key) return 0;
+  const rows = getDb()
+    .prepare('SELECT id, phone FROM waiting_list WHERE handled = 0')
+    .all();
+  let cleared = 0;
+  const mark = getDb().prepare('UPDATE waiting_list SET handled = 1 WHERE id = ?');
+  for (const row of rows) {
+    if (phoneKey(row.phone) === key) {
+      mark.run(row.id);
+      cleared += 1;
+    }
+  }
+  return cleared;
+}
 
-/** Agenda of one day, ordered by queue number. */
+function cancel(id) {
+  const cancelled = setStatus(id, 'cancelled');
+  if (cancelled?.phone) cancelWaitingByPhone(cancelled.phone);
+  return cancelled;
+}
+
+/**
+ * Live queue position for a booked appointment: how many active `booked`
+ * patients are still ahead of it on the same day, and estimated wait minutes.
+ */
+function queuePosition(appointment) {
+  if (!appointment || appointment.status !== 'booked') {
+    return { ahead: null, etaMinutes: null };
+  }
+  const ahead = getDb()
+    .prepare(
+      `SELECT COUNT(*) AS n FROM appointments
+       WHERE day = ? AND status = 'booked' AND queue_number < ?`,
+    )
+    .get(appointment.day, appointment.queue_number).n;
+  const avgMinutes = Math.max(5, settings.getInt('avg_session_minutes') || 20);
+  return { ahead, etaMinutes: ahead * avgMinutes };
+}
+
+/**
+ * Secretary action: confirm the patient finished treatment, then notify:
+ *  - the immediately next patient (`turn_now`) that it is their turn now;
+ *  - further waiting patients (`queue_ahead`) with how many people remain
+ *    ahead of them and their estimated waiting time.
+ */
+function completeAndAdvance(id, options = {}) {
+  const current = get(id);
+  const updated = setStatus(current.id, 'done');
+  const today = options.today || toISODate();
+  const avgMinutes = Math.max(5, settings.getInt('avg_session_minutes') || 20);
+
+  if (updated.day !== today) {
+    return {
+      appointment: updated,
+      next_patient: null,
+      waiting_count: 0,
+      distant_count: 0,
+      avg_session_minutes: avgMinutes,
+      notifications: [],
+    };
+  }
+
+  const waiting = getDb()
+    .prepare(
+      `${AGENDA_SQL}
+       WHERE a.day = ? AND a.status = 'booked'
+       ORDER BY a.queue_number ASC`,
+    )
+    .all(updated.day)
+    .map(decorate);
+
+  const notifications = [];
+  const canQueueWa = Boolean(options.waConnected) && settings.getBool('queue_notify_enabled');
+
+  waiting.slice(0, 20).forEach((entry, index) => {
+    const lang =
+      typeof options.resolveLanguage === 'function'
+        ? options.resolveLanguage(entry.phone, entry.full_name)
+        : chat.detectLanguage(entry.full_name);
+
+    const isNext = index === 0;
+    const ahead = index;
+    const etaMinutes = ahead * avgMinutes;
+    const body = isNext
+      ? message(lang, 'turnNow', chat.clinicSettings(), {
+          name: entry.full_name,
+          queue: entry.queue_number,
+        })
+      : message(lang, 'queueAhead', chat.clinicSettings(), {
+          name: entry.full_name,
+          queue: entry.queue_number,
+          ahead,
+          etaMinutes,
+        });
+
+    const delivery = canQueueWa && entry.phone ? 'queued' : 'local';
+    const logged = chat.record({
+      kind: isNext ? 'turn_now' : 'queue_ahead',
+      direction: 'out',
+      patient_id: entry.patient_id,
+      appointment_id: entry.id,
+      patient_name: entry.full_name,
+      phone: entry.phone || null,
+      day: entry.day,
+      queue_number: entry.queue_number,
+      ahead_count: ahead,
+      eta_minutes: etaMinutes,
+      body,
+      delivery,
+      read: Boolean(options.markRead),
+    });
+
+    notifications.push({
+      event_id: logged.id,
+      kind: logged.kind,
+      appointment_id: entry.id,
+      patient_id: entry.patient_id,
+      patient_name: entry.full_name,
+      phone: entry.phone || null,
+      queue_number: entry.queue_number,
+      ahead_count: ahead,
+      eta_minutes: etaMinutes,
+      lang,
+      body,
+      delivery,
+    });
+  });
+
+  const next = waiting[0] || null;
+  return {
+    appointment: updated,
+    next_patient: next
+      ? {
+          id: next.patient_id,
+          appointment_id: next.id,
+          full_name: next.full_name,
+          queue_number: next.queue_number,
+          phone: next.phone || null,
+        }
+      : null,
+    waiting_count: waiting.length,
+    distant_count: Math.max(0, waiting.length - 1),
+    avg_session_minutes: avgMinutes,
+    notifications,
+  };
+}
+
+/** Agenda of one day, ordered by queue number (cancelled rows excluded). */
 function agenda(day = toISODate()) {
   if (!isValidISODate(day)) throw new AppError('INVALID_DATE');
-  return getDb()
+  const avgMinutes = Math.max(5, settings.getInt('avg_session_minutes') || 20);
+  const rows = getDb()
     .prepare(
       `${AGENDA_SQL}
        WHERE a.day = ? AND a.status <> 'cancelled'
@@ -266,6 +417,26 @@ function agenda(day = toISODate()) {
     )
     .all(day)
     .map(decorate);
+
+  let bookedOrder = 0;
+  return rows.map((row) => {
+    if (row.status === 'booked') {
+      const ahead = bookedOrder;
+      bookedOrder += 1;
+      return {
+        ...row,
+        ahead_count: ahead,
+        eta_minutes: ahead * avgMinutes,
+        is_current_turn: ahead === 0,
+      };
+    }
+    return {
+      ...row,
+      ahead_count: null,
+      eta_minutes: null,
+      is_current_turn: false,
+    };
+  });
 }
 
 /** Next appointment of a patient from a given day (used by the bot). */
@@ -355,6 +526,9 @@ module.exports = {
   syncTreatmentName,
   setStatus,
   cancel,
+  cancelWaitingByPhone,
+  queuePosition,
+  completeAndAdvance,
   agenda,
   upcomingForPatient,
   listRange,

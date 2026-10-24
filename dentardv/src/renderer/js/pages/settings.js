@@ -95,7 +95,9 @@
       /* ------------------------------- agenda ----------------------------- */
       const capacity = input({ type: 'number', min: '1', max: '100', value: settings.daily_capacity });
       const horizon = input({ type: 'number', min: '1', max: '365', value: settings.booking_horizon_days });
+      const avgSession = input({ type: 'number', min: '5', max: '180', step: '5', value: settings.avg_session_minutes || '20' });
       const sameDay = input({ type: 'checkbox', checked: settings.allow_same_day_booking === '1' });
+      const queueNotify = input({ type: 'checkbox', checked: settings.queue_notify_enabled !== '0' });
       const dayButtons = DAY_ORDER.map((day) =>
         h(
           'button',
@@ -138,7 +140,9 @@
             language: language.value,
             daily_capacity: capacity.value,
             booking_horizon_days: horizon.value,
+            avg_session_minutes: avgSession.value,
             allow_same_day_booking: sameDay.checked ? '1' : '0',
+            queue_notify_enabled: queueNotify.checked ? '1' : '0',
             working_days: [...working].sort().join(','),
             bot_language: botLanguage.value,
             reminder_enabled: reminderEnabled.checked ? '1' : '0',
@@ -311,8 +315,10 @@
           card(
             t('settings.agenda'),
             h('div', { class: 'grid two' }, field(t('settings.capacity'), capacity), field(t('settings.horizon'), horizon)),
+            field(t('settings.avgSession'), avgSession, t('settings.avgSessionHint')),
             field(t('settings.workingDays'), h('div', { class: 'day-toggle' }, dayButtons)),
             switchRow(t('settings.sameDay'), h('label', { class: 'switch' }, sameDay, h('span', {}))),
+            switchRow(t('settings.queueNotify'), h('label', { class: 'switch' }, queueNotify, h('span', {}))),
           ),
           card(
             t('settings.whatsapp'),

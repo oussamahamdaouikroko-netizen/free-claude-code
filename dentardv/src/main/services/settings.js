@@ -49,6 +49,8 @@ const VALIDATORS = {
   },
   allow_same_day_booking: (v) => String(asFlag(v)),
   booking_horizon_days: (v) => String(clampInt(v, 1, 365, 45)),
+  avg_session_minutes: (v) => String(clampInt(v, 5, 180, 20)),
+  queue_notify_enabled: (v) => String(asFlag(v)),
   bot_enabled: (v) => String(asFlag(v)),
   bot_language: (v) => (v === 'ar' ? 'ar' : 'fr'),
   reminder_enabled: (v) => String(asFlag(v)),

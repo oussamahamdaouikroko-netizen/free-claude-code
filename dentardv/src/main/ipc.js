@@ -23,8 +23,10 @@ function registerIpc(context = {}) {
   handlers = createHandlers({
     version: context.version || '1.0.0',
     dataDir,
-    demo: false,
+    logFile: context.logFile,
+    demo: Boolean(context.demo),
     wa: context.wa,
+    onEvent: context.onEvent,
     printReceipt: context.printReceipt,
     dialogs: {
       openPath: (target) => shell.openPath(target),

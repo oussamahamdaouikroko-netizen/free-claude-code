@@ -24,6 +24,7 @@ const QRCode = require('qrcode');
 const settings = require('../services/settings');
 const appointments = require('../services/appointments');
 const patients = require('../services/patients');
+const chatService = require('../services/chat');
 const { getDb } = require('../db');
 const { nowLocal } = require('../utils/common');
 const { toISODate, addDays } = require('../utils/dates');
@@ -94,13 +95,15 @@ class WhatsAppService {
   /**
    * @param {{authDir: string, onStatus?: (status: object) => void,
    *          onEvent?: (event: {type: string, payload: object}) => void,
-   *          reminderPauseMs?: [number, number]}} options
+   *          reminderPauseMs?: [number, number],
+   *          queuePauseMs?: [number, number]}} options
    */
-  constructor({ authDir, onStatus, onEvent, reminderPauseMs }) {
+  constructor({ authDir, onStatus, onEvent, reminderPauseMs, queuePauseMs }) {
     this.authDir = authDir;
     // Pause between two reminder recipients. Randomized and long on purpose:
     // a message every 2 seconds is the classic signature of a bot.
     this.reminderPauseMs = reminderPauseMs || [15000, 35000];
+    this.queuePauseMs = queuePauseMs || [4500, 9500];
     this.onStatus = onStatus || (() => {});
     this.onEvent = onEvent || (() => {});
     this.sock = null;
@@ -417,15 +420,26 @@ class WhatsAppService {
       return;
     }
 
-    const result = bot.handle({ phone, text });
+    const result = bot.handle({ phone, text, delivery: 'queued' });
     if (!result || !result.reply) return this.skip('no_reply', tag);
 
     const sent = await this.reply(phone, replyJid, result.reply);
     if (sent) {
       this.stats.replied += 1;
       this.logMessage(phone, 'out', result.reply);
+      if (result.chatEvent?.id) chatService.setDelivery(result.chatEvent.id, 'sent');
+    } else if (result.chatEvent?.id) {
+      chatService.setDelivery(result.chatEvent.id, 'failed');
     }
-    this.onEvent({ type: 'message', payload: { phone, action: result.action } });
+    this.onEvent({
+      type: 'message',
+      payload: {
+        phone,
+        action: result.action,
+        appointment: result.appointment || null,
+        chat_event_id: result.chatEvent?.id || null,
+      },
+    });
     // Live counters in Réglages → WhatsApp: the dentist sees, message by
     // message, that the bot is receiving and answering.
     this.onStatus(this.publicStatus());
@@ -639,6 +653,87 @@ class WhatsAppService {
          ORDER BY a.queue_number ASC`,
       )
       .all(tomorrow);
+  }
+
+  /**
+   * Deliver live queue notifications ("it's your turn" + "X ahead / ~Y min")
+   * triggered when the secretary finishes the current patient's treatment.
+   * Sent sequentially with human typing simulation and random pauses.
+   */
+  async notifyQueueAdvance(notifications = []) {
+    if (!Array.isArray(notifications) || notifications.length === 0) {
+      return { sent: 0, skipped: 0 };
+    }
+    if (this.state !== 'connected' || !this.sock) {
+      for (const item of notifications) {
+        if (item.event_id) chatService.setDelivery(item.event_id, 'local');
+      }
+      return { sent: 0, skipped: notifications.length, reason: 'not_connected' };
+    }
+    if (!settings.getBool('queue_notify_enabled')) {
+      for (const item of notifications) {
+        if (item.event_id) chatService.setDelivery(item.event_id, 'local');
+      }
+      return { sent: 0, skipped: notifications.length, reason: 'disabled' };
+    }
+
+    let sent = 0;
+    let skipped = 0;
+    const today = toISODate();
+    if (this.globalDay.day !== today) this.globalDay = { day: today, count: 0 };
+
+    for (let i = 0; i < notifications.length; i += 1) {
+      const item = notifications[i];
+      if (this.state !== 'connected' || !this.sock) {
+        if (item.event_id) chatService.setDelivery(item.event_id, 'local');
+        skipped += 1;
+        continue;
+      }
+      if (this.globalDay.count >= settings.getInt('max_replies_per_day')) {
+        if (item.event_id) chatService.setDelivery(item.event_id, 'local');
+        skipped += 1;
+        continue;
+      }
+      const jid = toJid(item.phone);
+      if (!jid) {
+        if (item.event_id) chatService.setDelivery(item.event_id, 'local');
+        skipped += 1;
+        continue;
+      }
+      if (typeof this.sock.onWhatsApp === 'function') {
+        try {
+          const [probe] = await this.sock.onWhatsApp(jid);
+          if (!probe?.exists) {
+            if (item.event_id) chatService.setDelivery(item.event_id, 'failed');
+            skipped += 1;
+            continue;
+          }
+        } catch (error) {
+          console.warn('[wa] onWhatsApp probe failed:', error.message);
+        }
+      }
+
+      const ok = await this.reply(fromJid(jid), jid, item.body);
+      if (ok) {
+        this.globalDay.count += 1;
+        this.stats.replied += 1;
+        this.logMessage(fromJid(jid), 'out', item.body);
+        if (item.event_id) chatService.setDelivery(item.event_id, 'sent');
+        sent += 1;
+        this.onEvent({ type: 'chat', payload: { id: item.event_id, kind: item.kind, delivery: 'sent' } });
+      } else {
+        if (item.event_id) chatService.setDelivery(item.event_id, 'failed');
+        skipped += 1;
+      }
+
+      if (i < notifications.length - 1) {
+        await sleep(randomBetween(this.queuePauseMs[0], this.queuePauseMs[1]));
+      }
+    }
+
+    this.onStatus(this.publicStatus());
+    this.onEvent({ type: 'queue', payload: { sent, skipped } });
+    return { sent, skipped };
   }
 }
 

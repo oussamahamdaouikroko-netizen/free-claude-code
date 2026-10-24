@@ -20,7 +20,7 @@
   ];
 
   const App = {
-    version: '1.1.0', // replaced by app:info at boot (demo server / Electron)
+    version: '1.2.0', // replaced by app:info at boot (demo server / Electron)
     settings: {},
     language: getLanguage(),
     page: 'dashboard',
@@ -144,6 +144,7 @@
 
   async function renderAuth(mode, info = {}) {
     authMode = mode;
+    if (window.MiniChat) window.MiniChat.stop();
     clear(document.body).append(authScreen(mode, info));
   }
 
@@ -245,6 +246,7 @@
         App.content,
       ),
     );
+    if (window.MiniChat) window.MiniChat.mount(shell);
     App.shell = shell;
     return shell;
   }
@@ -356,10 +358,23 @@
       }
     });
 
-    // WhatsApp events → toasts; keep the connection panel in sync.
+    // WhatsApp & live queue events → toasts, Mini Chat sync, and active list refresh.
+    App.onExternalChatUpdate = () => {
+      if (!App.bootInfo?.auth?.unlocked) return;
+      if (['dashboard', 'agenda', 'whatsapp'].includes(App.page)) App.renderPage();
+    };
     window.API.onEvent((event) => {
       if (event?.type === 'reminders' && event.payload?.sent) {
         toast(t('wa.sentNow', { n: event.payload.sent }), 'ok');
+      }
+      if (event?.type === 'message') {
+        if (event.payload?.action === 'cancelled') {
+          toast(t('queue.autoRemovedToast'), 'ok');
+        }
+        if (window.MiniChat) window.MiniChat.refresh({ scrollBottom: true });
+        App.onExternalChatUpdate();
+      } else if (event?.type === 'chat' || event?.type === 'queue') {
+        if (window.MiniChat) window.MiniChat.refresh({ scrollBottom: true });
       }
     });
     window.API.onWhatsAppStatus(() => {

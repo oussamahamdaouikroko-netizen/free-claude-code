@@ -26,18 +26,10 @@
           'button',
           {
             class: 'btn sm soft',
-            title: t('dash.markDone'),
-            onClick: async () => {
-              try {
-                await window.API.invoke('appointments:status', { id: appointment.id, status: 'done' });
-                toast(t('agenda.done'), 'ok');
-                onChanged();
-              } catch (error) {
-                toast(errorMessage(error), 'error');
-              }
-            },
+            title: t('queue.finishAndCallNext'),
+            onClick: () => window.Components.completeAppointment(appointment, onChanged),
           },
-          '✓ ' + t('dash.markDone'),
+          '✓ ' + t('queue.finishTreatment'),
         ),
       );
     }
@@ -58,10 +50,30 @@
         ),
       );
     }
+    if (appointment.status === 'booked') {
+      actions.append(
+        h(
+          'button',
+          {
+            class: 'btn icon sm ghost',
+            title: t('common.cancel'),
+            onClick: () => window.Components.cancelAppointment(appointment, onChanged),
+          },
+          '✕',
+        ),
+      );
+    }
+
+    const badges = h(
+      'div',
+      { class: 'row wrap', style: { gap: '6px', justifyContent: 'flex-end' } },
+      window.Components.queueEtaBadge(appointment, appointment.day),
+      statusBadge(appointment.status),
+    );
 
     return h(
       'div',
-      { class: 'appt' },
+      { class: `appt ${appointment.is_current_turn ? 'current-turn' : ''}` },
       h('div', { class: `queue ${appointment.status === 'done' ? 'done' : appointment.status === 'no_show' ? 'missed' : ''}` }, appointment.queue_number),
       h(
         'div',
@@ -77,7 +89,7 @@
         ),
         h('div', { class: 'meta' }, [appointment.treatment_name || t('common.none'), appointment.phone].filter(Boolean).join(' · ')),
       ),
-      h('div', { class: 'col', style: { alignItems: 'flex-end', gap: '6px' } }, statusBadge(appointment.status), actions),
+      h('div', { class: 'col', style: { alignItems: 'flex-end', gap: '6px' } }, badges, actions),
       h(
         'div',
         { class: 'money' },
@@ -148,6 +160,7 @@
                   : t('dash.closedDay'),
               ),
             ),
+            window.Components.queueLiveBanner(data.agenda, { day, onChanged: ctx.refresh }),
             data.agenda.length === 0
               ? emptyState(t('dash.noAppointments'))
               : h('div', {}, data.agenda.map((appointment) => appointmentRow(appointment, ctx.refresh))),

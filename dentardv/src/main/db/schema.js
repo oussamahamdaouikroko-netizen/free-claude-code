@@ -7,7 +7,7 @@
  * clinic install only runs the missing migrations and never drops data.
  */
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 /** v1 - initial clinic schema. */
 const MIGRATION_1 = `
@@ -130,7 +130,35 @@ CREATE TABLE IF NOT EXISTS bot_messages (
 CREATE INDEX IF NOT EXISTS idx_bot_phone ON bot_messages(phone);
 `;
 
-const MIGRATIONS = [MIGRATION_1];
+const MIGRATIONS = [
+  MIGRATION_1,
+  `
+-- v2 - live appointment & queue chat feed (confirmations, cancellations,
+-- "your turn" calls and queue wait-time alerts).
+CREATE TABLE IF NOT EXISTS chat_events (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind           TEXT NOT NULL
+                 CHECK (kind IN ('booked', 'cancelled', 'turn_now', 'queue_ahead', 'incoming')),
+  direction      TEXT NOT NULL DEFAULT 'out'
+                 CHECK (direction IN ('in', 'out')),
+  patient_id     INTEGER REFERENCES patients(id) ON DELETE SET NULL,
+  appointment_id INTEGER REFERENCES appointments(id) ON DELETE SET NULL,
+  patient_name   TEXT,
+  phone          TEXT,
+  day            TEXT,
+  queue_number   INTEGER,
+  ahead_count    INTEGER,
+  eta_minutes    INTEGER,
+  body           TEXT NOT NULL,
+  delivery       TEXT NOT NULL DEFAULT 'local'
+                 CHECK (delivery IN ('local', 'queued', 'sent', 'failed')),
+  read_at        TEXT,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_chat_events_created ON chat_events(created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_chat_events_kind    ON chat_events(kind);
+`,
+];
 
 /**
  * Run pending migrations on a better-sqlite3 connection.

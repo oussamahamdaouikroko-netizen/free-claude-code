@@ -18,6 +18,8 @@ const payments = require('./services/payments');
 const expenses = require('./services/expenses');
 const reports = require('./services/reports');
 const backup = require('./services/backup');
+const chat = require('./services/chat');
+const bot = require('./whatsapp/bot');
 const sheets = require('./export/sheets');
 const auth = require('./services/auth');
 const { AppError } = require('./utils/common');
@@ -69,7 +71,8 @@ function dashboardToday(day = toISODate()) {
  * }} context
  */
 function createHandlers(context) {
-  const { version, dataDir, logFile, wa, printReceipt, dialogs = {}, demo = false } = context;
+  const { version, dataDir, logFile, wa, printReceipt, dialogs = {}, demo = false, onEvent } = context;
+  const emit = typeof onEvent === 'function' ? onEvent : () => {};
 
   const requireWa = () => {
     if (!wa) throw new AppError('WA_UNAVAILABLE');
@@ -120,13 +123,109 @@ function createHandlers(context) {
     'appointments:day-info': (payload) => appointments.dayInfo(payload?.day),
     'appointments:next-free-day': (payload) => appointments.findNextFreeDay(payload || {}),
     'appointments:range': (payload) => appointments.listRange(payload?.start, payload?.end),
-    'appointments:create': (payload) => appointments.create(payload),
+    'appointments:create': (payload) => {
+      const created = appointments.create(payload);
+      if (!payload?.historical && created?.status === 'booked') {
+        chat.recordBooked(created, { delivery: 'local' });
+        emit({ type: 'chat', payload: { kind: 'booked', appointment_id: created.id } });
+      }
+      return created;
+    },
     'appointments:update': (payload) => appointments.updateDetails(payload),
     'appointments:reschedule': (payload) => appointments.reschedule(payload),
-    'appointments:status': (payload) => appointments.setStatus(payload?.id, payload?.status),
-    'appointments:cancel': (payload) => appointments.cancel(payload?.id),
+    'appointments:status': (payload) => {
+      if (payload?.status === 'cancelled') {
+        const cancelled = appointments.cancel(payload?.id);
+        chat.recordCancelled(cancelled, { delivery: 'local' });
+        emit({ type: 'chat', payload: { kind: 'cancelled', appointment_id: cancelled.id } });
+        return cancelled;
+      }
+      return appointments.setStatus(payload?.id, payload?.status);
+    },
+    'appointments:cancel': (payload) => {
+      const cancelled = appointments.cancel(payload?.id);
+      chat.recordCancelled(cancelled, { delivery: 'local' });
+      emit({ type: 'chat', payload: { kind: 'cancelled', appointment_id: cancelled.id } });
+      return cancelled;
+    },
+    'appointments:complete': (payload) => {
+      const waConnected = Boolean(wa && wa.publicStatus()?.connected);
+      const result = appointments.completeAndAdvance(payload?.id, {
+        waConnected,
+        resolveLanguage: (phone, fullName) => bot.preferredLanguage(phone, fullName),
+      });
+      if (waConnected && result.notifications.length > 0 && typeof wa.notifyQueueAdvance === 'function') {
+        wa.notifyQueueAdvance(result.notifications).catch((error) => {
+          console.error('[wa] queue notification failed:', error.message);
+        });
+      }
+      emit({ type: 'chat', payload: { kind: 'turn_now', count: result.notifications.length } });
+      return result;
+    },
     'appointments:waiting-list': () => appointments.waitingList(),
     'appointments:waiting-handle': (payload) => appointments.markWaitingHandled(payload?.id),
+
+    /* ------------------------------- mini chat ----------------------------- */
+    'chat:feed': (payload) => chat.feed(payload || {}),
+    'chat:mark-read': () => chat.markAllRead(),
+    'chat:simulate': (payload) => {
+      if (!demo) throw new AppError('DEMO_ONLY');
+      const mode = payload?.mode || 'custom';
+      const today = toISODate();
+      const isAr = settings.get('language') === 'ar';
+
+      if (mode === 'cancel_next') {
+        const bookedToday = appointments.agenda(today).filter((a) => a.status === 'booked');
+        const target = bookedToday[bookedToday.length - 1] || bookedToday[0];
+        if (!target) throw new AppError('APPOINTMENT_NOT_FOUND');
+        if (target.phone) {
+          const sim = bot.handle({
+            phone: target.phone,
+            text: isAr ? 'إلغاء' : 'ANNULER',
+            delivery: 'local',
+          });
+          emit({ type: 'chat', payload: { kind: 'cancelled', appointment_id: target.id } });
+          return { action: sim.action, appointment: target, reply: sim.reply };
+        }
+        const cancelled = appointments.cancel(target.id);
+        chat.recordCancelled(cancelled, { delivery: 'local' });
+        emit({ type: 'chat', payload: { kind: 'cancelled', appointment_id: cancelled.id } });
+        return { action: 'cancelled', appointment: cancelled };
+      }
+
+      if (mode === 'book_new') {
+        const names = isAr
+          ? ['سليم بوعلام', 'مريم بن عيسى', 'رشيد حمدان', 'سميرة لعريبي', 'وليد قاسي']
+          : ['Salim Boualem', 'Meriem Benaissa', 'Rachid Hamdane', 'Samira Laribi', 'Walid Kaci'];
+        const suffix = String(Math.floor(100000 + Math.random() * 899999));
+        const phone = `0559${suffix}`;
+        const name = names[Math.floor(Math.random() * names.length)];
+        const person = patients.upsertFromWhatsApp({ name, phone });
+        const info = appointments.dayInfo(today);
+        const targetDay = info.left > 0 ? today : appointments.findNextFreeDay({ allowSameDay: true }) || today;
+        const created = appointments.create({
+          patient_id: person.patient.id,
+          day: targetDay,
+          source: 'whatsapp',
+          historical: !settings.isWorkingDay(targetDay),
+        });
+        const event = chat.recordBooked(created, {
+          phone,
+          lang: isAr ? 'ar' : 'fr',
+          delivery: 'local',
+        });
+        emit({ type: 'chat', payload: { kind: 'booked', appointment_id: created.id } });
+        return { action: 'booked', appointment: created, chatEvent: event };
+      }
+
+      const sim = bot.handle({
+        phone: String(payload?.phone || '0555999888'),
+        text: String(payload?.text || ''),
+        delivery: 'local',
+      });
+      emit({ type: 'chat', payload: { kind: sim.action } });
+      return sim;
+    },
 
     /* ------------------------------- treatments ---------------------------- */
     'treatments:list': (payload) => treatments.list(Boolean(payload?.include_inactive)),
