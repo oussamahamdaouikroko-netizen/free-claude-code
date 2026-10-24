@@ -128,6 +128,12 @@ function boot() {
   console.log('[boot] MediRDV', app.getVersion(), '| electron', process.versions.electron);
   console.log('[boot] data dir', dataDir);
 
+  if (fs.existsSync(databaseFile)) {
+    const integrity = db.checkIntegrity(databaseFile);
+    if (!integrity.ok) {
+      console.error('[db] startup integrity check warning:', integrity.error);
+    }
+  }
   db.open(databaseFile);
   console.log('[db]', databaseFile);
 

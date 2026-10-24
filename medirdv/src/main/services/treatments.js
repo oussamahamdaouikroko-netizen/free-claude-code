@@ -14,7 +14,12 @@ function list(includeInactive = false) {
        ORDER BY name_fr COLLATE NOCASE ASC`,
     )
     .all();
-  return rows.map((row) => ({ ...row, default_price: money(row.default_price) }));
+  return rows.map((row) => ({
+    ...row,
+    default_price: money(row.default_price),
+    price_private: money(row.price_private ?? row.default_price),
+    price_insured: money(row.price_insured ?? row.default_price),
+  }));
 }
 
 function get(id) {
@@ -38,6 +43,15 @@ function normalize(input, { partial = false } = {}) {
     if (!Number.isFinite(price) || price < 0) throw new AppError('INVALID_PRICE');
     out.default_price = money(price);
   }
+  if (input.price_private !== undefined && input.price_private !== null && input.price_private !== '') {
+    out.price_private = money(Math.max(0, Number(input.price_private) || 0));
+  }
+  if (input.price_insured !== undefined && input.price_insured !== null && input.price_insured !== '') {
+    out.price_insured = money(Math.max(0, Number(input.price_insured) || 0));
+  }
+  if (input.convention_rate !== undefined) {
+    out.convention_rate = Math.min(100, Math.max(0, Number.parseInt(input.convention_rate, 10) || 80));
+  }
   if (input.color !== undefined) {
     const color = String(input.color || '').trim();
     out.color = /^#[0-9a-fA-F]{6}$/.test(color) ? color : '#0066cc';
@@ -48,15 +62,19 @@ function normalize(input, { partial = false } = {}) {
 
 function create(input = {}) {
   const data = normalize(input);
+  const defPrice = data.default_price ?? 0;
   const info = getDb()
     .prepare(
-      `INSERT INTO treatments (name_fr, name_ar, default_price, color)
-       VALUES (@name_fr, @name_ar, @default_price, @color)`,
+      `INSERT INTO treatments (name_fr, name_ar, default_price, price_private, price_insured, convention_rate, color)
+       VALUES (@name_fr, @name_ar, @default_price, @price_private, @price_insured, @convention_rate, @color)`,
     )
     .run({
       name_fr: data.name_fr,
       name_ar: data.name_ar || data.name_fr,
-      default_price: data.default_price ?? 0,
+      default_price: defPrice,
+      price_private: data.price_private ?? defPrice,
+      price_insured: data.price_insured ?? defPrice,
+      convention_rate: data.convention_rate ?? 80,
       color: data.color || '#0066cc',
     });
   return get(info.lastInsertRowid);
@@ -68,13 +86,19 @@ function update(input = {}) {
   const data = normalize(input, { partial: true });
   getDb()
     .prepare(
-      `UPDATE treatments SET name_fr = ?, name_ar = ?, default_price = ?, color = ?, active = ?
+      `UPDATE treatments SET
+         name_fr = ?, name_ar = ?, default_price = ?,
+         price_private = ?, price_insured = ?, convention_rate = ?,
+         color = ?, active = ?
        WHERE id = ?`,
     )
     .run(
       data.name_fr ?? current.name_fr,
       data.name_ar ?? current.name_ar,
       data.default_price ?? current.default_price,
+      data.price_private ?? current.price_private ?? current.default_price,
+      data.price_insured ?? current.price_insured ?? current.default_price,
+      data.convention_rate ?? current.convention_rate ?? 80,
       data.color ?? current.color,
       data.active ?? current.active,
       id,

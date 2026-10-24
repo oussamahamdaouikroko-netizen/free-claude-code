@@ -40,11 +40,11 @@ function list(search = '', options = {}) {
       (SELECT MAX(a.day) FROM appointments a
         WHERE a.patient_id = p.id AND a.status <> 'cancelled') AS last_visit
     FROM patients p
-    ${term ? 'WHERE p.full_name LIKE ? OR p.phone LIKE ? OR p.phone_norm LIKE ?' : ''}
+    ${term ? 'WHERE p.full_name LIKE ? OR p.phone LIKE ? OR p.phone_norm LIKE ? OR p.chifa_number LIKE ? OR p.nss LIKE ?' : ''}
     ORDER BY p.full_name COLLATE NOCASE ASC
     LIMIT ?`;
   const params = term
-    ? [`%${term}%`, `%${term}%`, `%${phoneKey(term) || term}%`, limit]
+    ? [`%${term}%`, `%${term}%`, `%${phoneKey(term) || term}%`, `%${term}%`, `%${term}%`, limit]
     : [limit];
   return getDb().prepare(sql).all(...params).map(rowToPatient);
 }
@@ -90,6 +90,28 @@ function normalizeInput(input, { partial = false } = {}) {
   if (input.chronic_conditions !== undefined) {
     out.chronic_conditions = cleanText(input.chronic_conditions, 500);
   }
+  if (input.rh_factor !== undefined) {
+    const rh = cleanText(input.rh_factor, 4);
+    out.rh_factor = rh === '+' || rh === '-' ? rh : '';
+  }
+  if (input.marital_status !== undefined) out.marital_status = cleanText(input.marital_status, 40);
+  if (input.occupation !== undefined) out.occupation = cleanText(input.occupation, 100);
+  if (input.chifa_number !== undefined) out.chifa_number = cleanText(input.chifa_number, 40);
+  if (input.nss !== undefined) out.nss = cleanText(input.nss, 40);
+  if (input.wilaya !== undefined) out.wilaya = cleanText(input.wilaya, 60);
+  if (input.commune !== undefined) out.commune = cleanText(input.commune, 80);
+  if (input.emergency_contact_name !== undefined) out.emergency_contact_name = cleanText(input.emergency_contact_name, 100);
+  if (input.emergency_contact_phone !== undefined) out.emergency_contact_phone = cleanText(input.emergency_contact_phone, 30);
+  if (input.legal_guardian_name !== undefined) out.legal_guardian_name = cleanText(input.legal_guardian_name, 100);
+  if (input.legal_guardian_phone !== undefined) out.legal_guardian_phone = cleanText(input.legal_guardian_phone, 30);
+  if (input.insurance_type !== undefined) {
+    const ins = cleanText(input.insurance_type, 20);
+    out.insurance_type = ['none', 'CNAS', 'CASNOS', 'other', 'free'].includes(ins) ? ins : 'none';
+  }
+  if (input.insurance_rate !== undefined) {
+    out.insurance_rate = Math.min(100, Math.max(0, Number.parseInt(input.insurance_rate, 10) || 0));
+  }
+  if (input.insurance_org_name !== undefined) out.insurance_org_name = cleanText(input.insurance_org_name, 100);
   if (input.notes !== undefined) out.notes = cleanText(input.notes, 1000) || null;
   return out;
 }
@@ -104,10 +126,20 @@ function create(input = {}) {
     .prepare(
       `INSERT INTO patients
          (full_name, phone, phone_norm, birth_date, gender,
-          blood_group, allergies, chronic_conditions, notes, created_at, updated_at)
+          blood_group, rh_factor, allergies, chronic_conditions,
+          marital_status, occupation, chifa_number, nss, wilaya, commune,
+          emergency_contact_name, emergency_contact_phone,
+          legal_guardian_name, legal_guardian_phone,
+          insurance_type, insurance_rate, insurance_org_name,
+          notes, created_at, updated_at)
        VALUES
          (@full_name, @phone, @phone_norm, @birth_date, @gender,
-          @blood_group, @allergies, @chronic_conditions, @notes, @now, @now)`,
+          @blood_group, @rh_factor, @allergies, @chronic_conditions,
+          @marital_status, @occupation, @chifa_number, @nss, @wilaya, @commune,
+          @emergency_contact_name, @emergency_contact_phone,
+          @legal_guardian_name, @legal_guardian_phone,
+          @insurance_type, @insurance_rate, @insurance_org_name,
+          @notes, @now, @now)`,
     )
     .run({
       full_name: data.full_name,
@@ -116,8 +148,29 @@ function create(input = {}) {
       birth_date: data.birth_date ?? null,
       gender: data.gender ?? null,
       blood_group: data.blood_group ?? '',
+      rh_factor: data.rh_factor ?? '',
       allergies: data.allergies ?? '',
       chronic_conditions: data.chronic_conditions ?? '',
+      marital_status: data.marital_status ?? '',
+      occupation: data.occupation ?? '',
+      chifa_number: data.chifa_number ?? '',
+      nss: data.nss ?? '',
+      wilaya: data.wilaya ?? '',
+      commune: data.commune ?? '',
+      emergency_contact_name: data.emergency_contact_name ?? '',
+      emergency_contact_phone: data.emergency_contact_phone ?? '',
+      legal_guardian_name: data.legal_guardian_name ?? '',
+      legal_guardian_phone: data.legal_guardian_phone ?? '',
+      insurance_type: data.insurance_type ?? 'none',
+      insurance_rate:
+        data.insurance_rate !== undefined
+          ? data.insurance_rate
+          : data.insurance_type === 'CNAS' || data.insurance_type === 'CASNOS'
+            ? 80
+            : data.insurance_type === 'free'
+              ? 100
+              : 0,
+      insurance_org_name: data.insurance_org_name ?? '',
       notes: data.notes ?? null,
       now: nowLocal(),
     });
@@ -141,8 +194,22 @@ function update(input = {}) {
         birth_date = @birth_date,
         gender = @gender,
         blood_group = @blood_group,
+        rh_factor = @rh_factor,
         allergies = @allergies,
         chronic_conditions = @chronic_conditions,
+        marital_status = @marital_status,
+        occupation = @occupation,
+        chifa_number = @chifa_number,
+        nss = @nss,
+        wilaya = @wilaya,
+        commune = @commune,
+        emergency_contact_name = @emergency_contact_name,
+        emergency_contact_phone = @emergency_contact_phone,
+        legal_guardian_name = @legal_guardian_name,
+        legal_guardian_phone = @legal_guardian_phone,
+        insurance_type = @insurance_type,
+        insurance_rate = @insurance_rate,
+        insurance_org_name = @insurance_org_name,
         notes = @notes,
         updated_at = datetime('now')
        WHERE id = @id`,
@@ -155,11 +222,32 @@ function update(input = {}) {
       birth_date: data.birth_date !== undefined ? data.birth_date : current.birth_date,
       gender: data.gender !== undefined ? data.gender : current.gender,
       blood_group: data.blood_group !== undefined ? data.blood_group : (current.blood_group || ''),
+      rh_factor: data.rh_factor !== undefined ? data.rh_factor : (current.rh_factor || ''),
       allergies: data.allergies !== undefined ? data.allergies : (current.allergies || ''),
       chronic_conditions:
         data.chronic_conditions !== undefined
           ? data.chronic_conditions
           : (current.chronic_conditions || ''),
+      marital_status: data.marital_status !== undefined ? data.marital_status : (current.marital_status || ''),
+      occupation: data.occupation !== undefined ? data.occupation : (current.occupation || ''),
+      chifa_number: data.chifa_number !== undefined ? data.chifa_number : (current.chifa_number || ''),
+      nss: data.nss !== undefined ? data.nss : (current.nss || ''),
+      wilaya: data.wilaya !== undefined ? data.wilaya : (current.wilaya || ''),
+      commune: data.commune !== undefined ? data.commune : (current.commune || ''),
+      emergency_contact_name:
+        data.emergency_contact_name !== undefined ? data.emergency_contact_name : (current.emergency_contact_name || ''),
+      emergency_contact_phone:
+        data.emergency_contact_phone !== undefined ? data.emergency_contact_phone : (current.emergency_contact_phone || ''),
+      legal_guardian_name:
+        data.legal_guardian_name !== undefined ? data.legal_guardian_name : (current.legal_guardian_name || ''),
+      legal_guardian_phone:
+        data.legal_guardian_phone !== undefined ? data.legal_guardian_phone : (current.legal_guardian_phone || ''),
+      insurance_type:
+        data.insurance_type !== undefined ? data.insurance_type : (current.insurance_type || 'none'),
+      insurance_rate:
+        data.insurance_rate !== undefined ? data.insurance_rate : (current.insurance_rate || 0),
+      insurance_org_name:
+        data.insurance_org_name !== undefined ? data.insurance_org_name : (current.insurance_org_name || ''),
       notes: data.notes !== undefined ? data.notes : current.notes,
     });
   return get(id);

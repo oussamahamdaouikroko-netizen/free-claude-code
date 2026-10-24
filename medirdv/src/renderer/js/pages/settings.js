@@ -204,6 +204,10 @@
         SPECIALTY_SUGGESTIONS.map((item) => h('option', { value: item })),
       );
       const doctorOrdre = input({ value: settings.doctor_ordre || '', placeholder: 'Ex. ALG-24819' });
+      const clinicRc = input({ value: settings.clinic_rc || '', placeholder: 'RC' });
+      const clinicNif = input({ value: settings.clinic_nif || '', placeholder: 'NIF' });
+      const clinicNis = input({ value: settings.clinic_nis || '', placeholder: 'NIS' });
+      const clinicAi = input({ value: settings.clinic_ai || '', placeholder: 'AI' });
       const clinicWilaya = input({ value: settings.clinic_wilaya || '', placeholder: t('settings.wilayaPlaceholder') });
       const clinicAddress = input({ value: settings.clinic_address || '' });
       const clinicPhone = input({ value: settings.clinic_phone || '', inputmode: 'tel' });
@@ -258,6 +262,10 @@
             doctor_name: doctorName.value.trim(),
             doctor_specialty: doctorSpecialty.value.trim(),
             doctor_ordre: doctorOrdre.value.trim(),
+            clinic_rc: clinicRc.value.trim(),
+            clinic_nif: clinicNif.value.trim(),
+            clinic_nis: clinicNis.value.trim(),
+            clinic_ai: clinicAi.value.trim(),
             clinic_wilaya: clinicWilaya.value.trim(),
             clinic_address: clinicAddress.value.trim(),
             clinic_phone: clinicPhone.value.trim(),
@@ -295,11 +303,25 @@
       let backups = [];
       let info = {};
       let depts = [];
+      let usersList = [];
+      let auditEntries = [];
+      let auditCheck = { valid: true, checked: 0 };
+      let closures = [];
+      let invList = [];
+      let invAlerts = { low_stock: [], expiring: [] };
+      let staffList = [];
       try {
-        [backups, info, depts] = await Promise.all([
+        [backups, info, depts, usersList, auditEntries, auditCheck, closures, invList, invAlerts, staffList] = await Promise.all([
           window.API.invoke('backup:list').catch(() => []),
           window.API.invoke('app:info').catch(() => ({})),
           window.API.invoke('departments:list', { include_inactive: true }).catch(() => []),
+          window.API.invoke('users:list').catch(() => []),
+          window.API.invoke('audit:list', { limit: 12 }).catch(() => []),
+          window.API.invoke('audit:verify').catch(() => ({ valid: true, checked: 0 })),
+          window.API.invoke('ops:closures').catch(() => []),
+          window.API.invoke('ops:inventory').catch(() => []),
+          window.API.invoke('ops:inventory-alerts').catch(() => ({ low_stock: [], expiring: [] })),
+          window.API.invoke('ops:staff').catch(() => []),
         ]);
       } catch (error) {
         toast(errorMessage(error), 'error');
@@ -534,6 +556,43 @@
         h('button', { class: 'btn ghost', onClick: () => window.API.invoke('backup:reveal') }, '📂 ', t('settings.openFolder')),
       );
 
+      /* ------------------- Algerian Nomenclature Importer ----------------- */
+      const nomSummary = await window.API.invoke('nomenclature:summary').catch(() => ({
+        total: 0, generics: 0, reimbursable: 0, last_updated: '',
+      }));
+      const nomFileIn = h('input', { type: 'file', accept: '.xlsx,.csv,.json,.tsv', style: { display: 'none' } });
+      const nomVerifiedChk = h('input', { type: 'checkbox' });
+      nomFileIn.addEventListener('change', async () => {
+        const f = nomFileIn.files && nomFileIn.files[0];
+        if (!f) return;
+        try {
+          const lower = f.name.toLowerCase();
+          let res;
+          if (lower.endsWith('.xlsx')) {
+            const ab = await f.arrayBuffer();
+            const bytesArr = new Uint8Array(ab);
+            let bin = '';
+            for (let i = 0; i < bytesArr.length; i += 1) bin += String.fromCharCode(bytesArr[i]);
+            res = await window.API.invoke('nomenclature:import', {
+              format: 'xlsx',
+              xlsxBase64: btoa(bin),
+              mark_verified: nomVerifiedChk.checked,
+            });
+          } else {
+            const txt = await f.text();
+            res = await window.API.invoke('nomenclature:import', {
+              format: lower.endsWith('.json') ? 'json' : 'csv',
+              content: txt,
+              mark_verified: nomVerifiedChk.checked,
+            });
+          }
+          toast(t('nom.importedToast', { imported: res.imported, updated: res.updated }), 'ok');
+          ctx.refresh();
+        } catch (err) {
+          toast(errorMessage(err), 'error');
+        }
+      });
+
       /* ------------------------------- render ----------------------------- */
       clear(root).append(
         specialtyDatalist,
@@ -553,6 +612,8 @@
             h('div', { class: 'grid two' }, field(t('settings.doctorName'), doctorName), field(t('settings.doctorSpecialty'), doctorSpecialty)),
             h('div', { class: 'grid two' }, field(t('settings.wilaya'), clinicWilaya), field(t('settings.doctorOrdre'), doctorOrdre)),
             field(t('settings.address'), clinicAddress),
+            h('div', { class: 'grid two' }, field(t('billing.rc'), clinicRc), field(t('billing.nif'), clinicNif)),
+            h('div', { class: 'grid two' }, field(t('billing.nis'), clinicNis), field(t('billing.ai'), clinicAi)),
             h('div', { class: 'grid two' }, field(t('settings.phone'), clinicPhone), field(t('settings.currency'), currency)),
             field(t('settings.language'), language),
             h('div', { class: 'muted small' }, '🖨️ ' + t('settings.ordonnanceNote')),
@@ -578,6 +639,39 @@
           h(
             'div',
             { class: 'col' },
+            card(
+              t('nom.cardTitle'),
+              h('div', { class: 'muted small' }, t('nom.subtitle')),
+              h(
+                'div',
+                { class: 'badge ok' },
+                t('nom.statsLine', {
+                  total: nomSummary.total || 0,
+                  generics: nomSummary.generics || 0,
+                  reimb: nomSummary.reimbursable || 0,
+                }),
+              ),
+              h(
+                'div',
+                { class: 'info-line' },
+                h('span', { class: 'k' }, t('nom.lastUpdated')),
+                h('strong', {}, nomSummary.last_updated || '—'),
+              ),
+              h(
+                'label',
+                { class: 'row', style: { gap: '8px', cursor: 'pointer' } },
+                nomVerifiedChk,
+                h('span', { class: 'small' }, t('safety.markVerified')),
+              ),
+              h(
+                'button',
+                { class: 'btn soft', type: 'button', onClick: () => nomFileIn.click() },
+                nomFileIn,
+                window.Icons ? window.Icons.el('upload', { size: 16 }) : '',
+                ' ',
+                t('nom.chooseFileBtn'),
+              ),
+            ),
             card(
               t('settings.backups'),
               switchRow(t('settings.backupEnabled'), backupAuto),
@@ -614,11 +708,319 @@
             ),
             card(
               t('settings.security'),
-              (() => {
-                const button = h('button', { class: 'btn', onClick: passwordDialog }, t('settings.changePassword'));
-                if (window.Icons) window.Icons.decorate(button, 'lock', { size: 17 });
-                return button;
-              })(),
+              h(
+                'div',
+                { class: 'row wrap', style: { gap: '8px' } },
+                (() => {
+                  const button = h('button', { class: 'btn', onClick: passwordDialog }, t('settings.changePassword'));
+                  if (window.Icons) window.Icons.decorate(button, 'lock', { size: 17 });
+                  return button;
+                })(),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    class: 'btn soft',
+                    onClick: () => {
+                      const pw = input({ type: 'password', placeholder: t('sec.encBackupPrompt') });
+                      modal({
+                        title: t('sec.encBackupBtn'),
+                        body: field(t('sec.encBackupPrompt'), pw),
+                        actions: [
+                          { label: t('common.cancel'), kind: 'ghost' },
+                          {
+                            label: t('common.save'),
+                            kind: 'primary',
+                            onClick: async () => {
+                              await window.API.invoke('security:encrypted-backup', { password: pw.value });
+                              toast(t('sec.encBackupDone'), 'ok');
+                            },
+                          },
+                        ],
+                      });
+                    },
+                  },
+                  '🔐 ',
+                  t('sec.encBackupBtn'),
+                ),
+              ),
+              h('div', { class: 'row between wrap mt-s' }, h('strong', {}, t('sec.usersTitle')), h(
+                'button',
+                {
+                  type: 'button',
+                  class: 'btn sm primary',
+                  onClick: () => {
+                    const uIn = input({ placeholder: 'dr.ahmed' });
+                    const nIn = input({ placeholder: t('common.name') });
+                    const rSel = select(
+                      ['admin', 'doctor', 'secretary', 'nurse', 'accountant'].map((r) => ({
+                        value: r,
+                        label: t(`sec.role_${r}`),
+                      })),
+                    );
+                    const pIn = input({ type: 'password', placeholder: '••••' });
+                    const pinIn = input({ placeholder: '1234' });
+                    modal({
+                      title: t('sec.addUserBtn'),
+                      body: h(
+                        'div',
+                        { class: 'col' },
+                        h('div', { class: 'grid two' }, field(t('sec.username'), uIn), field(t('common.name'), nIn)),
+                        field(t('sec.role'), rSel),
+                        h('div', { class: 'grid two' }, field(t('auth.newPassword'), pIn), field(t('sec.pinLabel'), pinIn)),
+                      ),
+                      actions: [
+                        { label: t('common.cancel'), kind: 'ghost' },
+                        {
+                          label: t('common.save'),
+                          kind: 'primary',
+                          onClick: async () => {
+                            await window.API.invoke('users:create', {
+                              username: uIn.value,
+                              full_name: nIn.value,
+                              role: rSel.value,
+                              password: pIn.value,
+                              pin: pinIn.value,
+                            });
+                            toast(t('common.saved'), 'ok');
+                            ctx.refresh();
+                          },
+                        },
+                      ],
+                    });
+                  },
+                },
+                '＋ ',
+                t('sec.addUserBtn'),
+              )),
+              usersList.map((u) =>
+                h('div', { class: 'row between small', style: { padding: '4px 0', borderBottom: '1px solid var(--line)' } }, h('span', {}, `${u.full_name} (@${u.username})`), h('span', { class: 'badge info' }, t(`sec.role_${u.role}`))),
+              ),
+              h('div', { class: 'row between wrap mt-s' }, h('strong', {}, t('sec.auditTitle')), h(
+                'span',
+                { class: `badge ${auditCheck.valid ? 'ok' : 'danger'}` },
+                auditCheck.valid ? t('sec.auditValid', { n: auditCheck.checked || 0 }) : t('sec.auditBroken', { id: auditCheck.broken_at_id || '?' }),
+              )),
+              auditEntries.slice(0, 6).map((a) =>
+                h('div', { class: 'muted small row between' }, h('span', {}, `${a.action} (${a.username})`), h('span', {}, (a.entry_hash || '').slice(0, 10))),
+              ),
+            ),
+            card(
+              t('ops.holidaysCard'),
+              h(
+                'div',
+                { class: 'row wrap', style: { gap: '8px' } },
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    class: 'btn sm soft',
+                    onClick: async () => {
+                      await window.API.invoke('ops:holidays-seed', {});
+                      toast(t('common.saved'), 'ok');
+                      ctx.refresh();
+                    },
+                  },
+                  '🇩🇿 ',
+                  t('ops.seedHolidaysBtn'),
+                ),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    class: 'btn sm primary',
+                    onClick: () => {
+                      const d1 = input({ type: 'date', value: window.UI.todayISO() });
+                      const d2 = input({ type: 'date', value: window.UI.todayISO() });
+                      const lbl = input({ placeholder: 'Aïd El-Fitr / Congé' });
+                      modal({
+                        title: t('ops.addLunarBtn'),
+                        body: h('div', { class: 'col' }, h('div', { class: 'grid two' }, field(t('common.date'), d1), field(t('common.date'), d2)), field(t('common.description'), lbl)),
+                        actions: [
+                          { label: t('common.cancel'), kind: 'ghost' },
+                          {
+                            label: t('common.save'),
+                            kind: 'primary',
+                            onClick: async () => {
+                              await window.API.invoke('ops:closure-add', {
+                                start_day: d1.value,
+                                end_day: d2.value,
+                                kind: 'holiday_lunar',
+                                label_fr: lbl.value,
+                              });
+                              ctx.refresh();
+                            },
+                          },
+                        ],
+                      });
+                    },
+                  },
+                  '＋ ',
+                  t('ops.addLunarBtn'),
+                ),
+              ),
+              closures.slice(0, 6).map((c) =>
+                h('div', { class: 'row between small', style: { padding: '4px 0' } }, h('span', {}, `${c.start_day} — ${c.label_fr}`), h('button', { type: 'button', class: 'btn sm ghost', onClick: async () => { await window.API.invoke('ops:closure-delete', { id: c.id }); ctx.refresh(); } }, '✕')),
+              ),
+            ),
+            card(
+              t('ops.inventoryCard'),
+              h(
+                'div',
+                { class: 'row between wrap' },
+                invAlerts.low_stock.length > 0
+                  ? h('span', { class: 'badge danger' }, t('ops.lowStockBadge', { n: invAlerts.low_stock.length }))
+                  : h('span', { class: 'badge ok' }, `${invList.length}`),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    class: 'btn sm primary',
+                    onClick: () => {
+                      const nm = input({ placeholder: 'Gants stériles / Seringues' });
+                      const qty = input({ type: 'number', value: '20' });
+                      const exp = input({ type: 'date' });
+                      modal({
+                        title: t('ops.addItemBtn'),
+                        body: h('div', { class: 'col' }, field(t('common.name'), nm), h('div', { class: 'grid two' }, field('Qté', qty), field(t('common.date'), exp))),
+                        actions: [
+                          { label: t('common.cancel'), kind: 'ghost' },
+                          {
+                            label: t('common.save'),
+                            kind: 'primary',
+                            onClick: async () => {
+                              await window.API.invoke('ops:inventory-upsert', {
+                                name_fr: nm.value,
+                                quantity: Number(qty.value) || 0,
+                                expiry_day: exp.value,
+                              });
+                              ctx.refresh();
+                            },
+                          },
+                        ],
+                      });
+                    },
+                  },
+                  '＋ ',
+                  t('ops.addItemBtn'),
+                ),
+              ),
+              invList.slice(0, 6).map((it) =>
+                h('div', { class: 'row between small', style: { padding: '4px 0' } }, h('span', {}, it.name_fr), h('strong', {}, `${it.quantity} ${it.unit}`)),
+              ),
+            ),
+            card(
+              t('ops.staffCard'),
+              h(
+                'div',
+                { class: 'row between wrap' },
+                h('span', { class: 'muted small' }, `${staffList.length}`),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    class: 'btn sm primary',
+                    onClick: () => {
+                      const nm = input({ placeholder: t('common.name') });
+                      const sal = input({ type: 'number', value: '45000' });
+                      modal({
+                        title: t('ops.addStaffBtn'),
+                        body: h('div', { class: 'col' }, field(t('common.name'), nm), field(t('common.amount'), sal)),
+                        actions: [
+                          { label: t('common.cancel'), kind: 'ghost' },
+                          {
+                            label: t('common.save'),
+                            kind: 'primary',
+                            onClick: async () => {
+                              await window.API.invoke('ops:staff-upsert', {
+                                full_name: nm.value,
+                                monthly_salary: Number(sal.value) || 0,
+                              });
+                              ctx.refresh();
+                            },
+                          },
+                        ],
+                      });
+                    },
+                  },
+                  '＋ ',
+                  t('ops.addStaffBtn'),
+                ),
+              ),
+              staffList.map((st) =>
+                h(
+                  'div',
+                  { class: 'row between small', style: { padding: '4px 0' } },
+                  h('span', {}, `${st.full_name} (${st.monthly_salary} DZD)`),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      class: 'btn sm soft',
+                      onClick: async () => {
+                        await window.API.invoke('ops:payroll-run', { staff_id: st.id });
+                        toast(t('common.saved'), 'ok');
+                      },
+                    },
+                    t('ops.runPayrollBtn'),
+                  ),
+                ),
+              ),
+            ),
+            card(
+              t('print.settingsCard'),
+              field(
+                t('print.paperSize'),
+                (() => {
+                  const sel = select(
+                    [
+                      { value: 'A5', label: 'A5 (148 × 210 mm)' },
+                      { value: 'A4', label: 'A4 (210 × 297 mm)' },
+                    ],
+                    settings.print_paper_size || 'A5',
+                  );
+                  sel.addEventListener('change', async () => {
+                    await window.API.invoke('settings:set', { print_paper_size: sel.value });
+                    window.App.settings.print_paper_size = sel.value;
+                    toast(t('common.saved'), 'ok');
+                  });
+                  return sel;
+                })(),
+              ),
+              switchRow(
+                t('print.letterhead'),
+                switchInput(settings.print_letterhead !== '0', async (checked) => {
+                  await window.API.invoke('settings:set', { print_letterhead: checked ? '1' : '0' });
+                  window.App.settings.print_letterhead = checked ? '1' : '0';
+                  toast(t('common.saved'), 'ok');
+                }),
+              ),
+              switchRow(
+                t('print.darijaToggle'),
+                switchInput(settings.bot_darija_mode === '1', async (checked) => {
+                  await window.API.invoke('settings:set', { bot_darija_mode: checked ? '1' : '0' });
+                  window.App.settings.bot_darija_mode = checked ? '1' : '0';
+                  toast(t('common.saved'), 'ok');
+                }),
+              ),
+              field(
+                t('print.signatureUpload'),
+                (() => {
+                  const fIn = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp' });
+                  fIn.addEventListener('change', () => {
+                    const file = fIn.files && fIn.files[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = async () => {
+                      await window.API.invoke('settings:set', { doctor_signature_data: String(reader.result || '') });
+                      window.App.settings.doctor_signature_data = String(reader.result || '');
+                      toast(t('common.saved'), 'ok');
+                    };
+                    reader.readAsDataURL(file);
+                  });
+                  return fIn;
+                })(),
+              ),
             ),
             card(
               t('settings.about'),

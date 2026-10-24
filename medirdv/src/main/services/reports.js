@@ -155,6 +155,13 @@ function clinicProfile() {
     doctor_name: settings.get('doctor_name'),
     doctor_specialty: settings.get('doctor_specialty'),
     doctor_ordre: settings.get('doctor_ordre'),
+    rc: settings.get('clinic_rc'),
+    nif: settings.get('clinic_nif'),
+    nis: settings.get('clinic_nis'),
+    ai: settings.get('clinic_ai'),
+    paper_size: settings.get('print_paper_size') || 'A5',
+    letterhead: settings.get('print_letterhead') !== '0',
+    signature_data: settings.get('doctor_signature_data') || '',
   };
 }
 

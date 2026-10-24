@@ -26,9 +26,16 @@ function stamp() {
   return new Date().toISOString().replace('T', ' ').slice(0, 19);
 }
 
+/** Scrub phone numbers, JIDs, and potential PII from application log lines (Law 18-07). */
+function sanitizeLogText(line) {
+  return String(line || '')
+    .replace(/\b\d{6,16}@(s\.whatsapp\.net|lid)\b/g, '[JID-REDACTED]')
+    .replace(/(^|[^\d])(\+?213|0)[567]\d{8}(?!\d)/g, '$1[PHONE-REDACTED]');
+}
+
 /** Turn console arguments (objects, errors, arrays) into one readable line. */
 function format(args) {
-  return args
+  const joined = args
     .map((value) => {
       if (value instanceof Error) return value.stack || `${value.name}: ${value.message}`;
       if (typeof value === 'string') return value;
@@ -40,6 +47,7 @@ function format(args) {
       }
     })
     .join(' ');
+  return sanitizeLogText(joined);
 }
 
 function rotateIfNeeded(file) {
@@ -122,4 +130,4 @@ function currentFile() {
   return logFile;
 }
 
-module.exports = { init, attachConsole, detachConsole, write, close, currentFile, MAX_BYTES };
+module.exports = { init, attachConsole, detachConsole, write, close, currentFile, sanitizeLogText, MAX_BYTES };

@@ -76,6 +76,20 @@
           'button',
           {
             class: 'btn icon sm',
+            title: t('intake.newManual'),
+            onClick: () =>
+              window.Components.openIntakeModal({
+                patient: { id: appointment.patient_id, full_name: appointment.full_name },
+                appointmentId: appointment.id,
+                onSaved: ctx.refresh,
+              }),
+          },
+          window.Icons ? window.Icons.el('clipboard', { size: 15 }) : '📋',
+        ),
+        h(
+          'button',
+          {
+            class: 'btn icon sm',
             title: t('patients.newPrescription'),
             onClick: () => {
               if (window.openPrescriptionComposer) {
@@ -125,6 +139,7 @@
       'div',
       { class: 'row wrap', style: { gap: '6px', justifyContent: 'flex-end' } },
       deptLabel ? h('span', { class: 'dept-pill' }, deptLabel) : null,
+      window.Components.intakeBadge(appointment),
       window.Components.queueEtaBadge(appointment, appointment.day),
       statusBadge(appointment.status),
     );
@@ -200,6 +215,46 @@
           dayPicker,
           h('button', { class: 'btn icon', title: t('common.today'), onClick: () => { window.App.day = addDays(day, 1); ctx.refresh(); } }, '›'),
           h('button', { class: 'btn', onClick: () => { window.App.day = todayISO(); ctx.refresh(); } }, t('common.today')),
+          h(
+            'button',
+            {
+              class: 'btn soft',
+              onClick: async () => {
+                const board = await window.API.invoke('ops:waiting-room', {
+                  day,
+                  department_id: selectedDepartmentId,
+                });
+                modal({
+                  title: t('ops.waitingRoomTitle'),
+                  body:
+                    board.length === 0
+                      ? emptyState('🪑', t('agenda.emptyTitle'), '')
+                      : h(
+                          'div',
+                          { class: 'col', style: { gap: '8px' } },
+                          ...board.map((b) =>
+                            h(
+                              'div',
+                              { class: 'card row between wrap', style: { padding: '12px 16px' } },
+                              h(
+                                'div',
+                                { class: 'row', style: { gap: '12px' } },
+                                h('span', { class: 'queue-pill current' }, `#${b.queue_number}`),
+                                h('strong', { style: { fontSize: '18px' } }, b.initials),
+                                b.slot_time ? h('span', { class: 'badge info' }, b.slot_time) : null,
+                                b.priority === 'urgent' ? h('span', { class: 'badge danger' }, t('ops.priorityUrgent')) : null,
+                              ),
+                              h('div', { class: 'muted small' }, `${b.room ? b.room + ' · ' : ''}~${b.estimated_wait_min} min`),
+                            ),
+                          ),
+                        ),
+                  actions: [{ label: t('common.close'), kind: 'primary' }],
+                });
+              },
+            },
+            '📺 ',
+            t('ops.waitingRoomBtn'),
+          ),
           h(
             'button',
             {

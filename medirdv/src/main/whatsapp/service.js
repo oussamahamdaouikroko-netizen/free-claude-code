@@ -400,7 +400,7 @@ class WhatsAppService {
     this.stats.received += 1;
     this.stats.lastAt = nowLocal();
     this.stats.lastFrom = phone;
-    console.log(`[wa] message from ${phone}${viaLid ? ` (lid ${lid})` : ''}: ${text || `[${kind || 'media'}]`}`);
+    console.log(`[wa] incoming message received (${kind || 'text'})`);
 
     // Store every incoming message, even when it is not answered: this is the
     // only proof for the dentist that the bot received something.

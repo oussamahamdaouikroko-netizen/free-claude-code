@@ -7,6 +7,8 @@
 const { getDb } = require('../db');
 const settings = require('./settings');
 const departments = require('./departments');
+const safety = require('./safety');
+const nomenclature = require('./nomenclature');
 const { toISODate } = require('../utils/dates');
 const { AppError, cleanText, requireId } = require('../utils/common');
 
@@ -43,37 +45,15 @@ function searchMedications(queryOrOpts = '', opts = {}) {
   const query = isObj ? queryOrOpts.query || queryOrOpts.search || '' : queryOrOpts;
   const specialty = isObj ? queryOrOpts.specialty || '' : opts.specialty || '';
   const limit = isObj ? queryOrOpts.limit : opts.limit;
-  const max = Math.min(200, Math.max(1, Number.parseInt(limit, 10) || 40));
-  const spec = cleanText(specialty, 40).toLowerCase();
-  const rows = spec
-    ? getDb()
-        .prepare('SELECT * FROM medications WHERE active = 1 AND lower(specialty) = ? ORDER BY brand COLLATE NOCASE ASC')
-        .all(spec)
-    : getDb()
-        .prepare('SELECT * FROM medications WHERE active = 1 ORDER BY brand COLLATE NOCASE ASC')
-        .all();
-
-  const foldedQuery = foldSearch(query);
-  if (!foldedQuery) return rows.slice(0, max);
-
-  const tokens = foldedQuery.split(/\s+/).filter(Boolean);
-  const scored = [];
-  for (const row of rows) {
-    const haystack = foldSearch(
-      `${row.brand} ${row.dci} ${row.strength} ${row.form} ${row.specialty} ${row.keywords_ar}`,
-    );
-    if (!tokens.every((tok) => haystack.includes(tok))) continue;
-    const brandFold = foldSearch(row.brand);
-    const dciFold = foldSearch(row.dci);
-    let score = 0;
-    if (brandFold.startsWith(tokens[0])) score += 30;
-    else if (dciFold.startsWith(tokens[0])) score += 20;
-    else if (brandFold.includes(tokens[0])) score += 10;
-    if (row.custom) score += 2;
-    scored.push({ row, score });
-  }
-  scored.sort((a, b) => b.score - a.score || a.row.brand.localeCompare(b.row.brand));
-  return scored.slice(0, max).map((s) => s.row);
+  const onlyReimbursable = Boolean(isObj ? queryOrOpts.only_reimbursable : opts.only_reimbursable);
+  const onlyGeneric = Boolean(isObj ? queryOrOpts.only_generic : opts.only_generic);
+  return nomenclature.searchFast({
+    query,
+    specialty,
+    onlyReimbursable,
+    onlyGeneric,
+    limit,
+  });
 }
 
 function medicationStats() {
@@ -101,14 +81,35 @@ function createMedication(input = {}) {
   const keywordsAr = cleanText(input.keywords_ar, 200);
   const defaultDosage = cleanText(input.default_dosage, 160);
   const defaultDuration = cleanText(input.default_duration, 80);
+  const laboratory = cleanText(input.laboratory, 140);
+  const registrationNumber = cleanText(input.registration_number, 60);
+  const isGeneric = input.is_generic ? 1 : 0;
+  const ppa = input.ppa !== undefined && input.ppa !== '' && input.ppa !== null ? Number(input.ppa) : null;
+  const referencePrice =
+    input.reference_price !== undefined && input.reference_price !== '' && input.reference_price !== null
+      ? Number(input.reference_price)
+      : null;
+  const reimbursable = input.reimbursable ? 1 : 0;
+  const reimbursementRate = Number.parseInt(input.reimbursement_rate, 10) || (reimbursable ? 80 : 0);
+  const schedule = cleanText(input.schedule, 30);
+  const dciGroup = nomenclature.makeDciGroup(dci, strength);
+  const folded = nomenclature.foldSearch(`${brand} ${dci} ${strength} ${form} ${laboratory} ${specialty} ${keywordsAr}`);
 
   const info = getDb()
     .prepare(
       `INSERT INTO medications
-        (brand, dci, strength, form, specialty, keywords_ar, default_dosage, default_duration, custom, active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1)`,
+        (brand, dci, strength, form, specialty, keywords_ar, default_dosage, default_duration,
+         registration_number, laboratory, is_generic, reference_dci_group,
+         ppa, reference_price, reimbursable, reimbursement_rate, schedule,
+         source, verified, last_updated, folded_search, custom, active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'custom', 1, ?, ?, 1, 1)`,
     )
-    .run(brand, dci, strength, form, specialty, keywordsAr, defaultDosage, defaultDuration);
+    .run(
+      brand, dci, strength, form, specialty, keywordsAr, defaultDosage, defaultDuration,
+      registrationNumber, laboratory, isGeneric, dciGroup,
+      ppa, referencePrice, reimbursable, reimbursementRate, schedule,
+      toISODate(), folded,
+    );
   return getDb().prepare('SELECT * FROM medications WHERE id = ?').get(info.lastInsertRowid);
 }
 
@@ -194,6 +195,8 @@ function normalizeItems(rawItems) {
       duration: cleanText(item?.duration, 80),
       quantity: cleanText(item?.quantity, 60),
       note: cleanText(item?.note, 200),
+      substitutable: item?.substitutable === false || item?.substitutable === 0 ? 0 : 1,
+      schedule: cleanText(item?.schedule, 30),
       sort_order: index + 1,
     });
   });
@@ -223,8 +226,57 @@ function get(id) {
   const items = getDb()
     .prepare('SELECT * FROM prescription_items WHERE prescription_id = ? ORDER BY sort_order ASC, id ASC')
     .all(rxId);
+  const diagnoses = getDb()
+    .prepare('SELECT * FROM prescription_diagnoses WHERE prescription_id = ? ORDER BY id ASC')
+    .all(rxId);
+  const has_chronic_ald = diagnoses.some((d) => d.is_chronic_ald === 1);
+  const has_notifiable_mdo = diagnoses.some((d) => d.is_notifiable === 1);
   const allergy_warnings = checkAllergyWarnings(rx.patient_allergies, items);
-  return { ...rx, items, allergy_warnings };
+  const safety_audit = safety.getAuditForPrescription(rxId);
+  return { ...rx, items, diagnoses, has_chronic_ald, has_notifiable_mdo, allergy_warnings, safety_audit };
+}
+
+function normalizeDiagnoses(db, rawDiagnoses, freeDiagnosisText = '') {
+  const out = [];
+  if (Array.isArray(rawDiagnoses)) {
+    for (const d of rawDiagnoses) {
+      if (!d) continue;
+      let icdRow = null;
+      if (d.icd10_id) {
+        icdRow = db.prepare('SELECT * FROM icd10 WHERE id = ?').get(Number(d.icd10_id));
+      } else if (d.icd10_code || d.code) {
+        const code = cleanText(d.icd10_code || d.code, 20).toUpperCase();
+        icdRow = db.prepare('SELECT * FROM icd10 WHERE UPPER(code) = ?').get(code);
+      }
+      const code = icdRow ? icdRow.code : cleanText(d.icd10_code || d.code, 20).toUpperCase();
+      const labelFr = icdRow ? icdRow.label_fr : cleanText(d.label_fr || d.label, 240);
+      const labelAr = icdRow ? icdRow.label_ar : cleanText(d.label_ar, 240);
+      const freeText = cleanText(d.free_text, 240);
+      if (!code && !labelFr && !freeText) continue;
+      out.push({
+        icd10_id: icdRow ? icdRow.id : null,
+        icd10_code: code,
+        label_fr: labelFr,
+        label_ar: labelAr,
+        free_text: freeText,
+        is_chronic_ald: icdRow ? icdRow.is_chronic_ald : d.is_chronic_ald ? 1 : 0,
+        is_notifiable: icdRow ? icdRow.is_notifiable : d.is_notifiable ? 1 : 0,
+      });
+    }
+  }
+  const cleanFree = cleanText(freeDiagnosisText, 300);
+  if (cleanFree && out.length === 0) {
+    out.push({
+      icd10_id: null,
+      icd10_code: '',
+      label_fr: '',
+      label_ar: '',
+      free_text: cleanFree,
+      is_chronic_ald: 0,
+      is_notifiable: 0,
+    });
+  }
+  return out;
 }
 
 function create(input = {}) {
@@ -263,8 +315,41 @@ function create(input = {}) {
     throw new AppError('PRESCRIPTION_ITEMS_REQUIRED');
   }
 
+  const overrideReason = cleanText(input.safety_override_reason, 400);
+  const safetyEval = safety.evaluatePrescription({
+    patient_id: patient ? patient.id : null,
+    patient_weight: patientWeight,
+    patient_age: patientAge,
+    patient_allergies: input.patient_allergies,
+    patient_chronic: input.patient_chronic,
+    is_pregnant: input.is_pregnant,
+    is_breastfeeding: input.is_breastfeeding,
+    current_medications: input.current_medications,
+    items,
+  });
+
+  if (safetyEval.blocking && !overrideReason) {
+    throw new AppError('SAFETY_OVERRIDE_REQUIRED', {
+      blocking: true,
+      alerts: safetyEval.alerts,
+    });
+  }
+
   const day = cleanText(input.day, 10) || toISODate();
-  const diagnosis = cleanText(input.diagnosis, 300);
+  const printMode = ['brand', 'dci', 'both'].includes(input.print_mode) ? input.print_mode : 'both';
+  const hasControlled =
+    Boolean(safetyEval.controlled_flags?.some((f) => f.requires_secure_rx)) ||
+    items.some((it) => it.schedule === 'psychotrope' || it.schedule === 'stupefiant');
+  const rawFreeDiagnosis = cleanText(input.diagnosis, 300);
+  const normalizedDiagnoses = normalizeDiagnoses(db, input.diagnoses, rawFreeDiagnosis);
+  const structuredSummary = normalizedDiagnoses
+    .filter((d) => d.icd10_code || d.label_fr)
+    .map((d) => (d.icd10_code ? `[${d.icd10_code}] ${d.label_fr}` : d.label_fr))
+    .join(' · ');
+  const diagnosis = cleanText(
+    [structuredSummary, rawFreeDiagnosis].filter(Boolean).join(' — '),
+    300,
+  );
   const vitalsBp = cleanText(input.vitals_bp, 30);
   const vitalsHr = cleanText(input.vitals_hr, 30);
   const vitalsTemp = cleanText(input.vitals_temp, 30);
@@ -281,8 +366,8 @@ function create(input = {}) {
            patient_name, patient_age, patient_weight,
            doctor_name, doctor_specialty, doctor_ordre,
            diagnosis, vitals_bp, vitals_hr, vitals_temp, vitals_spo2, vitals_glycemia,
-           exams_requested, advice)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           exams_requested, advice, print_mode, controlled_rx)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         patient ? patient.id : null,
@@ -303,15 +388,22 @@ function create(input = {}) {
         vitalsGlycemia,
         examsRequested,
         advice,
+        printMode,
+        hasControlled ? 1 : 0,
       );
     const rxId = info.lastInsertRowid;
     const insertItem = db.prepare(
       `INSERT INTO prescription_items
         (prescription_id, medication_id, drug_name, dci, form_strength,
-         dosage, timing, duration, quantity, note, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         dosage, timing, duration, quantity, note, substitutable, schedule, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const item of items) {
+      let itemSchedule = item.schedule;
+      if (!itemSchedule && item.medication_id) {
+        const medRow = db.prepare('SELECT schedule FROM medications WHERE id = ?').get(item.medication_id);
+        if (medRow?.schedule) itemSchedule = medRow.schedule;
+      }
       insertItem.run(
         rxId,
         item.medication_id,
@@ -323,9 +415,41 @@ function create(input = {}) {
         item.duration,
         item.quantity,
         item.note,
+        item.substitutable,
+        itemSchedule,
         item.sort_order,
       );
     }
+    if (normalizedDiagnoses.length > 0) {
+      const insertDiag = db.prepare(
+        `INSERT INTO prescription_diagnoses
+          (prescription_id, patient_id, department_id, day, icd10_id, icd10_code,
+           label_fr, label_ar, free_text, is_chronic_ald, is_notifiable)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const d of normalizedDiagnoses) {
+        insertDiag.run(
+          rxId,
+          patient ? patient.id : null,
+          dept ? dept.id : null,
+          day,
+          d.icd10_id,
+          d.icd10_code,
+          d.label_fr,
+          d.label_ar,
+          d.free_text,
+          d.is_chronic_ald,
+          d.is_notifiable,
+        );
+      }
+    }
+    safety.recordAudit({
+      prescription_id: rxId,
+      patient_weight_kg: safetyEval.patient_weight_kg,
+      evaluation: safetyEval,
+      override_reason: overrideReason,
+      prescriber_name: doctorName,
+    });
     return rxId;
   });
 
@@ -419,8 +543,8 @@ function createTemplate(input = {}) {
   const info = getDb()
     .prepare(
       `INSERT INTO prescription_templates
-        (title_fr, title_ar, specialty, items_json, exams_requested, advice)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+        (title_fr, title_ar, specialty, items_json, exams_requested, advice, icd10_code, source, verified)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'custom', 1)`,
     )
     .run(
       titleFr || titleAr,
@@ -429,8 +553,46 @@ function createTemplate(input = {}) {
       JSON.stringify(items),
       examsRequested,
       cleanText(input.advice, 1000),
+      cleanText(input.icd10_code, 20).toUpperCase(),
     );
   const row = getDb().prepare('SELECT * FROM prescription_templates WHERE id = ?').get(info.lastInsertRowid);
+  return { ...row, items };
+}
+
+function updateTemplate(id, input = {}) {
+  const tplId = requireId(id);
+  const existing = getDb().prepare('SELECT * FROM prescription_templates WHERE id = ?').get(tplId);
+  if (!existing) throw new AppError('NOT_FOUND', 'Template not found.');
+  const titleFr = cleanText(input.title_fr ?? existing.title_fr, 120);
+  const titleAr = cleanText(input.title_ar ?? existing.title_ar, 120);
+  if (!titleFr && !titleAr) throw new AppError('TEMPLATE_TITLE_REQUIRED');
+  const items = Array.isArray(input.items)
+    ? normalizeItems(input.items)
+    : JSON.parse(existing.items_json || '[]');
+  const examsRequested =
+    input.exams_requested !== undefined ? cleanText(input.exams_requested, 1000) : existing.exams_requested;
+  if (items.length === 0 && !examsRequested) throw new AppError('PRESCRIPTION_ITEMS_REQUIRED');
+
+  const verified = input.verified !== undefined ? (input.verified ? 1 : 0) : 1;
+  getDb()
+    .prepare(
+      `UPDATE prescription_templates SET
+         title_fr = ?, title_ar = ?, specialty = ?, items_json = ?,
+         exams_requested = ?, advice = ?, icd10_code = ?, verified = ?
+       WHERE id = ?`,
+    )
+    .run(
+      titleFr || titleAr,
+      titleAr || titleFr,
+      cleanText(input.specialty ?? existing.specialty, 80),
+      JSON.stringify(items),
+      examsRequested,
+      input.advice !== undefined ? cleanText(input.advice, 1000) : existing.advice,
+      cleanText(input.icd10_code ?? existing.icd10_code, 20).toUpperCase(),
+      verified,
+      tplId,
+    );
+  const row = getDb().prepare('SELECT * FROM prescription_templates WHERE id = ?').get(tplId);
   return { ...row, items };
 }
 
@@ -549,6 +711,7 @@ module.exports = {
   remove,
   listTemplates,
   createTemplate,
+  updateTemplate,
   removeTemplate,
   getCertificate,
   createCertificate,

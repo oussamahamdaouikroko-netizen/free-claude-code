@@ -30,6 +30,11 @@ const CANCEL_WORDS = [
   'الغاء', 'الغي', 'الغاء الموعد', 'الغاء الحجز', 'نلغي', 'لغي', 'لالغاء', 'الغي الموعد',
 ];
 
+const CONFIRM_WORDS = [
+  'confirmer', 'confirme', 'confirmation', 'confirm',
+  'تاكيد', 'اكد', 'ماكد', 'مءكد', 'تاكيد الموعد',
+];
+
 const MY_APPOINTMENT_WORDS = [
   'mon rdv', 'mon rendez', 'mon rendez vous', 'rdv', 'rendez vous', 'rendez',
   'mes rdv', 'ma reservation', 'reservation', 'consulter', 'quand est mon rdv',
@@ -42,6 +47,11 @@ const HELP_WORDS = [
   'bonsoir', 'cc', 'salam', 'salam alikoum', 'salam aleykoum', 'as salam alikoum',
   'saha', 'marhba', 'مرحبا', 'اهلا', 'سلام', 'السلام عليكم', 'صباح الخير', 'مساء الخير',
   'مساعدة', 'مساعده', 'كيفاش', 'كيف',
+];
+
+const INTAKE_WORDS = [
+  'fiche', 'ma fiche', 'fiche medicale', 'pre consultation', 'preconsultation', 'poids',
+  'معلومات', 'معلوماتي', 'وزن', 'الوزن', 'استماره', 'ملفي', 'ملف طبي',
 ];
 
 /** Short acknowledgements must never be mistaken for a patient name. */
@@ -69,8 +79,14 @@ function detect(rawText, options = {}) {
   if (CANCEL_WORDS.some((word) => normalized === word || normalized.startsWith(`${word} `))) {
     return { intent: 'cancel', text: original, isArabic, language };
   }
+  if (CONFIRM_WORDS.some((word) => normalized === word || normalized.startsWith(`${word} `))) {
+    return { intent: 'confirm', text: original, isArabic, language };
+  }
   if (MY_APPOINTMENT_WORDS.some((word) => normalized === word || normalized.startsWith(`${word} `))) {
     return { intent: 'my_appointment', text: original, isArabic, language };
+  }
+  if (INTAKE_WORDS.some((word) => normalized === word || normalized.startsWith(`${word} `))) {
+    return { intent: 'intake', text: original, isArabic, language };
   }
   if (HELP_WORDS.some((word) => normalized === word)) {
     return { intent: 'help', text: original, isArabic, language };
@@ -99,6 +115,7 @@ module.exports = {
   detect,
   CANCEL_WORDS,
   MY_APPOINTMENT_WORDS,
+  INTAKE_WORDS,
   HELP_WORDS,
   STOP_WORDS,
 };

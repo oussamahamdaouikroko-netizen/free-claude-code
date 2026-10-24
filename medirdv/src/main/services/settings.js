@@ -39,6 +39,21 @@ const VALIDATORS = {
   doctor_name: (v) => String(v ?? '').trim().slice(0, 100),
   doctor_specialty: (v) => String(v ?? '').trim().slice(0, 120),
   doctor_ordre: (v) => String(v ?? '').trim().slice(0, 60),
+  clinic_rc: (v) => String(v ?? '').trim().slice(0, 60),
+  clinic_nif: (v) => String(v ?? '').trim().slice(0, 60),
+  clinic_nis: (v) => String(v ?? '').trim().slice(0, 60),
+  clinic_ai: (v) => String(v ?? '').trim().slice(0, 60),
+  print_paper_size: (v) => (String(v).toUpperCase() === 'A4' ? 'A4' : 'A5'),
+  print_letterhead: (v) => String(asFlag(v)),
+  doctor_signature_data: (v) => {
+    const raw = String(v ?? '').trim();
+    if (!raw) return '';
+    if (!/^data:image\/(png|jpeg|jpg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/i.test(raw)) {
+      throw new Error('SETTING_INVALID:doctor_signature_data');
+    }
+    return raw.slice(0, 350000);
+  },
+  bot_darija_mode: (v) => String(asFlag(v)),
   currency: (v) => String(v ?? 'DZD').trim().toUpperCase().slice(0, 8) || 'DZD',
   language: (v) => (v === 'ar' ? 'ar' : 'fr'),
   daily_capacity: (v) => String(clampInt(v, 1, 200, 15)),

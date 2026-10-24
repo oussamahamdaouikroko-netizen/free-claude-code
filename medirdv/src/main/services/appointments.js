@@ -15,6 +15,7 @@
 const { getDb } = require('../db');
 const settings = require('./settings');
 const departments = require('./departments');
+const operations = require('./operations');
 const chat = require('./chat');
 const { message } = require('../whatsapp/messages');
 const { AppError, money, cleanText, nowLocal, requireId, phoneKey } = require('../utils/common');
@@ -26,10 +27,21 @@ const AGENDA_SQL = `
     d.name_fr AS dept_name_fr, d.name_ar AS dept_name_ar,
     d.doctor_name AS dept_doctor_name, d.room AS dept_room,
     d.specialty AS dept_specialty, d.instructions AS dept_instructions,
+    pi.id AS intake_id, pi.status AS intake_status, pi.source AS intake_source,
+    pi.weight_kg AS intake_weight_kg, pi.height_cm AS intake_height_cm,
+    pi.chief_complaint AS intake_complaint, pi.known_allergies AS intake_allergies,
+    pi.is_pregnant AS intake_pregnant, pi.is_breastfeeding AS intake_breastfeeding,
     COALESCE((SELECT SUM(pay.amount) FROM payments pay WHERE pay.appointment_id = a.id), 0) AS paid
   FROM appointments a
   JOIN patients p ON p.id = a.patient_id
-  LEFT JOIN departments d ON d.id = a.department_id`;
+  LEFT JOIN departments d ON d.id = a.department_id
+  LEFT JOIN patient_intake pi ON pi.id = (
+    SELECT i.id FROM patient_intake i
+    WHERE (i.appointment_id = a.id OR (i.patient_id = a.patient_id AND i.status IN ('pending', 'reviewed')))
+      AND i.status <> 'rejected'
+    ORDER BY CASE WHEN i.appointment_id = a.id THEN 0 ELSE 1 END, i.id DESC
+    LIMIT 1
+  )`;
 
 function deptKey(departmentId) {
   const num = Number.parseInt(departmentId, 10);
@@ -180,17 +192,41 @@ function create(input = {}) {
   price = money(Math.max(0, Number(price) || 0));
 
   const queue = nextQueueNumber(day, dKey || null);
+  const priority = ['normal', 'walk_in', 'urgent'].includes(input.priority)
+    ? input.priority
+    : 'normal';
+  let slotTime = cleanText(input.slot_time, 8);
+  if (dept && dept.scheduling_mode === 'slots') {
+    if (slotTime) {
+      const takenSlot = db
+        .prepare(
+          `SELECT id FROM appointments
+           WHERE day = ? AND department_id = ? AND slot_time = ?
+             AND status IN ('booked', 'done', 'no_show') LIMIT 1`,
+        )
+        .get(day, dept.id, slotTime);
+      if (takenSlot) throw new AppError('SLOT_TAKEN', 'Time slot already booked', { slot_time: slotTime });
+    } else {
+      slotTime = operations.nextFreeSlot(day, dept.id);
+      if (!slotTime && input.historical !== true) {
+        throw new AppError('DAY_FULL', 'No free time slot', { day, department_id: dept.id });
+      }
+    }
+  }
+
   const now = nowLocal();
   const info = db
     .prepare(
       `INSERT INTO appointments
         (patient_id, day, queue_number, status, source,
          department_id, department_name,
-         treatment_id, treatment_name, price, notes, created_at, updated_at)
+         treatment_id, treatment_name, price, notes,
+         slot_time, priority, confirmation_status, created_at, updated_at)
        VALUES
         (@patient_id, @day, @queue, 'booked', @source,
          @department_id, @department_name,
-         @treatment_id, @treatment_name, @price, @notes, @now, @now)`,
+         @treatment_id, @treatment_name, @price, @notes,
+         @slot_time, @priority, 'pending', @now, @now)`,
     )
     .run({
       patient_id: patientId,
@@ -203,6 +239,8 @@ function create(input = {}) {
       treatment_name: treatmentName,
       price,
       notes: cleanText(input.notes, 500) || null,
+      slot_time: slotTime || '',
+      priority,
       now,
     });
   return get(info.lastInsertRowid);
@@ -317,6 +355,17 @@ function setStatus(id, status) {
   getDb()
     .prepare('UPDATE appointments SET status = ?, updated_at = ? WHERE id = ?')
     .run(status, nowLocal(), appointment.id);
+  if (status === 'done' && appointment.status !== 'done' && appointment.treatment_id) {
+    operations.consumeForTreatment(appointment.treatment_id, appointment.id);
+  }
+  return get(appointment.id);
+}
+
+function confirmAppointment(id) {
+  const appointment = get(id);
+  getDb()
+    .prepare("UPDATE appointments SET confirmation_status = 'confirmed', updated_at = ? WHERE id = ?")
+    .run(nowLocal(), appointment.id);
   return get(appointment.id);
 }
 
@@ -493,7 +542,9 @@ function agenda(day = toISODate(), departmentId = null) {
         .prepare(
           `${AGENDA_SQL}
            WHERE a.day = ? AND a.department_id = ? AND a.status <> 'cancelled'
-           ORDER BY a.queue_number ASC`,
+           ORDER BY CASE WHEN a.status = 'booked' AND a.priority = 'urgent' THEN 0 ELSE 1 END ASC,
+                    CASE WHEN a.slot_time <> '' THEN a.slot_time ELSE '99:99' END ASC,
+                    a.queue_number ASC`,
         )
         .all(day, dKey)
         .map(decorate)
@@ -501,7 +552,10 @@ function agenda(day = toISODate(), departmentId = null) {
         .prepare(
           `${AGENDA_SQL}
            WHERE a.day = ? AND a.status <> 'cancelled'
-           ORDER BY COALESCE(a.department_id, 0) ASC, a.queue_number ASC`,
+           ORDER BY COALESCE(a.department_id, 0) ASC,
+                    CASE WHEN a.status = 'booked' AND a.priority = 'urgent' THEN 0 ELSE 1 END ASC,
+                    CASE WHEN a.slot_time <> '' THEN a.slot_time ELSE '99:99' END ASC,
+                    a.queue_number ASC`,
         )
         .all(day)
         .map(decorate);
@@ -680,6 +734,7 @@ module.exports = {
   updateDetails,
   syncTreatmentName,
   setStatus,
+  confirmAppointment,
   cancel,
   cancelWaitingByPhone,
   queuePosition,

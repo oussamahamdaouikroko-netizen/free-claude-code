@@ -26,6 +26,7 @@ function clinicSettings() {
     doctor: settings.get('doctor_name'),
     specialty: settings.get('doctor_specialty'),
     currency: settings.get('currency'),
+    darija: settings.getBool('bot_darija_mode'),
   };
 }
 

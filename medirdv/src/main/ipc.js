@@ -69,7 +69,7 @@ function registerIpc(context = {}) {
     try {
       const handler = handlers[method];
       if (!handler) throw new AppError('UNKNOWN_METHOD', `Unknown method: ${method}`);
-      if (!PUBLIC.has(method)) auth.requireUnlocked();
+      if (!PUBLIC.has(method)) auth.requireUnlocked(method);
       const data = await handler(payload || {});
       return { ok: true, data };
     } catch (error) {

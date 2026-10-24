@@ -96,6 +96,7 @@
       'div',
       { class: 'row wrap', style: { gap: '6px', justifyContent: 'flex-end' } },
       deptLabel ? h('span', { class: 'dept-pill' }, deptLabel) : null,
+      window.Components.intakeBadge(appointment),
       window.Components.queueEtaBadge(appointment, appointment.day),
       statusBadge(appointment.status),
     );

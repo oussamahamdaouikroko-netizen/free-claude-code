@@ -11,6 +11,7 @@ const treatments = require('../services/treatments');
 const prescriptions = require('../services/prescriptions');
 const payments = require('../services/payments');
 const expenses = require('../services/expenses');
+const intake = require('../services/intake');
 const settings = require('../services/settings');
 const chat = require('../services/chat');
 const { message } = require('../whatsapp/messages');
@@ -201,6 +202,19 @@ function seedDemoData(options = {}) {
   const third = todayAgenda.find((a) => a.status === 'booked');
   const fourth = todayAgenda.filter((a) => a.status === 'booked')[1];
   if (third) {
+    intake.create({
+      patient_id: third.patient_id,
+      appointment_id: third.id,
+      source: 'whatsapp',
+      consent: true,
+      weight_kg: 76.5,
+      height_cm: 174,
+      chief_complaint: 'Douleur lombaire irradiant vers la jambe droite',
+      symptom_duration: '4 jours',
+      current_medications: 'Paracétamol 1g',
+      known_allergies: 'Aspirine / AINS',
+      chronic_conditions: 'Lombosciatique chronique',
+    });
     chat.recordBooked(third, { delivery: 'sent', read: true });
     chat.record({
       kind: 'turn_now',
