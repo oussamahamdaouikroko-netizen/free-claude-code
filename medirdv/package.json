@@ -1,6 +1,6 @@
 {
   "name": "medirdv",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "MediRDV - offline-first desktop medical suite for single & multi-specialty clinics in Algeria (agenda, multi-department queues, WhatsApp bot, Algerian Nomenclature prescriptions, patients, payments, reports).",
   "main": "src/main/index.js",
   "author": "MediRDV",

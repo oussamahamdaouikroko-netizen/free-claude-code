@@ -1,4 +1,11 @@
-# MediRDV v2.1.0 — Suite Clinique Complète Hors-Ligne pour Cabinets & Polycliniques (Algérie)
+# MediRDV v2.1.1 — Suite Clinique Complète Hors-Ligne pour Cabinets & Polycliniques (Algérie)
+
+## Nouveautés de la version 2.1.1 (تحديثات الإصدار 2.1.1 — 2026-10-25)
+
+1. **Validation stricte des noms WhatsApp & blocage des salutations comme nom (`MIGRATION_11`)** : Les salutations (`مرحبا`, `السلام عليكم`, `Bonjour`, `Salut`, `hello`, `/start`, etc.) et entrées non valides (chiffres, liens, émojis, mot unique, symboles, messages vocaux/images/autocollants) ne sont plus jamais enregistrées comme nom de patient. Le bot accueille l’utilisateur avec un exemple clair (`Oussama Hamdaoui` / `أسامة حمداوي`), conserve l’état `await_full_name` dans SQLite (`bot_sessions`) même après redémarrage, et accepte les vrais noms composés ou contenant des sous-chaînes (`سلامة محمد`, `هلال بن أحمد`, `Jean-Pierre Dupont`). Inclut `scripts/migrate-invalid-names.js` (`--dry-run` / `--apply`).
+2. **Recherche de médicaments 100 % insensible à la casse, aux accents, aux variantes arabes et aux tirets** : Normalisation unifiée (`normalizeSearch` + colonne indexée `medications.name_normalized`), équivalence tiret/espace (`doli-prane` ↔ `doli prane`), unification arabe (`أ/إ/آ → ا`, `ى → ي`, `ة → ه`, sans tashkeel ni tatweel), requêtes SQL paramétrées avec échappement `LIKE` (`%`, `_`), et classement des correspondances exactes/préfixes avant les correspondances partielles.
+
+---
 
 ## Nouveautés de la version 2.1.0 (تحديثات الإصدار 2.1.0 — 2026-10-25)
 
