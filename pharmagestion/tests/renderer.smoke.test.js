@@ -199,6 +199,22 @@ async function bootRenderer() {
   return { dom, window, backend };
 }
 
+/**
+ * Wait until `condition()` is true. CI runners are much slower than a laptop,
+ * so a fixed `setTimeout(30)` is a flaky test waiting to happen: poll instead,
+ * with a generous ceiling.
+ */
+async function waitFor(condition, description, timeoutMs = 5000) {
+  const started = Date.now();
+  for (;;) {
+    if (condition()) return;
+    if (Date.now() - started > timeoutMs) {
+      throw new Error(`timed out waiting for ${description}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 test('the shell boots and renders the ten sections', async () => {
   const { window } = await bootRenderer();
   const navItems = window.document.querySelectorAll('.nav-item');
@@ -269,7 +285,10 @@ test('the settings screen saves the pharmacy identity', async () => {
   form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
 
   // Wait for the async save round-trip.
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await waitFor(
+    () => backend.state.calls.some((call) => call.method === 'settings:set'),
+    'settings:set to be called',
+  );
   const saveCall = backend.state.calls.find((call) => call.method === 'settings:set');
   assert.ok(saveCall, 'settings:set was called');
   assert.equal(saveCall.payload.values.pharmacy_name, 'Pharmacie El Nour');
@@ -284,7 +303,10 @@ test('an invalid threshold shows a translated error, not a crash', async () => {
   firstThreshold.closest('form').dispatchEvent(
     new window.Event('submit', { bubbles: true, cancelable: true }),
   );
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await waitFor(
+    () => window.document.querySelector('.toast-error'),
+    'the translated validation error to appear',
+  );
 
   const toast = window.document.querySelector('.toast-error');
   assert.ok(toast, 'an error toast is shown');
@@ -299,11 +321,14 @@ test('a backup can be created from the dashboard', async () => {
   );
   assert.ok(backupButton, 'the quick action exists');
   backupButton.click();
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await waitFor(() => backend.state.backups.length === 1, 'the backup to be created');
+  await waitFor(
+    () => window.document.querySelector('.toast-success'),
+    'the confirmation toast to appear',
+  );
 
   assert.ok(backend.state.calls.some((call) => call.method === 'backup:create'));
   assert.equal(backend.state.backups.length, 1);
-  assert.ok(window.document.querySelector('.toast-success'), 'the pharmacist gets confirmation');
 });
 
 test('the language toggle in the top bar is visible and works', async () => {
@@ -312,7 +337,10 @@ test('the language toggle in the top bar is visible and works', async () => {
   assert.ok(toggle, 'visible language switch');
   assert.match(toggle.textContent, /العربية/);
   toggle.click();
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await waitFor(
+    () => window.document.documentElement.getAttribute('dir') === 'rtl',
+    'the Arabic layout to be applied',
+  );
   assert.equal(window.document.documentElement.getAttribute('dir'), 'rtl');
   assert.match(window.document.querySelector('.topbar .lang-toggle').textContent, /Français/);
 });

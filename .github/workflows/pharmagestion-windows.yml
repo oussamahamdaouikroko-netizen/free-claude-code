@@ -63,7 +63,29 @@ jobs:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
 
       - name: Run tests
-        run: npm test
+        shell: bash
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee test-output.txt
+
+      # CI logs are not always reachable (restricted networks, archived runs),
+      # so a failing test run reports itself on the pull request.
+      - name: Report a failed test run
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "### PharmaGestion DZ - test failure (Linux)"
+            echo '```'
+            tail -c 14000 test-output.txt || true
+            echo '```'
+          } > test-report.md
+          cat test-report.md
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            gh pr comment "${{ github.event.pull_request.number }}" --body-file test-report.md
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build:
     name: Windows installer
