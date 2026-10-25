@@ -25,6 +25,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: pharmagestion-windows-${{ github.ref }}
@@ -101,21 +102,65 @@ jobs:
         run: |
           # Launch the packaged app (not the dev one) against a throwaway data
           # folder, let it create its database, and wait for it to exit.
-          $env:PHARMAGESTION_DATA_DIR = Join-Path $env:RUNNER_TEMP "pg-smoke"
+          $dataDir = Join-Path $env:RUNNER_TEMP "pg-smoke"
+          New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+          "PHARMAGESTION_DATA_DIR=$dataDir" >> $env:GITHUB_ENV
+          $env:PHARMAGESTION_DATA_DIR = $dataDir
           $env:PHARMAGESTION_SMOKE = "1"
-          New-Item -ItemType Directory -Force -Path $env:PHARMAGESTION_DATA_DIR | Out-Null
           $exe = "release\win-unpacked\PharmaGestion DZ.exe"
           $process = Start-Process -FilePath $exe -PassThru -Wait
           Write-Host "Exit code: $($process.ExitCode)"
           if ($process.ExitCode -ne 0) { throw "The packaged application exited with $($process.ExitCode)" }
-          Get-ChildItem $env:PHARMAGESTION_DATA_DIR -Recurse | Format-Table FullName, Length -AutoSize
-          if (Test-Path "$env:PHARMAGESTION_DATA_DIR\pharmagestion.log") {
+          Get-ChildItem $dataDir -Recurse | Format-Table FullName, Length -AutoSize
+          if (Test-Path "$dataDir\pharmagestion.log") {
             Write-Host "---- application log ----"
-            Get-Content "$env:PHARMAGESTION_DATA_DIR\pharmagestion.log"
+            Get-Content "$dataDir\pharmagestion.log"
           }
 
       - name: Verify the package contents and database
-        run: node scripts/verify-package.js --smoke-data "$env:PHARMAGESTION_DATA_DIR"
+        shell: pwsh
+        run: |
+          node scripts/verify-package.js --smoke-data "$env:PHARMAGESTION_DATA_DIR" *>&1 |
+            Tee-Object -FilePath verify-report.txt
+
+      # Publish the facts where a human can read them without downloading
+      # anything: the workflow summary and a comment on the pull request.
+      - name: Publish the build report
+        if: always()
+        shell: pwsh
+        run: |
+          $installer = "release\PharmaGestion-DZ-Setup.exe"
+          $lines = @()
+          if (Test-Path $installer) {
+            $item = Get-Item $installer
+            $hash = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLower()
+            $lines += "- **Installer**: ``$((Resolve-Path $installer).Path)``"
+            $lines += "- **Size**: $([math]::Round($item.Length/1MB,2)) MB ($($item.Length) bytes)"
+            $lines += "- **SHA-256**: ``$hash``"
+          } else {
+            $lines += "- **Installer**: **MISSING** (the build did not produce it)"
+          }
+          $lines += "- **Smoke data folder**: ``$env:PHARMAGESTION_DATA_DIR``"
+          if (Test-Path verify-report.txt) {
+            $lines += ""
+            $lines += "<details><summary>scripts/verify-package.js output</summary>"
+            $lines += ""
+            $lines += "``````"
+            $lines += (Get-Content verify-report.txt -Raw)
+            $lines += "``````"
+            $lines += "</details>"
+          }
+          $title = "### PharmaGestion DZ - Windows build report"
+          "## $title" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          ($lines -join "`n") | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          if ("${{ github.event_name }}" -eq "pull_request") {
+            $pr = "${{ github.event.pull_request.number }}"
+            $body = "$title`n" + ($lines -join "`n")
+            $body | Out-File -FilePath pr-comment.md -Encoding utf8
+            gh pr comment $pr --body-file pr-comment.md
+          }
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload the installer
         uses: actions/upload-artifact@v4
