@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="fr" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <!--
+    Content Security Policy: only local files, no inline script, no eval,
+    no remote connection. Everything the app needs is on this computer.
+  -->
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'none'"
+  >
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>PharmaGestion DZ</title>
+  <link rel="icon" href="img/icon.png">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <noscript>PharmaGestion DZ nécessite JavaScript / يحتاج هذا التطبيق إلى JavaScript.</noscript>
+
+  <div id="app" class="boot"></div>
+  <div id="toast-root" class="toast-root" aria-live="polite"></div>
+  <div id="modal-root"></div>
+
+  <!-- Helpers first, then the shell, then the screens. -->
+  <script src="js/i18n.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/pages/dashboard.js"></script>
+  <script src="js/pages/planned-sections.js"></script>
+  <script src="js/pages/settings.js"></script>
+</body>
+</html>

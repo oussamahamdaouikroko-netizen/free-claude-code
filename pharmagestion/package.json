@@ -1,0 +1,32 @@
+{
+  "name": "pharmagestion-dz",
+  "productName": "PharmaGestion DZ",
+  "version": "0.1.0",
+  "description": "PharmaGestion DZ - assistant de gestion de pharmacie hors ligne (stock, lots, peremptions, dettes) pour l'Algerie / مساعد تسيير الصيدلية دون إنترنت",
+  "main": "src/main/index.js",
+  "author": "PharmaGestion DZ",
+  "license": "MIT",
+  "private": true,
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "electron .",
+    "test": "node tests/run.js",
+    "icon": "node scripts/make-icon.js",
+    "rebuild": "electron-builder install-app-deps",
+    "pack": "electron-builder --win --dir",
+    "dist": "electron-builder --win nsis",
+    "dist:linux-check": "electron-builder --linux dir"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3"
+  },
+  "devDependencies": {
+    "electron": "^38.8.6",
+    "electron-builder": "^26.15.3",
+    "js-yaml": "^4.3.2",
+    "jsdom": "^30.1.3"
+  }
+}

@@ -1,0 +1,154 @@
+name: Build PharmaGestion DZ for Windows
+
+# Free Windows builds on GitHub-hosted runners:
+#   - pull request / push to main → downloadable installer artifact (kept 30 days)
+#   - tag v*                     → published GitHub Release with the setup file
+#   - manual run                 → same as a push to main
+#
+# The Linux job runs the unit tests (no Electron binary needed).
+# The Windows job builds the real NSIS installer, launches the packaged
+# application in smoke mode to prove it creates its own database, then verifies
+# the installer with scripts/verify-package.js.
+
+on:
+  push:
+    tags: ["v*"]
+    branches: [main, master]
+    paths:
+      - "pharmagestion/**"
+      - ".github/workflows/pharmagestion-windows.yml"
+  pull_request:
+    paths:
+      - "pharmagestion/**"
+      - ".github/workflows/pharmagestion-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pharmagestion-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: pharmagestion
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: pharmagestion/package-lock.json
+
+      # The Electron binary is only needed for packaging, not for the tests:
+      # better-sqlite3 ships Node-API prebuilds so nothing has to be compiled.
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+
+      - name: Run tests
+        run: npm test
+
+  build:
+    name: Windows installer
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: pharmagestion
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: pharmagestion/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests on Windows
+        run: npm test
+
+      - name: Build the NSIS installer
+        run: npm run dist
+
+      - name: Verify the installer exists at the expected path
+        shell: pwsh
+        run: |
+          $installer = "release\PharmaGestion-DZ-Setup.exe"
+          if (-not (Test-Path $installer)) {
+            Get-ChildItem -Recurse release | Select-Object FullName, Length | Format-Table -AutoSize
+            throw "Installer not found at $installer"
+          }
+          $size = (Get-Item $installer).Length
+          Write-Host "Installer: $((Resolve-Path $installer).Path) ($([math]::Round($size/1MB,1)) MB)"
+          if ($size -lt 20MB) { throw "Installer is too small ($size bytes)" }
+          Get-ChildItem release | Format-Table Name, Length -AutoSize
+
+      - name: Smoke-test the packaged application
+        shell: pwsh
+        run: |
+          # Launch the packaged app (not the dev one) against a throwaway data
+          # folder, let it create its database, and wait for it to exit.
+          $env:PHARMAGESTION_DATA_DIR = Join-Path $env:RUNNER_TEMP "pg-smoke"
+          $env:PHARMAGESTION_SMOKE = "1"
+          New-Item -ItemType Directory -Force -Path $env:PHARMAGESTION_DATA_DIR | Out-Null
+          $exe = "release\win-unpacked\PharmaGestion DZ.exe"
+          $process = Start-Process -FilePath $exe -PassThru -Wait
+          Write-Host "Exit code: $($process.ExitCode)"
+          if ($process.ExitCode -ne 0) { throw "The packaged application exited with $($process.ExitCode)" }
+          Get-ChildItem $env:PHARMAGESTION_DATA_DIR -Recurse | Format-Table FullName, Length -AutoSize
+          if (Test-Path "$env:PHARMAGESTION_DATA_DIR\pharmagestion.log") {
+            Write-Host "---- application log ----"
+            Get-Content "$env:PHARMAGESTION_DATA_DIR\pharmagestion.log"
+          }
+
+      - name: Verify the package contents and database
+        run: node scripts/verify-package.js --smoke-data "$env:PHARMAGESTION_DATA_DIR"
+
+      - name: Upload the installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: PharmaGestion-DZ-Setup
+          path: pharmagestion/release/PharmaGestion-DZ-Setup.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload the verification log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PharmaGestion-build-report
+          path: |
+            pharmagestion/release/*.yml
+            pharmagestion/release/builder-debug.yml
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Publish the release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: PharmaGestion DZ ${{ github.ref_name }}
+          files: pharmagestion/release/PharmaGestion-DZ-Setup.exe
+          body: |
+            PharmaGestion DZ — assistant de gestion de pharmacie hors ligne.
+
+            Téléchargez `PharmaGestion-DZ-Setup.exe` et lancez-le.
+            Windows 10 / 11, 64 bits. Aucun droit administrateur n'est nécessaire.
+            Vos données restent sur votre ordinateur, dans
+            `%APPDATA%\PharmaGestion DZ\data`.
+
+            حمّل الملف `PharmaGestion-DZ-Setup.exe` ثم شغّله.
+            يعمل على Windows 10 / 11 بنسخة 64 بت، دون الحاجة إلى صلاحيات المسؤول.
