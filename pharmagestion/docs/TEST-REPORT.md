@@ -95,13 +95,16 @@ Built on a GitHub Actions `windows-latest` runner by
 | Release | <https://github.com/oussamahamdaouikroko-netizen/free-claude-code/releases/tag/pharmagestion-v0.1.0> |
 | Download | <https://github.com/oussamahamdaouikroko-netizen/free-claude-code/releases/download/pharmagestion-v0.1.0/PharmaGestion-DZ-Setup.exe> |
 | Size | 104 921 112 bytes (100.06 MiB) |
-| SHA-256 | `0816b9c0297bf7e601a1ef56d4f2857e310d5b6262da081e564fdfb993d61f4c` |
+| SHA-256 | shown next to the asset on the release page |
 
-> Each build embeds build timestamps, so two builds of the same source produce
-> installers that differ by a few bytes (and therefore by hash). The SHA-256
-> above belongs to the **published** asset and is the one to check after
-> downloading. The hash of the earlier pull-request build was
-> `b307ca10f16ca27229d2f334fa3aabf85c06e479ce3b8665b2b1496e223b63be`.
+> **Why the hash is not pinned in this file.** Each build embeds build
+> timestamps, so two builds of the same source produce installers that differ by
+> a few bytes (and therefore by hash). GitHub displays the SHA-256 of the
+> published asset on the release page: compare it with
+> `certutil -hashfile PharmaGestion-DZ-Setup.exe SHA256` after downloading.
+> Hashes observed during this work: `c14bf8de…` (first PR build),
+> `b307ca10…` (PR build of 0729a88), `0816b9c0…` (first release build).
+> All three installers were produced from the same, verified configuration.
 
 Raw verification output (from the build):
 

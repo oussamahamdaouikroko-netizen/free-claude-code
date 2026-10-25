@@ -27,8 +27,12 @@ https://github.com/oussamahamdaouikroko-netizen/free-claude-code/releases
 → PharmaGestion-DZ-Setup.exe   (الحجم حوالي 100 ميغابايت)
 ```
 
-بصمة الملف المنشور (SHA-256):
-`0816b9c0297bf7e601a1ef56d4f2857e310d5b6262da081e564fdfb993d61f4c`
+للتحقق من الملف بعد التحميل، قارن بصمة **SHA-256** الظاهرة بجانب الملف في صفحة
+الإصدار (Releases) مع:
+
+```
+certutil -hashfile PharmaGestion-DZ-Setup.exe SHA256
+```
 
 1. حمّل الملف `PharmaGestion-DZ-Setup.exe`.
 2. شغّله بالنقر المزدوج.
