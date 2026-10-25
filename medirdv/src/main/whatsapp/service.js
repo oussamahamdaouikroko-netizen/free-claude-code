@@ -423,6 +423,29 @@ class WhatsAppService {
     const result = bot.handle({ phone, text, delivery: 'queued' });
     if (!result || !result.reply) return this.skip('no_reply', tag);
 
+    // Broadcast database state changes IMMEDIATELY (before anti-ban typing delay)
+    // so cancelled/booked appointments & intake updates reflect in the UI instantly
+    // without any manual refresh by clinic staff.
+    if (
+      [
+        'booked',
+        'cancelled',
+        'confirmed',
+        'intake_completed',
+        'intake_ask_weight',
+        'intake_ask_complaint',
+      ].includes(result.action)
+    ) {
+      this.onEvent({
+        type: 'appointment_changed',
+        payload: {
+          phone,
+          action: result.action,
+          appointment: result.appointment || null,
+        },
+      });
+    }
+
     const sent = await this.reply(phone, replyJid, result.reply);
     if (sent) {
       this.stats.replied += 1;
@@ -440,6 +463,21 @@ class WhatsAppService {
         chat_event_id: result.chatEvent?.id || null,
       },
     });
+
+    // If a patient cancelled today's appointment via WhatsApp, automatically
+    // notify booked patients waiting behind them that their turn is closer.
+    if (result.action === 'cancelled' && result.appointment) {
+      const queueUpdates = appointments.advanceNotificationsAfterRemoval(result.appointment, {
+        waConnected: this.state === 'connected',
+        resolveLanguage: (ph, fullName) => bot.preferredLanguage(ph, fullName),
+      });
+      if (queueUpdates.length > 0) {
+        this.notifyQueueAdvance(queueUpdates).catch((error) => {
+          console.error('[wa] post-cancel queue advance failed:', error.message);
+        });
+      }
+    }
+
     // Live counters in Réglages → WhatsApp: the dentist sees, message by
     // message, that the bot is receiving and answering.
     this.onStatus(this.publicStatus());

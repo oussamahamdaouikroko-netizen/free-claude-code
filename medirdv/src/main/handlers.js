@@ -230,17 +230,68 @@ function createHandlers(context) {
     'appointments:update': (payload) => appointments.updateDetails(payload),
     'appointments:reschedule': (payload) => appointments.reschedule(payload),
     'appointments:status': (payload) => {
+      const prev = payload?.id ? appointments.get(payload.id) : null;
+      const waConnected = Boolean(wa && wa.publicStatus()?.connected);
       if (payload?.status === 'cancelled') {
         const cancelled = appointments.cancel(payload?.id);
         chat.recordCancelled(cancelled, { delivery: 'local' });
+        if (prev?.status === 'booked') {
+          const updates = appointments.advanceNotificationsAfterRemoval(cancelled, {
+            waConnected,
+            resolveLanguage: (phone, fullName) => bot.preferredLanguage(phone, fullName),
+          });
+          if (waConnected && updates.length > 0 && typeof wa.notifyQueueAdvance === 'function') {
+            wa.notifyQueueAdvance(updates).catch((error) => {
+              console.error('[wa] queue notification failed:', error.message);
+            });
+          }
+        }
         emit({ type: 'chat', payload: { kind: 'cancelled', appointment_id: cancelled.id } });
         return cancelled;
       }
-      return appointments.setStatus(payload?.id, payload?.status);
+      if (payload?.status === 'done' && prev?.status === 'booked') {
+        const result = appointments.completeAndAdvance(payload?.id, {
+          waConnected,
+          resolveLanguage: (phone, fullName) => bot.preferredLanguage(phone, fullName),
+        });
+        if (waConnected && result.notifications.length > 0 && typeof wa.notifyQueueAdvance === 'function') {
+          wa.notifyQueueAdvance(result.notifications).catch((error) => {
+            console.error('[wa] queue notification failed:', error.message);
+          });
+        }
+        emit({ type: 'chat', payload: { kind: 'turn_now', count: result.notifications.length } });
+        return result.appointment;
+      }
+      const updated = appointments.setStatus(payload?.id, payload?.status);
+      if (payload?.status === 'no_show' && prev?.status === 'booked') {
+        const updates = appointments.advanceNotificationsAfterRemoval(updated, {
+          waConnected,
+          resolveLanguage: (phone, fullName) => bot.preferredLanguage(phone, fullName),
+        });
+        if (waConnected && updates.length > 0 && typeof wa.notifyQueueAdvance === 'function') {
+          wa.notifyQueueAdvance(updates).catch((error) => {
+            console.error('[wa] queue notification failed:', error.message);
+          });
+        }
+      }
+      return updated;
     },
     'appointments:cancel': (payload) => {
+      const prev = payload?.id ? appointments.get(payload.id) : null;
+      const waConnected = Boolean(wa && wa.publicStatus()?.connected);
       const cancelled = appointments.cancel(payload?.id);
       chat.recordCancelled(cancelled, { delivery: 'local' });
+      if (prev?.status === 'booked') {
+        const updates = appointments.advanceNotificationsAfterRemoval(cancelled, {
+          waConnected,
+          resolveLanguage: (phone, fullName) => bot.preferredLanguage(phone, fullName),
+        });
+        if (waConnected && updates.length > 0 && typeof wa.notifyQueueAdvance === 'function') {
+          wa.notifyQueueAdvance(updates).catch((error) => {
+            console.error('[wa] queue notification failed:', error.message);
+          });
+        }
+      }
       emit({ type: 'chat', payload: { kind: 'cancelled', appointment_id: cancelled.id } });
       return cancelled;
     },

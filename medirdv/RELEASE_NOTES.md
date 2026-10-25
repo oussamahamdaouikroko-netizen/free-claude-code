@@ -1,4 +1,13 @@
-# MediRDV v2.0.1 — Suite Clinique Complète Hors-Ligne pour Cabinets & Polycliniques (Algérie)
+# MediRDV v2.1.0 — Suite Clinique Complète Hors-Ligne pour Cabinets & Polycliniques (Algérie)
+
+## Nouveautés de la version 2.1.0 (تحديثات الإصدار 2.1.0)
+
+1. **Base officielle complète de 5 381 médicaments algériens intégrée d’office** : Les **5 381 spécialités pharmaceutiques algériennes** (nom commercial, DCI, dosage, conditionnement, laboratoire, pays, numéro d’enregistrement, statut générique/princeps, liste réglementaire) sont désormais embarquées hors-ligne dès l’installation et ajoutées automatiquement aux bases existantes avec recherche instantanée FTS5 (`< 10 ms`).
+2. **Discussion WhatsApp pré-consultation simplifiée (Âge + Poids + Symptômes optionnels)** : Saisie rapide de **l’âge (`العمر`)** et du **poids (`الوزن`)** pour tous les patients afin d’aider immédiatement le médecin, avec possibilité optionnelle d’indiquer brièvement des symptômes — suppression des questions longues (taille, durée, traitements, allergies/pénicilline, antécédents).
+3. **Alerte WhatsApp automatique d’approche du tour (`قرب دورك`)** : Le bot WhatsApp prévient automatiquement les patients en attente lorsque leur passage approche et leur indique exactement **combien de patients restent devant eux** ainsi que le temps d’attente estimé.
+4. **Suppression automatique immédiate lors d’une annulation WhatsApp (`إلغاء` / `ANNULER`)** : Dès qu’un patient annule sur WhatsApp, il est retiré instantanément et sans intervention manuelle de la liste d’attente du jour, de l’agenda et de l’écran salle d’attente, tout en mettant à jour les patients suivants dans la file.
+
+---
 
 Correctif `v2.0.1` : correction d’un problème d’affichage de la page **Paramètres / الإعدادات** sous Chromium/Windows (`InvalidCharacterError` lors du rendu du sélecteur de format papier `A5/A4`). Toutes les cartes de configuration s’affichent désormais intégralement en Français et en Arabe RTL.
 

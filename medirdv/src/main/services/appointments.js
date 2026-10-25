@@ -23,12 +23,12 @@ const { isValidISODate, addDays, toISODate, diffDays, formatLong } = require('..
 
 const AGENDA_SQL = `
   SELECT a.*,
-    p.full_name, p.phone, p.phone_norm, p.allergies, p.blood_group, p.chronic_conditions,
+    p.full_name, p.phone, p.phone_norm, p.birth_date, p.allergies, p.blood_group, p.chronic_conditions,
     d.name_fr AS dept_name_fr, d.name_ar AS dept_name_ar,
     d.doctor_name AS dept_doctor_name, d.room AS dept_room,
     d.specialty AS dept_specialty, d.instructions AS dept_instructions,
     pi.id AS intake_id, pi.status AS intake_status, pi.source AS intake_source,
-    pi.weight_kg AS intake_weight_kg, pi.height_cm AS intake_height_cm,
+    pi.age_years AS intake_age_years, pi.weight_kg AS intake_weight_kg, pi.height_cm AS intake_height_cm,
     pi.chief_complaint AS intake_complaint, pi.known_allergies AS intake_allergies,
     pi.is_pregnant AS intake_pregnant, pi.is_breastfeeding AS intake_breastfeeding,
     COALESCE((SELECT SUM(pay.amount) FROM payments pay WHERE pay.appointment_id = a.id), 0) AS paid
@@ -530,6 +530,97 @@ function completeAndAdvance(id, options = {}) {
 }
 
 /**
+ * Notify waiting patients behind a removed/cancelled/absent slot on today's queue
+ * that their turn has moved closer (without disturbing patients ahead of that slot).
+ */
+function advanceNotificationsAfterRemoval(removedAppointment, options = {}) {
+  if (!removedAppointment) return [];
+  const today = options.today || toISODate();
+  if (removedAppointment.day !== today) return [];
+  if (!settings.getBool('queue_notify_enabled')) return [];
+
+  const avgMinutes = Math.max(5, settings.getInt('avg_session_minutes') || 15);
+  const dKey = deptKey(removedAppointment.department_id);
+  const dept = departments.getOptional(dKey);
+  const waiting = getDb()
+    .prepare(
+      `${AGENDA_SQL}
+       WHERE a.day = ? AND COALESCE(a.department_id, 0) = ? AND a.status = 'booked'
+       ORDER BY a.queue_number ASC`,
+    )
+    .all(removedAppointment.day, dKey)
+    .map(decorate);
+
+  const removedQueue = Number(removedAppointment.queue_number) || 0;
+  const canQueueWa = Boolean(options.waConnected) && settings.getBool('queue_notify_enabled');
+  const notifications = [];
+
+  waiting.slice(0, 20).forEach((entry, index) => {
+    if (entry.queue_number <= removedQueue) return;
+
+    const lang =
+      typeof options.resolveLanguage === 'function'
+        ? options.resolveLanguage(entry.phone, entry.full_name)
+        : chat.detectLanguage(entry.full_name);
+
+    const deptLabel = dept ? departments.labelFor(dept, lang) : '';
+    const isNext = index === 0;
+    const ahead = index;
+    const etaMinutes = ahead * avgMinutes;
+    const body = isNext
+      ? message(lang, 'turnNow', chat.clinicSettings(), {
+          name: entry.full_name,
+          queue: entry.queue_number,
+          department: deptLabel,
+          room: dept?.room || '',
+        })
+      : message(lang, 'queueAhead', chat.clinicSettings(), {
+          name: entry.full_name,
+          queue: entry.queue_number,
+          ahead,
+          etaMinutes,
+          department: deptLabel,
+        });
+
+    const delivery = canQueueWa && entry.phone ? 'queued' : 'local';
+    const logged = chat.record({
+      kind: isNext ? 'turn_now' : 'queue_ahead',
+      direction: 'out',
+      patient_id: entry.patient_id,
+      appointment_id: entry.id,
+      patient_name: entry.full_name,
+      phone: entry.phone || null,
+      day: entry.day,
+      queue_number: entry.queue_number,
+      ahead_count: ahead,
+      eta_minutes: etaMinutes,
+      body,
+      delivery,
+      read: Boolean(options.markRead),
+    });
+
+    notifications.push({
+      event_id: logged.id,
+      kind: logged.kind,
+      appointment_id: entry.id,
+      patient_id: entry.patient_id,
+      patient_name: entry.full_name,
+      phone: entry.phone || null,
+      queue_number: entry.queue_number,
+      department_id: entry.department_id || null,
+      department_name: deptLabel || null,
+      ahead_count: ahead,
+      eta_minutes: etaMinutes,
+      lang,
+      body,
+      delivery,
+    });
+  });
+
+  return notifications;
+}
+
+/**
  * Agenda of one day, ordered by department then queue number (cancelled rows excluded).
  * Optionally filtered by `departmentId`.
  */
@@ -739,6 +830,7 @@ module.exports = {
   cancelWaitingByPhone,
   queuePosition,
   completeAndAdvance,
+  advanceNotificationsAfterRemoval,
   agenda,
   upcomingForPatient,
   listRange,

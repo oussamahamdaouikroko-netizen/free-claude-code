@@ -238,49 +238,33 @@ function finalizeBooking({ phone, patientObj, name, department, lang, delivery }
   };
 }
 
-function promptForIntakeStep(lang, q, isChild, draft) {
+function promptForIntakeStep(lang, q, isChild) {
   switch (q) {
-    case 'child_age':
-      return reply(lang, 'intakeAskChildAge');
+    case 'age':
+      return reply(lang, 'intakeAskAge', { isChild });
     case 'weight':
       return reply(lang, 'intakeAskWeight', { isChild });
-    case 'height':
-      return reply(lang, 'intakeAskHeight', { isChild });
     case 'complaint':
       return reply(lang, 'intakeAskComplaint', { isChild });
-    case 'duration':
-      return reply(lang, 'intakeAskDuration', { isChild });
-    case 'medications':
-      return reply(lang, 'intakeAskMedications', { isChild });
-    case 'allergies':
-      return reply(lang, 'intakeAskAllergies', { isChild });
-    case 'chronic':
-      return reply(lang, 'intakeAskChronic', { isChild });
-    case 'pregnant':
-      return reply(lang, 'intakeAskPregnant');
-    case 'breastfeeding':
-      return reply(lang, 'intakeAskBreastfeeding');
-    case 'summary':
-      return reply(lang, 'intakeSummary', { draft });
     default:
-      return reply(lang, 'intakeAskWeight', { isChild });
+      return reply(lang, 'intakeAskAge', { isChild });
   }
 }
 
 function advanceIntakeQuestion({ phone, pending, lang, nextQ }) {
   const draft = intake.get(pending.intakeId);
-  if (nextQ === 'summary') {
-    setPending(phone, { ...pending, step: 'intake_confirm', q: 'summary', retries: 0 });
+  if (nextQ === 'done') {
+    clearPending(phone);
     return {
-      reply: promptForIntakeStep(lang, 'summary', pending.isChild, draft),
+      reply: reply(lang, 'intakeCompleted', { draft }),
       lang,
-      action: 'intake_summary',
+      action: 'intake_completed',
       intake: draft,
     };
   }
   setPending(phone, { ...pending, step: 'intake_q', q: nextQ, retries: 0 });
   return {
-    reply: promptForIntakeStep(lang, nextQ, pending.isChild, draft),
+    reply: promptForIntakeStep(lang, nextQ, pending.isChild),
     lang,
     action: `intake_ask_${nextQ}`,
     intake: draft,
@@ -291,7 +275,6 @@ function handleIntakeState({ phone, text, lang, pending }) {
   if (pending.step === 'intake_consent') {
     const yn = intake.parseYesNo(text);
     if (yn === 'yes') {
-      const pRow = patients.get(pending.patientId);
       const draft = intake.create({
         patient_id: pending.patientId,
         appointment_id: pending.appointmentId || null,
@@ -299,10 +282,9 @@ function handleIntakeState({ phone, text, lang, pending }) {
         consent: true,
         is_child_intake: pending.isChild ? 1 : 0,
       });
-      const firstQ = pending.isChild && !pRow.birth_date ? 'child_age' : 'weight';
       setPending(phone, {
         step: 'intake_q',
-        q: firstQ,
+        q: 'age',
         intakeId: draft.id,
         patientId: pending.patientId,
         appointmentId: pending.appointmentId || null,
@@ -310,13 +292,13 @@ function handleIntakeState({ phone, text, lang, pending }) {
         retries: 0,
       });
       return {
-        reply: promptForIntakeStep(lang, firstQ, Boolean(pending.isChild), draft),
+        reply: promptForIntakeStep(lang, 'age', Boolean(pending.isChild)),
         lang,
         action: 'intake_started',
         intake: draft,
       };
     }
-    if (yn === 'no') {
+    if (yn === 'no' || intake.isSkipInput(text)) {
       clearPending(phone);
       return {
         reply: reply(lang, 'intakeDeclined'),
@@ -324,57 +306,72 @@ function handleIntakeState({ phone, text, lang, pending }) {
         action: 'intake_declined',
       };
     }
+    // Fast-path: patient replied directly with their age (e.g. "32", "32 سنة", "18 شهر").
+    const directAge = intake.parseAgeYears(text);
+    if (directAge.ok) {
+      const childFlag = Boolean(pending.isChild) || directAge.value < 15;
+      const draft = intake.create({
+        patient_id: pending.patientId,
+        appointment_id: pending.appointmentId || null,
+        source: 'whatsapp',
+        consent: true,
+        age_years: directAge.value,
+        is_child_intake: childFlag ? 1 : 0,
+      });
+      setPending(phone, {
+        step: 'intake_q',
+        q: 'weight',
+        intakeId: draft.id,
+        patientId: pending.patientId,
+        appointmentId: pending.appointmentId || null,
+        isChild: childFlag,
+        retries: 0,
+      });
+      return {
+        reply: promptForIntakeStep(lang, 'weight', childFlag),
+        lang,
+        action: 'intake_ask_weight',
+        intake: draft,
+      };
+    }
     // Anything else (e.g., MON RDV, ANNULER, name) exits consent prompt cleanly.
     clearPending(phone);
     return null;
   }
 
-  if (pending.step === 'intake_confirm') {
-    if (intake.isRestartInput(text) || intake.parseYesNo(text) === 'no') {
-      const reset = intake.resetAnswers(pending.intakeId);
-      setPending(phone, { ...pending, step: 'intake_q', q: 'weight', retries: 0 });
-      return {
-        reply: promptForIntakeStep(lang, 'weight', pending.isChild, reset),
-        lang,
-        action: 'intake_restarted',
-        intake: reset,
-      };
-    }
-    if (intake.parseYesNo(text) === 'yes') {
-      clearPending(phone);
-      const completed = intake.get(pending.intakeId);
-      return {
-        reply: reply(lang, 'intakeCompleted'),
-        lang,
-        action: 'intake_completed',
-        intake: completed,
-      };
-    }
-    const currentDraft = intake.get(pending.intakeId);
-    setPending(phone, pending);
+  if (pending.step !== 'intake_q') return null;
+
+  if (intake.isRestartInput(text)) {
+    const reset = intake.resetAnswers(pending.intakeId);
+    setPending(phone, { ...pending, step: 'intake_q', q: 'age', retries: 0 });
     return {
-      reply: promptForIntakeStep(lang, 'summary', pending.isChild, currentDraft),
+      reply: promptForIntakeStep(lang, 'age', pending.isChild),
       lang,
-      action: 'intake_summary',
-      intake: currentDraft,
+      action: 'intake_restarted',
+      intake: reset,
     };
   }
-
-  if (pending.step !== 'intake_q') return null;
 
   const skipped = intake.isSkipInput(text);
   const q = pending.q;
 
-  if (q === 'child_age') {
+  if (q === 'age') {
     if (!skipped) {
       const parsed = intake.parseAgeYears(text);
       if (parsed.ok) {
-        const childFlag = parsed.value < 15;
+        const childFlag = Boolean(pending.isChild) || parsed.value < 15;
         intake.update(pending.intakeId, {
           age_years: parsed.value,
           is_child_intake: childFlag ? 1 : 0,
         });
         pending.isChild = childFlag;
+      } else if ((pending.retries || 0) < 1) {
+        setPending(phone, { ...pending, retries: 1 });
+        return {
+          reply: reply(lang, 'intakeRetryAge'),
+          lang,
+          action: 'intake_retry_age',
+        };
       }
     }
     return advanceIntakeQuestion({ phone, pending, lang, nextQ: 'weight' });
@@ -394,28 +391,11 @@ function handleIntakeState({ phone, text, lang, pending }) {
         };
       }
     }
-    return advanceIntakeQuestion({ phone, pending, lang, nextQ: 'height' });
-  }
-
-  if (q === 'height') {
-    if (!skipped) {
-      const parsed = intake.parseHeightCm(text);
-      if (parsed.ok) {
-        intake.update(pending.intakeId, { height_cm: parsed.value });
-      } else if ((pending.retries || 0) < 1) {
-        setPending(phone, { ...pending, retries: 1 });
-        return {
-          reply: reply(lang, 'intakeRetryHeight'),
-          lang,
-          action: 'intake_retry_height',
-        };
-      }
-    }
     return advanceIntakeQuestion({ phone, pending, lang, nextQ: 'complaint' });
   }
 
   if (q === 'complaint') {
-    if (!skipped) {
+    if (!skipped && !intake.isNoneInput(text)) {
       const pRow = patients.get(pending.patientId);
       const childDetected = pending.isChild || intake.detectChildContext(pRow, text);
       pending.isChild = childDetected;
@@ -424,61 +404,7 @@ function handleIntakeState({ phone, text, lang, pending }) {
         is_child_intake: childDetected ? 1 : 0,
       });
     }
-    return advanceIntakeQuestion({ phone, pending, lang, nextQ: 'duration' });
-  }
-
-  if (q === 'duration') {
-    if (!skipped) {
-      intake.update(pending.intakeId, { symptom_duration: text });
-    }
-    return advanceIntakeQuestion({ phone, pending, lang, nextQ: 'medications' });
-  }
-
-  if (q === 'medications') {
-    if (!skipped) {
-      intake.update(pending.intakeId, { current_medications: text });
-    }
-    return advanceIntakeQuestion({ phone, pending, lang, nextQ: 'allergies' });
-  }
-
-  if (q === 'allergies') {
-    if (!skipped) {
-      intake.update(pending.intakeId, { known_allergies: text });
-    }
-    return advanceIntakeQuestion({ phone, pending, lang, nextQ: 'chronic' });
-  }
-
-  if (q === 'chronic') {
-    if (!skipped) {
-      intake.update(pending.intakeId, { chronic_conditions: text });
-    }
-    const pRow = patients.get(pending.patientId);
-    const draft = intake.get(pending.intakeId);
-    const askPreg = intake.shouldAskPregnancy(pRow, draft.age_years);
-    return advanceIntakeQuestion({
-      phone,
-      pending,
-      lang,
-      nextQ: askPreg ? 'pregnant' : 'summary',
-    });
-  }
-
-  if (q === 'pregnant') {
-    if (!skipped) {
-      const yn = intake.parseYesNo(text);
-      if (yn === 'yes') intake.update(pending.intakeId, { is_pregnant: 1 });
-      else if (yn === 'no') intake.update(pending.intakeId, { is_pregnant: 0 });
-    }
-    return advanceIntakeQuestion({ phone, pending, lang, nextQ: 'breastfeeding' });
-  }
-
-  if (q === 'breastfeeding') {
-    if (!skipped) {
-      const yn = intake.parseYesNo(text);
-      if (yn === 'yes') intake.update(pending.intakeId, { is_breastfeeding: 1 });
-      else if (yn === 'no') intake.update(pending.intakeId, { is_breastfeeding: 0 });
-    }
-    return advanceIntakeQuestion({ phone, pending, lang, nextQ: 'summary' });
+    return advanceIntakeQuestion({ phone, pending, lang, nextQ: 'done' });
   }
 
   return null;

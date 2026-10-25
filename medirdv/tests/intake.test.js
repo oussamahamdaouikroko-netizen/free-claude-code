@@ -133,7 +133,7 @@ test('Phase 1 — Reject leaves verified patient medical record untouched', (t) 
   assert.equal(intake.weightHistory(p.id).length, 0);
 });
 
-test('Phase 1 — French WhatsApp intake: consent, invalid weight retry once, skip, summary & restart', (t) => {
+test('Phase 1 — French WhatsApp streamlined intake: Age + Weight + Optional Symptoms only (no height/allergies)', (t) => {
   const ctx = setupClinic();
   t.after(() => ctx.cleanup());
 
@@ -141,103 +141,85 @@ test('Phase 1 — French WhatsApp intake: consent, invalid weight retry once, sk
   const booked = bot.handle({ phone, text: 'Sami Meziane' });
   assert.equal(booked.action, 'booked');
   assert.match(booked.reply, /Loi 18-07/);
+  assert.doesNotMatch(booked.reply, /allergie|pénicilline|taille/i);
 
-  // Consent OUI -> creates pending row and asks weight
+  // Consent OUI -> creates pending row and asks Age (1/3)
   const q1 = bot.handle({ phone, text: 'OUI' });
   assert.equal(q1.action, 'intake_started');
-  assert.match(q1.reply, /poids/i);
+  assert.match(q1.reply, /âge/i);
+
+  // Invalid age -> gentle retry once
+  const retryAge = bot.handle({ phone, text: 'abc' });
+  assert.equal(retryAge.action, 'intake_retry_age');
+
+  // Valid age -> asks Weight (2/3)
+  const q2 = bot.handle({ phone, text: '34 ans' });
+  assert.equal(q2.action, 'intake_ask_weight');
+  assert.match(q2.reply, /poids/i);
 
   // Invalid weight -> gentle retry once
-  const retry = bot.handle({ phone, text: 'abc' });
-  assert.equal(retry.action, 'intake_retry_weight');
+  const retryWeight = bot.handle({ phone, text: 'abc' });
+  assert.equal(retryWeight.action, 'intake_retry_weight');
 
-  // Valid comma weight -> asks height
-  const q2 = bot.handle({ phone, text: '74,5 kg' });
-  assert.equal(q2.action, 'intake_ask_height');
-
-  // Skip height with 0 -> asks complaint
-  const q3 = bot.handle({ phone, text: '0' });
+  // Valid comma weight -> asks Optional Symptoms (3/3) — NO height question!
+  const q3 = bot.handle({ phone, text: '74,5 kg' });
   assert.equal(q3.action, 'intake_ask_complaint');
+  assert.doesNotMatch(q3.reply, /taille|cm|pénicilline|allergie/i);
 
-  const q4 = bot.handle({ phone, text: 'Fièvre et maux de gorge' });
-  assert.equal(q4.action, 'intake_ask_duration');
-
-  const q5 = bot.handle({ phone, text: '3 jours' });
-  assert.equal(q5.action, 'intake_ask_medications');
-
-  const q6 = bot.handle({ phone, text: 'Paracétamol' });
-  assert.equal(q6.action, 'intake_ask_allergies');
-
-  const q7 = bot.handle({ phone, text: 'Aucune' });
-  assert.equal(q7.action, 'intake_ask_chronic');
-
-  // Unknown gender -> not female -> goes straight to summary (no pregnancy question!)
-  const sum = bot.handle({ phone, text: '0' });
-  assert.equal(sum.action, 'intake_summary');
-  assert.match(sum.reply, /74\.5 kg/);
-
-  // CORRIGER restarts cleanly
+  // CORRIGER restarts cleanly at Age
   const restarted = bot.handle({ phone, text: 'CORRIGER' });
   assert.equal(restarted.action, 'intake_restarted');
+  bot.handle({ phone, text: '35' });
   bot.handle({ phone, text: '75' });
-  bot.handle({ phone, text: '178' });
-  bot.handle({ phone, text: 'Angine' });
-  bot.handle({ phone, text: '2 jours' });
-  bot.handle({ phone, text: '0' });
-  bot.handle({ phone, text: 'Pénicilline' });
-  const sum2 = bot.handle({ phone, text: '0' });
-  assert.equal(sum2.action, 'intake_summary');
 
-  const done = bot.handle({ phone, text: 'OUI' });
+  // Optional symptoms -> finishes immediately without extra duration/meds/allergies/chronic/pregnancy questions!
+  const done = bot.handle({ phone, text: 'Fièvre et maux de gorge' });
   assert.equal(done.action, 'intake_completed');
+  assert.equal(done.intake.age_years, 35);
   assert.equal(done.intake.weight_kg, 75);
-  assert.equal(done.intake.height_cm, 178);
-  assert.equal(done.intake.known_allergies, 'Pénicilline');
+  assert.equal(done.intake.height_cm, null);
+  assert.equal(done.intake.chief_complaint, 'Fièvre et maux de gorge');
   assert.equal(done.intake.status, 'pending');
+  assert.match(done.reply, /35 ans/);
+  assert.match(done.reply, /75 kg/);
 });
 
-test('Phase 1 — Arabic WhatsApp intake, pregnancy gating (female 12-55 only), child alert & 30-min timeout', (t) => {
+test('Phase 1 — Arabic WhatsApp streamlined intake (direct age fast-path, skip symptoms, child alert & 30-min timeout)', (t) => {
   const ctx = setupClinic();
   t.after(() => ctx.cleanup());
 
-  // 1. Female patient aged 29 -> MUST ask pregnancy & breastfeeding
-  const female = patients.create({
-    full_name: 'سارة بوعلام',
-    phone: '0661112233',
-    gender: 'f',
-    birth_date: '1997-04-12',
-  });
-  appointments.create({ patient_id: female.id });
-
+  // 1. Arabic patient books and replies directly with Age ("٢٩ سنة"), Weight, and skips optional symptoms ("لا")
   const phoneF = '213661112233';
-  const inv = bot.handle({ phone: phoneF, text: 'معلومات' });
-  assert.equal(inv.action, 'intake_invite');
-  bot.handle({ phone: phoneF, text: 'نعم' });
-  bot.handle({ phone: phoneF, text: '٦٤٫٥ كغ' });
-  bot.handle({ phone: phoneF, text: '١٦٢ سم' });
-  bot.handle({ phone: phoneF, text: 'صداع ودوار' });
-  bot.handle({ phone: phoneF, text: 'تخطي' });
-  bot.handle({ phone: phoneF, text: 'لا يوجد' });
-  bot.handle({ phone: phoneF, text: 'لا يوجد' });
+  const bookedAr = bot.handle({ phone: phoneF, text: 'سارة بوعلام' });
+  assert.equal(bookedAr.action, 'booked');
+  assert.doesNotMatch(bookedAr.reply, /البنسلين|حساسية|الطول/);
 
-  const pregStep = bot.handle({ phone: phoneF, text: 'لا يوجد' });
-  assert.equal(pregStep.action, 'intake_ask_pregnant');
-  const breastStep = bot.handle({ phone: phoneF, text: 'نعم' });
-  assert.equal(breastStep.action, 'intake_ask_breastfeeding');
-  const sumAr = bot.handle({ phone: phoneF, text: 'لا' });
-  assert.equal(sumAr.action, 'intake_summary');
-  const finAr = bot.handle({ phone: phoneF, text: 'نعم' });
+  const askWeight = bot.handle({ phone: phoneF, text: '٢٩ سنة' });
+  assert.equal(askWeight.action, 'intake_ask_weight');
+  assert.match(askWeight.reply, /وزن/);
+
+  const askSymptoms = bot.handle({ phone: phoneF, text: '٦٤٫٥ كغ' });
+  assert.equal(askSymptoms.action, 'intake_ask_complaint');
+  assert.doesNotMatch(askSymptoms.reply, /الطول|البنسلين|حساسية/);
+
+  const finAr = bot.handle({ phone: phoneF, text: 'لا' });
   assert.equal(finAr.action, 'intake_completed');
+  assert.equal(finAr.intake.age_years, 29);
   assert.equal(finAr.intake.weight_kg, 64.5);
-  assert.equal(finAr.intake.is_pregnant, 1);
-  assert.equal(finAr.intake.is_breastfeeding, 0);
+  assert.equal(finAr.intake.chief_complaint, '');
+
+  // Confirm & apply writes approximate birth year & pre-fills prescription age + weight
+  const applied = intake.confirmAndApply(finAr.intake.id, { reviewed_by: 'Dr Amrani' });
+  assert.ok(applied.patient.birth_date, 'approximate birth year stored on confirm');
+  assert.equal(applied.prescription_prefill.patient_age, '29 ans');
+  assert.equal(applied.prescription_prefill.patient_weight, '64.5 kg');
 
   // 2. Child (< 15 yrs, birth_date overrides reported age) & partial persistence on 30-min timeout
   const child = patients.create({
     full_name: 'Yanis Khelifi',
     phone: '0771223344',
     gender: 'f',
-    birth_date: '2021-06-01', // ~5 years old -> child wording, NO pregnancy question!
+    birth_date: '2021-06-01', // ~5 years old -> child wording
   });
   assert.equal(intake.shouldAskPregnancy(child, 25), false, 'birth_date age overrides reported age');
 
@@ -246,17 +228,19 @@ test('Phase 1 — Arabic WhatsApp intake, pregnancy gating (female 12-55 only), 
   bot.handle({ phone: phoneC, text: 'fiche' });
   const startChild = bot.handle({ phone: phoneC, text: 'oui' });
   assert.match(startChild.reply, /enfant/i);
+  bot.handle({ phone: phoneC, text: '5 ans' });
   bot.handle({ phone: phoneC, text: '13.8 kg' }); // < 15 kg -> triggers CHILD_UNDER_15KG alert!
 
-  // Simulate 30-minute timeout mid-flow -> partial answer (13.8 kg) still persisted!
+  // Simulate 30-minute timeout mid-flow -> partial answer (5 ans, 13.8 kg) still persisted!
   bot.expirePendingForTest(phoneC);
   const savedPartial = intake.latestPendingForPatient(child.id);
   assert.ok(savedPartial);
+  assert.equal(savedPartial.age_years, 5);
   assert.equal(savedPartial.weight_kg, 13.8);
   assert.ok(savedPartial.alerts.some((a) => a.code === 'CHILD_UNDER_15KG'));
 
   // IPC handler round-trip check
-  const handlers = createHandlers({ version: '1.1.0', dataDir: ctx.dir });
+  const handlers = createHandlers({ version: '2.1.0', dataDir: ctx.dir });
   const viaIpc = handlers['intake:get']({ id: savedPartial.id });
   assert.equal(viaIpc.weight_kg, 13.8);
 });

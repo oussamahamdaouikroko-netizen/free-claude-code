@@ -379,20 +379,36 @@
 
     App.onExternalChatUpdate = () => {
       if (!App.bootInfo?.auth?.unlocked) return;
-      if (['dashboard', 'agenda', 'whatsapp'].includes(App.page)) App.renderPage();
+      if (['dashboard', 'agenda', 'patients', 'whatsapp'].includes(App.page)) App.renderPage();
     };
+    let lastAutoCancelToastId = 0;
     window.API.onEvent((event) => {
       if (event?.type === 'reminders' && event.payload?.sent) {
         toast(t('wa.sentNow', { n: event.payload.sent }), 'ok');
       }
-      if (event?.type === 'message') {
+      if (event?.type === 'appointment_changed') {
         if (event.payload?.action === 'cancelled') {
-          toast(t('queue.autoRemovedToast'), 'ok');
+          const cid = event.payload?.appointment?.id || Date.now();
+          if (cid !== lastAutoCancelToastId) {
+            lastAutoCancelToastId = cid;
+            toast(t('queue.autoRemovedToast'), 'ok');
+          }
         }
         if (window.MiniChat) window.MiniChat.refresh({ scrollBottom: true });
         App.onExternalChatUpdate();
-      } else if (event?.type === 'chat' || event?.type === 'queue') {
+      } else if (event?.type === 'message') {
+        if (event.payload?.action === 'cancelled') {
+          const cid = event.payload?.appointment?.id || 0;
+          if (!cid || cid !== lastAutoCancelToastId) {
+            lastAutoCancelToastId = cid || Date.now();
+            toast(t('queue.autoRemovedToast'), 'ok');
+          }
+        }
         if (window.MiniChat) window.MiniChat.refresh({ scrollBottom: true });
+        App.onExternalChatUpdate();
+      } else if (event?.type === 'chat' || event?.type === 'queue' || event?.type === 'intake') {
+        if (window.MiniChat) window.MiniChat.refresh({ scrollBottom: true });
+        if (event?.type === 'queue' || event?.type === 'intake') App.onExternalChatUpdate();
       }
     });
     window.API.onWhatsAppStatus(() => {

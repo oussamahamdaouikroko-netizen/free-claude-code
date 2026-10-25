@@ -443,6 +443,13 @@
         .then((latestIntake) => {
           if (!latestIntake || !intakeBannerHost.isConnected) return;
           const parts = [];
+          if (latestIntake.effective_age_years !== null && latestIntake.effective_age_years !== undefined) {
+            parts.push(
+              latestIntake.effective_age_years < 2
+                ? t('intake.ageUnitMonths', { n: Math.round(latestIntake.effective_age_years * 12) })
+                : t('intake.ageUnitYears', { n: Math.round(latestIntake.effective_age_years * 10) / 10 }),
+            );
+          }
           if (latestIntake.weight_kg) parts.push(`${latestIntake.weight_kg} kg`);
           if (latestIntake.known_allergies) parts.push(`⚠ ${latestIntake.known_allergies}`);
           if (latestIntake.is_pregnant === 1) parts.push(t('intake.alertPregnancy'));
@@ -451,6 +458,7 @@
           const isPending = latestIntake.status !== 'applied';
 
           const applyToDraft = (prefill, updatedPatient) => {
+            if (prefill.patient_age && !draft.patient_age) draft.patient_age = prefill.patient_age;
             if (prefill.patient_weight) draft.patient_weight = prefill.patient_weight;
             if (updatedPatient?.allergies) draft.patient_allergies = updatedPatient.allergies;
             if (updatedPatient?.chronic_conditions) draft.patient_chronic = updatedPatient.chronic_conditions;
@@ -495,6 +503,12 @@
                       } else {
                         applyToDraft(
                           {
+                            patient_age:
+                              latestIntake.effective_age_years !== null && latestIntake.effective_age_years !== undefined
+                                ? latestIntake.effective_age_years < 2
+                                  ? `${Math.round(latestIntake.effective_age_years * 12)} mois`
+                                  : `${Math.round(latestIntake.effective_age_years)} ans`
+                                : '',
                             patient_weight: latestIntake.weight_kg ? `${latestIntake.weight_kg} kg` : '',
                             vitals_bp: latestIntake.last_blood_pressure || '',
                             vitals_glycemia: latestIntake.last_glycemia || '',

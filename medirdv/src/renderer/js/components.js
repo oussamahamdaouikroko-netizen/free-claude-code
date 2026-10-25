@@ -790,15 +790,30 @@
     }
   };
 
+  function formatAgeBadge(ageYears) {
+    if (ageYears === null || ageYears === undefined || ageYears === '') return '';
+    const num = Number(ageYears);
+    if (!Number.isFinite(num) || num <= 0) return '';
+    if (num < 2) return t('intake.ageUnitMonths', { n: Math.round(num * 12) });
+    return t('intake.ageUnitYears', { n: Math.round(num * 10) / 10 });
+  }
+
   /* ------------------------- pre-visit intake UI ------------------------- */
   C.intakeBadge = function intakeBadge(appointment) {
     if (!appointment || !appointment.intake_id) return null;
     const isApplied = appointment.intake_status === 'applied';
-    const summaryParts = [];
-    if (appointment.intake_weight_kg) summaryParts.push(`${appointment.intake_weight_kg} kg`);
+    const compactMetrics = [];
+    const ageLabel = formatAgeBadge(appointment.intake_age_years);
+    if (ageLabel) compactMetrics.push(ageLabel);
+    if (appointment.intake_weight_kg) compactMetrics.push(`${appointment.intake_weight_kg} kg`);
+
+    const summaryParts = [...compactMetrics];
     if (appointment.intake_complaint) summaryParts.push(appointment.intake_complaint);
     if (appointment.intake_allergies) summaryParts.push(`⚠ ${appointment.intake_allergies}`);
     const tooltip = summaryParts.join(' · ') || t(isApplied ? 'intake.badgeApplied' : 'intake.badgePending');
+    const badgeLabel = compactMetrics.length
+      ? `${compactMetrics.join(' · ')} (${t(isApplied ? 'intake.badgeApplied' : 'intake.badgePending')})`
+      : t(isApplied ? 'intake.badgeApplied' : 'intake.badgePending');
 
     return h(
       'button',
@@ -813,7 +828,7 @@
         },
       },
       window.Icons ? window.Icons.el('clipboard', { size: 13 }) : '',
-      h('span', {}, t(isApplied ? 'intake.badgeApplied' : 'intake.badgePending')),
+      h('span', {}, badgeLabel),
     );
   };
 
@@ -821,6 +836,15 @@
     const isEdit = Boolean(intakeRow);
     const err = inlineError();
 
+    const ageIn = input({
+      type: 'number',
+      step: '0.5',
+      min: '0.1',
+      max: '130',
+      value: intakeRow?.age_years ?? '',
+      placeholder: '32',
+      autofocus: true,
+    });
     const weightIn = input({
       type: 'number',
       step: '0.1',
@@ -828,7 +852,6 @@
       max: '400',
       value: intakeRow?.weight_kg ?? '',
       placeholder: '72.0',
-      autofocus: true,
     });
     const heightIn = input({
       type: 'number',
@@ -888,6 +911,7 @@
     const showFemaleFields = !patient?.gender || patient.gender === 'f';
 
     const buildPatch = () => ({
+      age_years: ageIn.value.trim() === '' ? null : ageIn.value.trim(),
       weight_kg: weightIn.value.trim() === '' ? null : weightIn.value.trim(),
       height_cm: heightIn.value.trim() === '' ? null : heightIn.value.trim(),
       chief_complaint: complaintIn.value.trim(),
@@ -950,10 +974,11 @@
         h(
           'div',
           { class: 'grid three', style: { alignItems: 'end' } },
+          field(t('intake.ageYears'), ageIn),
           field(t('intake.weightKg'), weightIn),
           field(t('intake.heightCm'), heightIn),
-          bmiDisplay,
         ),
+        bmiDisplay,
         h('div', { class: 'grid two' }, field(t('intake.complaint'), complaintIn), field(t('intake.duration'), durationIn)),
         h('div', { class: 'grid two' }, field(t('intake.currentMeds'), medsIn), field(t('intake.knownAllergies'), allergiesIn)),
         field(t('intake.chronic'), chronicIn),

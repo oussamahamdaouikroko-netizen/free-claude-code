@@ -7,6 +7,7 @@
  */
 
 const { ALGERIA_MEDICATIONS, STARTER_TEMPLATES } = require('./algeria-drugs');
+const { seedOfficialAlgerianMedications } = require('./official-medications');
 const {
   STARTER_DOSE_RULES,
   STARTER_INTERACTION_PAIRS,
@@ -129,6 +130,8 @@ function seedDefaults(db) {
         insertMed.run(brand, dci, strength, form, spec, kwAr, defDos, defDur, dciGroup, folded);
       }
     }
+
+    seedOfficialAlgerianMedications(db);
 
     const tplCount = db.prepare('SELECT COUNT(*) AS n FROM prescription_templates').get().n;
     if (tplCount === 0) {

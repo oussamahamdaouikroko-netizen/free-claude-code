@@ -246,8 +246,8 @@ function parseOptionalPrice(raw) {
 function parseBoolFlag(raw, defaultVal = 0) {
   const s = foldSearch(raw);
   if (!s) return defaultVal;
-  if (['1', 'oui', 'yes', 'true', 'g', 'generique', 'remboursable', 'نعم', 'جنيس'].includes(s)) return 1;
-  if (['0', 'non', 'no', 'false', 'princeps', 'r', 'لا'].includes(s)) return 0;
+  if (['1', 'oui', 'yes', 'true', 'g', 'ge', 'generique', 'remboursable', 'نعم', 'جنيس'].includes(s)) return 1;
+  if (['0', 'non', 'no', 'false', 'princeps', 'r', 're', 'bio', 'لا'].includes(s)) return 0;
   return defaultVal;
 }
 
@@ -256,8 +256,8 @@ function normalizeSchedule(raw) {
   if (!s) return '';
   if (/(stupefiant|tableau b|مخدر)/.test(s)) return 'stupefiant';
   if (/(psychotrope|مؤثر عقلي)/.test(s)) return 'psychotrope';
-  if (/(liste i\b|liste 1|tableau a)/.test(s)) return 'liste_i';
   if (/(liste ii|liste 2|tableau c)/.test(s)) return 'liste_ii';
+  if (/(liste i\b|liste 1|tableau a)/.test(s)) return 'liste_i';
   return cleanText(raw, 30);
 }
 
@@ -269,7 +269,7 @@ function mapNomenclatureRecord(rawRow = {}) {
 
   const brand = cleanText(
     pickField(row, [
-      'brand', 'nom_de_marque', 'nom_marque', 'marque', 'specialite', 'nom_commercial', 'الاسم_التجاري',
+      'brand', 'brandname', 'brand_name', 'nom_de_marque', 'nom_marque', 'marque', 'specialite', 'nom_commercial', 'الاسم_التجاري',
     ]),
     140,
   );
@@ -282,10 +282,12 @@ function mapNomenclatureRecord(rawRow = {}) {
   if (!brand && !dci) return null;
 
   const strength = cleanText(pickField(row, ['strength', 'dosage', 'concentration', 'التركيز']), 80);
-  const form = cleanText(pickField(row, ['form', 'forme', 'forme_pharmaceutique', 'الشكل']), 80) || 'Comprimé';
+  const baseForm = cleanText(pickField(row, ['form', 'forme', 'forme_pharmaceutique', 'الشكل']), 80) || 'Comprimé';
+  const packaging = cleanText(pickField(row, ['packaging', 'conditionnement']), 50);
+  const form = cleanText(packaging ? `${baseForm} (${packaging})` : baseForm, 120);
   const regNum = cleanText(
     pickField(row, [
-      'registration_number', 'num_enregistrement', 'n_enregistrement', 'numero_enregistrement', 'code_enregistrement', 'رقم_التسجيل',
+      'registration_number', 'registrationnumber', 'num_enregistrement', 'n_enregistrement', 'numero_enregistrement', 'code_enregistrement', 'رقم_التسجيل',
     ]),
     60,
   );
@@ -305,10 +307,10 @@ function mapNomenclatureRecord(rawRow = {}) {
     pickField(row, ['reimbursable', 'remboursable', 'cnas']),
     reimbRate > 0 ? 1 : 0,
   );
-  const schedule = normalizeSchedule(pickField(row, ['schedule', 'liste', 'tableau', 'classement']));
+  const schedule = normalizeSchedule(pickField(row, ['schedule', 'list', 'liste', 'tableau', 'classement']));
   const marketed = parseBoolFlag(pickField(row, ['marketed', 'commercialise', 'commercialisation']), 1);
   const expiry = cleanText(
-    pickField(row, ['expiry_of_registration', 'date_expiration', 'peremption_enregistrement']),
+    pickField(row, ['expiry_of_registration', 'registrationdatefinal', 'registration_date_final', 'date_expiration', 'peremption_enregistrement']),
     30,
   );
   const specialty = cleanText(pickField(row, ['specialty', 'specialite_medicale', 'classe_therapeutique']), 40) || 'general';
@@ -482,9 +484,9 @@ function importNomenclature({
 /*  High-speed FTS5 + Folded Search & Generic Substitution                    */
 /* -------------------------------------------------------------------------- */
 
-function searchFast({ query = '', specialty = '', onlyReimbursable = false, onlyGeneric = false, includeUnmarketed = false, limit = 40 } = {}) {
+function searchFast({ query = '', specialty = '', onlyReimbursable = false, onlyGeneric = false, includeUnmarketed = false, limit = 60 } = {}) {
   const db = getDb();
-  const max = Math.min(200, Math.max(1, Number.parseInt(limit, 10) || 40));
+  const max = Math.min(200, Math.max(1, Number.parseInt(limit, 10) || 60));
   const spec = cleanText(specialty, 40).toLowerCase();
   const foldedQuery = foldSearch(query);
 
@@ -504,13 +506,14 @@ function searchFast({ query = '', specialty = '', onlyReimbursable = false, only
     filterClauses.push('m.is_generic = 1');
   }
   const whereExtra = filterClauses.length ? `AND ${filterClauses.join(' AND ')}` : '';
+  const priorityOrder = `m.custom DESC, CASE WHEN m.source = 'nomenclature' THEN 0 WHEN m.source = 'starter' THEN 1 ELSE 2 END ASC`;
 
   if (!foldedQuery) {
     return db
       .prepare(
         `SELECT m.* FROM medications m
          WHERE 1=1 ${whereExtra}
-         ORDER BY m.custom DESC, m.verified DESC, m.brand COLLATE NOCASE ASC
+         ORDER BY ${priorityOrder}, m.brand COLLATE NOCASE ASC
          LIMIT ?`,
       )
       .all(...filterParams, max);
@@ -531,7 +534,7 @@ function searchFast({ query = '', specialty = '', onlyReimbursable = false, only
            FROM medications_fts f
            JOIN medications m ON m.id = f.rowid
            WHERE medications_fts MATCH ? ${whereExtra}
-           ORDER BY bm25(medications_fts), m.brand COLLATE NOCASE ASC
+           ORDER BY ${priorityOrder}, bm25(medications_fts), m.brand COLLATE NOCASE ASC
            LIMIT ?`,
         )
         .all(ftsMatch, ...filterParams, max);
@@ -553,7 +556,7 @@ function searchFast({ query = '', specialty = '', onlyReimbursable = false, only
     .prepare(
       `SELECT m.* FROM medications m
        WHERE ${likeClauses.join(' AND ')} ${whereExtra}
-       ORDER BY m.brand COLLATE NOCASE ASC
+       ORDER BY ${priorityOrder}, m.brand COLLATE NOCASE ASC
        LIMIT ?`,
     )
     .all(...likeParams, ...filterParams, max);

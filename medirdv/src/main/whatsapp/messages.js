@@ -102,9 +102,9 @@ const t = {
       `\n${s.clinic}` +
       (s.address ? `\n📍 ${s.address}` : '') +
       `\nPour annuler, envoyez : ANNULER\n\n` +
-      `📋 Souhaitez-vous préparer votre fiche pré-consultation (poids, symptômes, allergies) pour aider le médecin ?\n` +
-      `🔒 Vos réponses restent strictement confidentielles au cabinet (Loi 18-07).\n` +
-      `Répondez OUI pour commencer ou NON pour ignorer.`,
+      `📋 Pour faciliter l'examen du médecin (âge, poids et symptômes éventuels) :\n` +
+      `🔒 Données locales strictement confidentielles au cabinet (Loi 18-07).\n` +
+      `Répondez OUI (ou envoyez directement votre âge, ex : 32 ans) — ou NON pour ignorer.`,
 
     alreadyBooked: (s, { day, queue, department }) =>
       `Vous avez déjà un rendez-vous` +
@@ -167,12 +167,19 @@ const t = {
       (s.phone ? `\nTél : ${s.phone}` : ''),
 
     queueAhead: (s, { name, queue, ahead, etaMinutes, department }) =>
-      `⏳ Mise à jour de votre passage\n\n` +
-      `Bonjour ${name} (numéro ${queue}${department ? ` · ${department}` : ''}),\n` +
-      `• Personnes restantes avant vous : ${formatPatientsAhead(ahead, 'fr')}\n` +
-      `• Temps d'attente estimé : environ ${formatDuration(etaMinutes, 'fr')}\n\n` +
-      `${s.clinic}\n` +
-      `En cas d'empêchement, envoyez : ANNULER`,
+      (Number(ahead) <= 2
+        ? `⏳ Votre tour approche au cabinet !\n\n` +
+          `Bonjour ${name} (numéro ${queue}${department ? ` · ${department}` : ''}),\n` +
+          `• Votre passage est proche — il reste avant vous : ${formatPatientsAhead(ahead, 'fr')}\n` +
+          `• Temps d'attente estimé : environ ${formatDuration(etaMinutes, 'fr')}\n\n` +
+          `Merci de vous préparer à vous présenter au ${s.clinic}.\n` +
+          `En cas d'empêchement, envoyez : ANNULER`
+        : `⏳ Mise à jour de votre passage\n\n` +
+          `Bonjour ${name} (numéro ${queue}${department ? ` · ${department}` : ''}),\n` +
+          `• Patients restants avant vous : ${formatPatientsAhead(ahead, 'fr')}\n` +
+          `• Temps d'attente estimé : environ ${formatDuration(etaMinutes, 'fr')}\n\n` +
+          `${s.clinic}\n` +
+          `En cas d'empêchement, envoyez : ANNULER`),
 
     tooFast: () =>
       `Vous avez envoyé plusieurs messages. Merci de patienter quelques minutes. 🙏`,
@@ -182,84 +189,51 @@ const t = {
       `Envoyez votre nom complet pour réserver.`,
 
     intakeInvite: (s) =>
-      `📋 Fiche pré-consultation — ${s.clinic}\n` +
-      `🔒 Conformément à la Loi 18-07, vos réponses sont conservées uniquement au cabinet pour préparer votre consultation médicale.\n` +
-      `Acceptez-vous de répondre à quelques questions rapides (vous pouvez envoyer 0 pour passer une question) ?\n` +
-      `Répondez OUI ou NON.`,
+      `📋 Informations rapides pour le médecin — ${s.clinic}\n` +
+      `🔒 Conformément à la Loi 18-07, vos réponses (âge, poids et symptômes éventuels) restent uniquement au cabinet.\n` +
+      `Répondez OUI (ou envoyez directement votre âge, ex : 32 ans) — ou NON pour ignorer.`,
 
     intakeDeclined: () =>
       `C'est noté, votre rendez-vous reste bien confirmé. À bientôt au cabinet ! 🙏`,
 
+    intakeAskAge: (_s, { isChild } = {}) =>
+      isChild
+        ? `1️⃣ Quel est l'âge de l'enfant ? (ex : 4 ans ou 18 mois — envoyez 0 pour passer)`
+        : `1️⃣ Quel est l'âge du patient ? (ex : 32 ans ou 18 mois — envoyez 0 pour passer)`,
+
+    intakeRetryAge: () =>
+      `Âge non reconnu. Merci d'indiquer l'âge en années ou en mois (ex : 32 ou 18 mois), ou envoyez 0 pour passer.`,
+
     intakeAskWeight: (_s, { isChild } = {}) =>
       isChild
-        ? `1️⃣ Quel est le poids de l'enfant en kg ? (ex : 14,5 kg — indispensable pour le dosage pédiatrique, ou 0 pour passer)`
-        : `1️⃣ Quel est votre poids approximatif en kg ? (ex : 72 ou 72,5 — envoyez 0 pour passer)`,
+        ? `2️⃣ Quel est le poids de l'enfant en kg ? (ex : 14,5 kg — envoyez 0 pour passer)`
+        : `2️⃣ Quel est votre poids approximatif en kg ? (ex : 72 ou 72,5 — envoyez 0 pour passer)`,
 
     intakeRetryWeight: () =>
       `Poids non reconnu. Merci d'envoyer un nombre entre 0,3 et 400 kg (ex : 72 ou 14,5), ou envoyez 0 pour passer.`,
 
-    intakeAskChildAge: () =>
-      `👶 Quel est l'âge de l'enfant ? (ex : 4 ans ou 18 mois — envoyez 0 pour passer)`,
-
-    intakeAskHeight: (_s, { isChild } = {}) =>
-      isChild
-        ? `2️⃣ Quelle est la taille de l'enfant en cm ? (ex : 98 cm — ou 0 pour passer)`
-        : `2️⃣ Quelle est votre taille en cm ? (ex : 170 — ou 0 pour passer)`,
-
-    intakeRetryHeight: () =>
-      `Taille non reconnue. Merci d'indiquer une taille entre 30 et 250 cm (ex : 170), ou envoyez 0 pour passer.`,
-
     intakeAskComplaint: (_s, { isChild } = {}) =>
       isChild
-        ? `3️⃣ Quel est le motif principal de consultation pour l'enfant (symptômes) ? (ou 0 pour passer)`
-        : `3️⃣ Quel est le motif principal de votre consultation / vos symptômes ? (ou 0 pour passer)`,
+        ? `3️⃣ Si vous souhaitez signaler quelques symptômes de l'enfant au médecin, écrivez-les brièvement (optionnel — envoyez 0 ou NON pour terminer) :`
+        : `3️⃣ Si vous souhaitez signaler quelques symptômes au médecin, écrivez-les brièvement (optionnel — envoyez 0 ou NON pour terminer) :`,
 
-    intakeAskDuration: () =>
-      `4️⃣ Depuis combien de temps ces symptômes durent-ils ? (ex : 3 jours, 2 semaines — ou 0 pour passer)`,
-
-    intakeAskMedications: (_s, { isChild } = {}) =>
-      isChild
-        ? `5️⃣ L'enfant prend-il actuellement des médicaments ? (indiquez lesquels, ou écrivez AUCUN / 0)`
-        : `5️⃣ Prenez-vous actuellement des médicaments ? (indiquez lesquels, ou écrivez AUCUN / 0)`,
-
-    intakeAskAllergies: (_s, { isChild } = {}) =>
-      isChild
-        ? `6️⃣ L'enfant a-t-il des allergies connues (médicaments, aliments) ? (ou écrivez AUCUNE / 0)`
-        : `6️⃣ Avez-vous des allergies connues (ex : pénicilline, aspirine) ? (ou écrivez AUCUNE / 0)`,
-
-    intakeAskChronic: (_s, { isChild } = {}) =>
-      isChild
-        ? `7️⃣ L'enfant a-t-il une maladie chronique connue (asthme, diabète…) ? (ou AUCUNE / 0)`
-        : `7️⃣ Avez-vous des maladies chroniques (tension, diabète, asthme, reins…) ? (ou AUCUNE / 0)`,
-
-    intakeAskPregnant: () =>
-      `8️⃣ Êtes-vous actuellement enceinte ? (Répondez OUI, NON, ou 0 pour passer)`,
-
-    intakeAskBreastfeeding: () =>
-      `9️⃣ Allaitez-vous actuellement ? (Répondez OUI, NON, ou 0 pour passer)`,
-
-    intakeSummary: (_s, { draft }) => {
-      const lines = [
-        `📋 Récapitulatif pré-consultation :`,
-        `• Poids : ${draft.weight_kg ? `${draft.weight_kg} kg` : '—'}`,
-        `• Taille : ${draft.height_cm ? `${draft.height_cm} cm` : '—'}`,
-        `• Motif : ${draft.chief_complaint || '—'}${draft.symptom_duration ? ` (${draft.symptom_duration})` : ''}`,
-        `• Traitements en cours : ${draft.current_medications || 'Aucun'}`,
-        `• Allergies déclarées : ${draft.known_allergies || 'Aucune'}`,
-        `• Maladies chroniques : ${draft.chronic_conditions || 'Aucune'}`,
-      ];
-      if (draft.is_pregnant !== null && draft.is_pregnant !== undefined) {
-        lines.push(`• Grossesse : ${draft.is_pregnant ? 'Oui' : 'Non'}`);
+    intakeCompleted: (_s, { draft } = {}) => {
+      const details = [];
+      if (draft?.age_years !== null && draft?.age_years !== undefined) {
+        details.push(
+          draft.age_years < 2
+            ? `Âge : ${Math.round(draft.age_years * 12)} mois`
+            : `Âge : ${Math.round(draft.age_years * 10) / 10} ans`,
+        );
       }
-      if (draft.is_breastfeeding !== null && draft.is_breastfeeding !== undefined) {
-        lines.push(`• Allaitement : ${draft.is_breastfeeding ? 'Oui' : 'Non'}`);
-      }
-      lines.push(`\nRépondez OUI pour transmettre au médecin, ou CORRIGER pour recommencer.`);
-      return lines.join('\n');
+      if (draft?.weight_kg) details.push(`Poids : ${draft.weight_kg} kg`);
+      if (draft?.chief_complaint) details.push(`Symptômes : ${draft.chief_complaint}`);
+      return (
+        `✅ Merci ! Vos informations ont été enregistrées pour faciliter la consultation du médecin` +
+        (details.length ? ` (${details.join(' · ')})` : '') +
+        `.`
+      );
     },
-
-    intakeCompleted: () =>
-      `✅ Merci ! Votre fiche pré-consultation a été enregistrée pour le médecin (elle sera vérifiée lors de votre passage).`,
   },
 
   ar: {
@@ -306,9 +280,9 @@ const t = {
       `\n${s.clinic}` +
       (s.address ? `\n📍 ${s.address}` : '') +
       `\nللإلغاء أرسلوا: إلغاء\n\n` +
-      `📋 هل ترغبون في ملء بطاقة ما قبل الفحص (الوزن، الأعراض، الحساسية) لمساعدة الطبيب؟\n` +
+      `📋 لتسهيل الفحص على الطبيب (العمر، الوزن، وبعض الأعراض إن أردتم):\n` +
       `🔒 معلوماتكم تبقى سرية داخل العيادة طبقا للقانون 18-07.\n` +
-      `أرسلوا نعم للبدء أو لا للتجاوز.`,
+      `أرسلوا نعم (أو أرسلوا عمركم مباشرة، مثلا: 32 سنة) — أو لا للتجاوز.`,
 
     alreadyBooked: (s, { day, queue, department }) =>
       `لديكم موعد مسبق` +
@@ -368,12 +342,19 @@ const t = {
       (s.phone ? `\nالهاتف: ${s.phone}` : ''),
 
     queueAhead: (s, { name, queue, ahead, etaMinutes, department }) =>
-      `⏳ تنبيه بخصوص دوركم\n\n` +
-      `مرحبا ${name} (رقم الدور: ${queue}${department ? ` · ${department}` : ''})،\n` +
-      `• عدد المرضى المتبقين قبلكم: ${formatPatientsAhead(ahead, 'ar')}\n` +
-      `• الوقت التقديري لانتظاركم: حوالي ${formatDuration(etaMinutes, 'ar')}\n\n` +
-      `${s.clinic}\n` +
-      `في حال تعذر الحضور أرسلوا: إلغاء`,
+      (Number(ahead) <= 2
+        ? `⏳ اقترب دوركم في العيادة!\n\n` +
+          `مرحبا ${name} (رقم الدور: ${queue}${department ? ` · ${department}` : ''})،\n` +
+          `• اقترب موعد دخولكم — بقي أمامكم: ${formatPatientsAhead(ahead, 'ar')}\n` +
+          `• الوقت التقديري المتبقي: حوالي ${formatDuration(etaMinutes, 'ar')}\n\n` +
+          `يرجى الاستعداد والتوجه إلى ${s.clinic}.\n` +
+          `في حال تعذر الحضور أرسلوا: إلغاء`
+        : `⏳ تنبيه بخصوص دوركم\n\n` +
+          `مرحبا ${name} (رقم الدور: ${queue}${department ? ` · ${department}` : ''})،\n` +
+          `• عدد المرضى المتبقين أمامكم: ${formatPatientsAhead(ahead, 'ar')}\n` +
+          `• الوقت التقديري لانتظاركم: حوالي ${formatDuration(etaMinutes, 'ar')}\n\n` +
+          `${s.clinic}\n` +
+          `في حال تعذر الحضور أرسلوا: إلغاء`),
 
     tooFast: () => `أرسلتم عدة رسائل. يرجى الانتظار بضع دقائق. 🙏`,
 
@@ -382,84 +363,51 @@ const t = {
       `أرسلوا اسمكم الكامل للحجز.`,
 
     intakeInvite: (s) =>
-      `📋 بطاقة ما قبل الفحص — ${s.clinic}\n` +
-      `🔒 طبقا للقانون 18-07، تُحفظ إجاباتكم محليا وبسرية داخل العيادة فقط لتحضير فحصكم الطبي.\n` +
-      `هل توافقون على الإجابة عن بعض الأسئلة السريعة (يمكنكم إرسال 0 لتخطي أي سؤال)؟\n` +
-      `أرسلوا نعم أو لا.`,
+      `📋 معلومات سريعة للطبيب — ${s.clinic}\n` +
+      `🔒 طبقا للقانون 18-07، تُحفظ إجاباتكم (العمر، الوزن، وبعض الأعراض إن وجدت) محليا وبسرية داخل العيادة فقط.\n` +
+      `أرسلوا نعم (أو أرسلوا عمركم مباشرة، مثلا: 32 سنة) — أو لا للتجاوز.`,
 
     intakeDeclined: () =>
       `تم تسجيل ذلك، موعدكم يبقى مؤكدا. مرحبا بكم في العيادة! 🙏`,
 
+    intakeAskAge: (_s, { isChild } = {}) =>
+      isChild
+        ? `1️⃣ كم عمر الطفل؟ (مثال: 4 سنوات أو 18 شهر — أو أرسلوا 0 للتخطي)`
+        : `1️⃣ ما هو عمر المريض؟ (مثال: 32 سنة أو 18 شهر — أو أرسلوا 0 للتخطي)`,
+
+    intakeRetryAge: () =>
+      `لم نتعرف على العمر. يرجى إرسال العمر بالسنوات أو الأشهر (مثال: 32 أو 18 شهر)، أو أرسلوا 0 للتخطي.`,
+
     intakeAskWeight: (_s, { isChild } = {}) =>
       isChild
-        ? `1️⃣ ما هو وزن الطفل بالكيلوغرام؟ (مثال: 14.5 كغ — ضروري لحساب جرعة الدواء، أو أرسلوا 0 للتخطي)`
-        : `1️⃣ ما هو وزنكم التقريبي بالكيلوغرام؟ (مثال: 72 أو 72.5 — أو أرسلوا 0 للتخطي)`,
+        ? `2️⃣ ما هو وزن الطفل بالكيلوغرام؟ (مثال: 14.5 كغ — أو أرسلوا 0 للتخطي)`
+        : `2️⃣ ما هو وزنكم التقريبي بالكيلوغرام؟ (مثال: 72 أو 72.5 — أو أرسلوا 0 للتخطي)`,
 
     intakeRetryWeight: () =>
       `لم نتعرف على الوزن. يرجى إرسال رقم بين 0.3 و 400 كغ (مثال: 72 أو 14.5)، أو أرسلوا 0 للتخطي.`,
 
-    intakeAskChildAge: () =>
-      `👶 كم عمر الطفل؟ (مثال: 4 سنوات أو 18 شهر — أو أرسلوا 0 للتخطي)`,
-
-    intakeAskHeight: (_s, { isChild } = {}) =>
-      isChild
-        ? `2️⃣ ما هو طول الطفل بالسنتيمتر؟ (مثال: 98 سم — أو أرسلوا 0 للتخطي)`
-        : `2️⃣ ما هو طولكم بالسنتيمتر؟ (مثال: 170 — أو أرسلوا 0 للتخطي)`,
-
-    intakeRetryHeight: () =>
-      `لم نتعرف على الطول. يرجى إرسال رقم بين 30 و 250 سم (مثال: 170)، أو أرسلوا 0 للتخطي.`,
-
     intakeAskComplaint: (_s, { isChild } = {}) =>
       isChild
-        ? `3️⃣ ما هو سبب الفحص أو الأعراض التي يعاني منها الطفل؟ (أو أرسلوا 0 للتخطي)`
-        : `3️⃣ ما هو سبب الفحص الرئيسي أو الأعراض الحالية؟ (أو أرسلوا 0 للتخطي)`,
+        ? `3️⃣ إذا أردتم إخبار الطبيب ببعض الأعراض التي يعاني منها الطفل اكتبوها باختصار (اختياري — أرسلوا 0 أو لا للإنهاء):`
+        : `3️⃣ إذا أردتم إخبار الطبيب ببعض الأعراض باختصار اكتبوها الآن (اختياري — أرسلوا 0 أو لا للإنهاء):`,
 
-    intakeAskDuration: () =>
-      `4️⃣ منذ متى بدأت هذه الأعراض؟ (مثال: 3 أيام، أسبوعان — أو أرسلوا 0 للتخطي)`,
-
-    intakeAskMedications: (_s, { isChild } = {}) =>
-      isChild
-        ? `5️⃣ هل يتناول الطفل أدوية حاليا؟ (اذكروها أو أرسلوا لا يوجد / 0)`
-        : `5️⃣ هل تتناولون أدوية حاليا؟ (اذكروها أو أرسلوا لا يوجد / 0)`,
-
-    intakeAskAllergies: (_s, { isChild } = {}) =>
-      isChild
-        ? `6️⃣ هل لدى الطفل حساسية معروفة (أدوية أو أغذية)؟ (أو أرسلوا لا يوجد / 0)`
-        : `6️⃣ هل لديكم حساسية معروفة للأدوية (مثل البنسلين)؟ (أو أرسلوا لا يوجد / 0)`,
-
-    intakeAskChronic: (_s, { isChild } = {}) =>
-      isChild
-        ? `7️⃣ هل يعاني الطفل من مرض مزمن (ربو، سكري...)؟ (أو أرسلوا لا يوجد / 0)`
-        : `7️⃣ هل تعانون من أمراض مزمنة (ضغط، سكري، ربو، كلى...)؟ (أو أرسلوا لا يوجد / 0)`,
-
-    intakeAskPregnant: () =>
-      `8️⃣ هل يوجد حمل حاليا؟ (أرسلوا نعم أو لا أو 0 للتخطي)`,
-
-    intakeAskBreastfeeding: () =>
-      `9️⃣ هل توجد رضاعة طبيعية حاليا؟ (أرسلوا نعم أو لا أو 0 للتخطي)`,
-
-    intakeSummary: (_s, { draft }) => {
-      const lines = [
-        `📋 ملخص بطاقة ما قبل الفحص:`,
-        `• الوزن: ${draft.weight_kg ? `${draft.weight_kg} كغ` : '—'}`,
-        `• الطول: ${draft.height_cm ? `${draft.height_cm} سم` : '—'}`,
-        `• سبب الفحص: ${draft.chief_complaint || '—'}${draft.symptom_duration ? ` (${draft.symptom_duration})` : ''}`,
-        `• الأدوية الحالية: ${draft.current_medications || 'لا يوجد'}`,
-        `• الحساسية المصرّح بها: ${draft.known_allergies || 'لا يوجد'}`,
-        `• الأمراض المزمنة: ${draft.chronic_conditions || 'لا يوجد'}`,
-      ];
-      if (draft.is_pregnant !== null && draft.is_pregnant !== undefined) {
-        lines.push(`• الحمل: ${draft.is_pregnant ? 'نعم' : 'لا'}`);
+    intakeCompleted: (_s, { draft } = {}) => {
+      const details = [];
+      if (draft?.age_years !== null && draft?.age_years !== undefined) {
+        details.push(
+          draft.age_years < 2
+            ? `العمر: ${Math.round(draft.age_years * 12)} شهر`
+            : `العمر: ${Math.round(draft.age_years * 10) / 10} سنة`,
+        );
       }
-      if (draft.is_breastfeeding !== null && draft.is_breastfeeding !== undefined) {
-        lines.push(`• الرضاعة: ${draft.is_breastfeeding ? 'نعم' : 'لا'}`);
-      }
-      lines.push(`\nأرسلوا نعم لإرسال البطاقة للطبيب، أو تصحيح للإعادة.`);
-      return lines.join('\n');
+      if (draft?.weight_kg) details.push(`الوزن: ${draft.weight_kg} كغ`);
+      if (draft?.chief_complaint) details.push(`الأعراض: ${draft.chief_complaint}`);
+      return (
+        `✅ شكرا لكم! تم تسجيل المعلومات لتسهيل الفحص على الطبيب` +
+        (details.length ? ` (${details.join(' · ')})` : '') +
+        `.`
+      );
     },
-
-    intakeCompleted: () =>
-      `✅ شكرا لكم! تم حفظ بطاقة ما قبل الفحص ليطلع عليها الطبيب ويتحقق منها أثناء الموعد.`,
   },
 };
 
@@ -482,9 +430,11 @@ const DARIJA_TEMPLATES = {
       `النهار: ${formatLong(day, 'ar')}\n` +
       `نيميرو الدور: ${queue}\n` +
       (instructions ? `📌 ملاحظة: ${instructions}\n` : '') +
-      `\nتقدر ترد بـ نعم إيلا حبيت تعمّر بطاقة المعلومات قبل ما تجي للعيادة.`,
+      `\nلتسهيل الفحص على الطبيب (القانون 18-07): ابعث نعم ولا ابعث العمر تاعك مباشرة (مثلا: 32) باش تسجل العمر والوزن.`,
     turnNow: (s, { name, queue, department, room }) =>
       `🔔 خويا/ختي ${name}، لحق الدور تاعك درك (النيميرو ${queue})${department ? ` في ${department}` : ''}${room ? ` — ${room}` : ''} في ${s.clinic}. تفضل(ي) للداخل.`,
+    queueAhead: (s, { name, queue, ahead, etaMinutes, department }) =>
+      `⏳ سلام ${name} (النيميرو ${queue}${department ? ` · ${department}` : ''})، قرب الدور تاعك! بقي أمامك ${formatPatientsAhead(ahead, 'ar')} (حوالي ${formatDuration(etaMinutes, 'ar')}) في ${s.clinic}.\nإيلا ما تقدرش تجي ابعث: إلغاء`,
   },
   fr: {
     help: (s, { departments } = {}) =>
@@ -496,9 +446,11 @@ const DARIJA_TEMPLATES = {
     booked: (_s, { name, day, queue, department, room }) =>
       `✅ RDV mriguel inchallah !\nPatient : ${name}\n` +
       (department ? `Service : ${department}${room ? ` (${room})` : ''}\n` : '') +
-      `Jour : ${formatLong(day, 'fr')} — Tour N° ${queue}.\nRépondez OUI pour préparer votre fiche médicale.`,
+      `Jour : ${formatLong(day, 'fr')} — Tour N° ${queue}.\nRépondez OUI (ou votre âge) pour indiquer âge et poids au médecin (Loi 18-07).`,
     turnNow: (s, { name, queue }) =>
       `🔔 Salam ${name}, c'est votre tour maintenant (N° ${queue}) au ${s.clinic}, tfadhel(i) !`,
+    queueAhead: (s, { name, queue, ahead, etaMinutes, department }) =>
+      `⏳ Salam ${name} (N° ${queue}${department ? ` · ${department}` : ''}), votre tour approche ! Il reste ${formatPatientsAhead(ahead, 'fr')} avant vous (~${formatDuration(etaMinutes, 'fr')}) au ${s.clinic}.\nEn cas d'empêchement, envoyez : ANNULER`,
   },
 };
 

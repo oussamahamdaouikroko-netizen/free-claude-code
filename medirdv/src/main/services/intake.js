@@ -140,16 +140,21 @@ function parseHeightCm(raw) {
   return { ok: true, value };
 }
 
-/** Parse child/reported age in years (accepts months like "18 mois" / "18 شهر"). */
+/** Parse patient/child reported age in years (accepts years or months like "32", "32 سنة", "18 mois", "18 شهر"). */
 function parseAgeYears(raw) {
   const ascii = normalizeDigits(raw).toLowerCase();
   if (!ascii) return { ok: false, code: 'INVALID_AGE' };
-  const isMonths = /\b(mois|month|months)\b|(شهر|أشهر|اشهر)/.test(ascii);
-  const match = ascii.match(/^(\d{1,3}(?:\.\d{1,2})?)/);
-  if (!match) return { ok: false, code: 'INVALID_AGE' };
-  let years = Number.parseFloat(match[1]);
+  const isMonths = /(?:^|\s|\d)(mois|months?|شهر|أشهر|اشهر|شهور)\s*$/.test(ascii);
+  const cleaned = ascii
+    .replace(/\s*(ans?|annees?|années?|years?|yrs?|mois|months?)\s*$/g, '')
+    .replace(/\s*(سنة|سنه|سنوات|سنين|عام|عاما|أعوام|اعوام|شهر|أشهر|اشهر|شهور)\s*$/g, '')
+    .trim();
+  if (!/^\d{1,3}(?:\.\d{1,2})?$/.test(cleaned)) {
+    return { ok: false, code: 'INVALID_AGE' };
+  }
+  let years = Number.parseFloat(cleaned);
   if (isMonths) years = Math.round((years / 12) * 100) / 100;
-  if (!Number.isFinite(years) || years < 0 || years > 130) {
+  if (!Number.isFinite(years) || years <= 0 || years > 130) {
     return { ok: false, code: 'INVALID_AGE' };
   }
   return { ok: true, value: years };
@@ -434,7 +439,7 @@ function resetAnswers(id) {
   getDb()
     .prepare(
       `UPDATE patient_intake SET
-         weight_kg = NULL, height_cm = NULL,
+         age_years = NULL, weight_kg = NULL, height_cm = NULL,
          chief_complaint = '', symptom_duration = '',
          current_medications = '', known_allergies = '', chronic_conditions = '',
          is_pregnant = NULL, is_breastfeeding = NULL, smoker = NULL,
@@ -449,6 +454,7 @@ function resetAnswers(id) {
 /**
  * Doctor action: "Confirm & apply".
  *  - Merges (never overwrites!) `known_allergies` & `chronic_conditions` into `patients`.
+ *  - Saves approximate birth year into `patients.birth_date` when empty and `age_years` was reported.
  *  - Records verified weight in `patient_weight_history`.
  *  - Appends chief complaint draft into linked `appointments.notes` if present.
  *  - Marks intake `status = 'applied'` with `reviewed_by` & `reviewed_at`.
@@ -468,11 +474,19 @@ function confirmAndApply(id, options = {}) {
   const mergedChronic = mergeClinicalList(patient.chronic_conditions, current.chronic_conditions);
 
   const tx = db.transaction(() => {
-    patients.update({
+    const patientPatch = {
       id: patient.id,
       allergies: mergedAllergies,
       chronic_conditions: mergedChronic,
-    });
+    };
+    if (!patient.birth_date && current.age_years !== null && current.age_years !== undefined) {
+      const refYear = Number(toISODate().slice(0, 4));
+      const estYear = refYear - Math.floor(Number(current.age_years));
+      if (estYear >= 1900 && estYear <= refYear) {
+        patientPatch.birth_date = String(estYear);
+      }
+    }
+    patients.update(patientPatch);
 
     if (current.weight_kg !== null && current.weight_kg !== undefined) {
       db.prepare(
@@ -523,6 +537,12 @@ function confirmAndApply(id, options = {}) {
     prescription_prefill: {
       patient_id: updatedPatient.id,
       patient_name: updatedPatient.full_name,
+      patient_age:
+        updatedIntake.effective_age_years !== null && updatedIntake.effective_age_years !== undefined
+          ? updatedIntake.effective_age_years < 2
+            ? `${Math.round(updatedIntake.effective_age_years * 12)} mois`
+            : `${Math.round(updatedIntake.effective_age_years)} ans`
+          : '',
       patient_weight:
         updatedIntake.weight_kg !== null && updatedIntake.weight_kg !== undefined
           ? `${updatedIntake.weight_kg} kg`

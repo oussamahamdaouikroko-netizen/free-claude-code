@@ -169,6 +169,14 @@
         h(
           'div',
           { class: 'grid three', style: { gap: '10px' } },
+          kv(
+            t('intake.ageYears'),
+            intakeRow.effective_age_years !== null && intakeRow.effective_age_years !== undefined
+              ? intakeRow.effective_age_years < 2
+                ? t('intake.ageUnitMonths', { n: Math.round(intakeRow.effective_age_years * 12) })
+                : t('intake.ageUnitYears', { n: Math.round(intakeRow.effective_age_years * 10) / 10 })
+              : '',
+          ),
           kv(t('intake.weightKg'), intakeRow.weight_kg ? `${intakeRow.weight_kg} kg` : ''),
           kv(t('intake.heightCm'), intakeRow.height_cm ? `${intakeRow.height_cm} cm` : ''),
           kv(t('intake.bmi'), intakeRow.bmi || ''),
