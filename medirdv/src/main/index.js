@@ -13,6 +13,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { app, BrowserWindow, Menu, shell, dialog } = require('electron');
+const { STARTUP_DELAY_SECONDS, APP_NAME } = require('./config');
+const autostart = require('./autostart');
 const db = require('./db');
 const log = require('./log');
 const auth = require('./services/auth');
@@ -42,7 +44,7 @@ function isDemoMode() {
 
 const DEMO = isDemoMode();
 
-if (typeof app.setName === 'function') app.setName(DEMO ? 'MediRDV-Demo' : 'MediRDV');
+if (typeof app.setName === 'function') app.setName(DEMO ? `${APP_NAME}-Demo` : APP_NAME);
 
 const isDev = !app.isPackaged;
 let mainWindow = null;
@@ -67,7 +69,7 @@ function broadcastEvent(event) {
   }
 }
 
-function createWindow() {
+function createWindow({ startHidden = false } = {}) {
   const win = new BrowserWindow({
     width: 1360,
     height: 860,
@@ -75,7 +77,7 @@ function createWindow() {
     minHeight: 680,
     show: false,
     backgroundColor: '#f3f7fc',
-    title: DEMO ? 'MediRDV — Démonstration' : 'MediRDV',
+    title: DEMO ? `${APP_NAME} — Démonstration` : APP_NAME,
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'index.js'),
@@ -86,7 +88,9 @@ function createWindow() {
     },
   });
 
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => {
+    if (!startHidden && !win.isDestroyed()) win.show();
+  });
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 
   // External links open in the real browser, never inside the app.
@@ -120,13 +124,21 @@ function startReminderScheduler() {
 }
 
 function boot() {
+  const autostartLaunch = autostart.isAutostartLaunch(process.argv);
+  const autostartOptions = {
+    isPackaged: app.isPackaged,
+    execPath: process.execPath,
+    appName: APP_NAME,
+  };
+  const cwdResult = autostart.ensureAppWorkingDirectory(autostartOptions);
+
   const dataDir = resolveDataDir();
   const databaseFile = path.join(dataDir, 'medirdv.sqlite');
 
   log.init(path.join(dataDir, 'medirdv.log'));
   log.attachConsole();
   console.log('[boot] MediRDV', app.getVersion(), '| electron', process.versions.electron);
-  console.log('[boot] data dir', dataDir);
+  console.log('[boot] data dir', dataDir, '| cwd', cwdResult.cwd, '| autostart', autostartLaunch);
 
   if (fs.existsSync(databaseFile)) {
     const integrity = db.checkIntegrity(databaseFile);
@@ -143,6 +155,8 @@ function boot() {
     if (!auth.hasPassword()) auth.setup({ password: '1234', confirm: '1234' });
     auth.login('1234');
     console.log('[demo] demo mode active — data in', dataDir);
+  } else {
+    autostart.ensureDefaultAutostartOnFirstRun(autostartOptions);
   }
 
   backup.init(dataDir, { restored: reloadWindows });
@@ -162,17 +176,21 @@ function boot() {
     userData: app.getPath('userData'),
     printReceipt: printDocument,
     onEvent: broadcastEvent,
+    autostartOptions,
     wa: DEMO ? null : waService,
   });
 
-  createWindow();
+  createWindow({ startHidden: autostartLaunch && !DEMO });
   Menu.setApplicationMenu(null);
   startReminderScheduler();
 
   if (!DEMO && settings.getBool('bot_enabled')) {
+    const startupDelayMs = autostartLaunch ? STARTUP_DELAY_SECONDS * 1000 : 2500;
     setTimeout(() => {
-      waService.start().catch((error) => console.error('[wa] autostart failed:', error.message));
-    }, 2500);
+      waService.start({ background: true }).catch((error) => {
+        console.error('[wa] autostart failed:', error.message);
+      });
+    }, startupDelayMs);
   }
 }
 

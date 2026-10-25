@@ -878,6 +878,8 @@
     'error.AMOUNT_REQUIRED': 'Veuillez indiquer le montant du paiement.',
     'error.ALREADY_PAID': 'Ce rendez-vous est déjà marqué comme payé.',
     'error.BOOKING_COOLDOWN': 'Réservation temporairement bloquée après annulation.',
+    'error.INVALID_AUTOSTART_PATH': 'Chemin exécutable invalide pour le démarrage automatique.',
+    'settings.autostartWindows': 'Démarrer automatiquement à l’ouverture de l’ordinateur (Windows)',
   };
 
   const ar = {
@@ -1756,6 +1758,8 @@
     'error.AMOUNT_REQUIRED': 'يرجى تحديد مبلغ الدفع.',
     'error.ALREADY_PAID': 'تم تأكيد دفع هذا الموعد مسبقاً.',
     'error.BOOKING_COOLDOWN': 'الحجز موقوف مؤقتاً بعد إلغاء الموعد.',
+    'error.INVALID_AUTOSTART_PATH': 'مسار التشغيل التلقائي غير صالح.',
+    'settings.autostartWindows': 'التشغيل التلقائي عند فتح الحاسوب (Windows)',
   };
 
   const DICT = { fr, ar };

@@ -36,6 +36,8 @@ const DEFAULT_SETTINGS = {
   bot_darija_mode: '0',
   currency: 'DZD',
   default_consultation_fee: '0',
+  autostart_enabled: '1',
+  autostart_initialized: '0',
   language: 'fr',
   daily_capacity: '15',
   // 0 = Sunday … 6 = Saturday. Algeria works Sunday → Thursday.

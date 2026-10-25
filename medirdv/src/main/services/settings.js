@@ -55,6 +55,9 @@ const VALIDATORS = {
   },
   bot_darija_mode: (v) => String(asFlag(v)),
   currency: (v) => String(v ?? 'DZD').trim().toUpperCase().slice(0, 8) || 'DZD',
+  default_consultation_fee: (v) => String(clampInt(v, 0, 1000000, 0)),
+  autostart_enabled: (v) => String(asFlag(v)),
+  autostart_initialized: (v) => String(asFlag(v)),
   language: (v) => (v === 'ar' ? 'ar' : 'fr'),
   daily_capacity: (v) => String(clampInt(v, 1, 200, 15)),
   working_days: (v) => {

@@ -27,6 +27,8 @@ function registerIpc(context = {}) {
     demo: Boolean(context.demo),
     wa: context.wa,
     onEvent: context.onEvent,
+    autostartOptions: context.autostartOptions,
+    onAutostartChanged: context.onAutostartChanged,
     printReceipt: context.printReceipt,
     dialogs: {
       openPath: (target) => shell.openPath(target),

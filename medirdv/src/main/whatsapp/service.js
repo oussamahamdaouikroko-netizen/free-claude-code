@@ -36,6 +36,12 @@ const SEEN_LIMIT = 800;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const randomBetween = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
+/** Exponential retry backoff (`3s -> 6s -> 12s -> 24s -> 48s -> 60s`). */
+function computeBackoffDelayMs(attempt, baseMs = 3000, maxMs = 60000) {
+  const step = Math.max(0, Math.min(Number(attempt || 1) - 1, 5));
+  return Math.min(maxMs, baseMs * Math.pow(2, step));
+}
+
 /** Convert any local number to a WhatsApp JID (Algeria by default). */
 function toJid(phone) {
   let digits = String(phone ?? '').replace(/\D/g, '');
@@ -174,7 +180,30 @@ class WhatsAppService {
     return this.baileys;
   }
 
-  async start() {
+  /**
+   * Schedule an automatic exponential-backoff reconnect (`3s -> 6s -> 12s -> 24s -> 48s -> 60s`)
+   * so offline Windows boot or temporary router drop never permanently kills the bot.
+   */
+  scheduleReconnect(reason = 'Connexion perdue') {
+    if (this.stopping || !this.botEnabled) return null;
+    this.attempts += 1;
+    const delay = computeBackoffDelayMs(this.attempts);
+    this.setState('connecting', { error: reason });
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = setTimeout(() => {
+      if (this.stopping || !this.botEnabled) return;
+      this.connect().catch((error) => {
+        console.warn('[wa] retry connect failed, scheduling next backoff:', error.message);
+        this.scheduleReconnect(error.message);
+      });
+    }, delay);
+    if (this.reconnectTimer && typeof this.reconnectTimer.unref === 'function') {
+      this.reconnectTimer.unref();
+    }
+    return delay;
+  }
+
+  async start({ background = false } = {}) {
     if (this.starting || this.state === 'connected' || this.state === 'connecting') {
       return this.publicStatus();
     }
@@ -186,8 +215,12 @@ class WhatsAppService {
       await this.connect();
     } catch (error) {
       this.lastError = error.message;
-      this.setState('error', { error: error.message });
-      throw error;
+      if (!this.stopping && this.botEnabled) {
+        this.scheduleReconnect(error.message);
+      } else {
+        this.setState('error', { error: error.message });
+      }
+      if (!background) throw error;
     } finally {
       this.starting = false;
     }
@@ -289,15 +322,7 @@ class WhatsAppService {
         settings.set('bot_enabled', '0');
         return;
       }
-      this.attempts += 1;
-      const delay = Math.min(60000, 3000 * this.attempts);
-      this.setState('connecting', { error: lastDisconnect?.error?.message || 'Connexion perdue' });
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = setTimeout(() => {
-        this.connect().catch((error) => {
-          this.setState('error', { error: error.message });
-        });
-      }, delay);
+      this.scheduleReconnect(lastDisconnect?.error?.message || 'Connexion perdue');
     }
   }
 
@@ -780,4 +805,4 @@ class WhatsAppService {
   }
 }
 
-module.exports = { WhatsAppService, toJid, fromJid, extractText };
+module.exports = { WhatsAppService, toJid, fromJid, extractText, computeBackoffDelayMs };

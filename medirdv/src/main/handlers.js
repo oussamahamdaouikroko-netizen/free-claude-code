@@ -29,6 +29,7 @@ const bot = require('./whatsapp/bot');
 const sheets = require('./export/sheets');
 const auth = require('./services/auth');
 const security = require('./services/security');
+const autostart = require('./autostart');
 const operations = require('./services/operations');
 const documents = require('./services/documents');
 const {
@@ -81,7 +82,18 @@ function dashboardToday(day = toISODate(), departmentId = null) {
 }
 
 function createHandlers(context) {
-  const { version, dataDir, logFile, wa, printReceipt, dialogs = {}, demo = false, onEvent } = context;
+  const {
+    version,
+    dataDir,
+    logFile,
+    wa,
+    printReceipt,
+    dialogs = {},
+    demo = false,
+    onEvent,
+    autostartOptions = {},
+    onAutostartChanged,
+  } = context;
   const emit = typeof onEvent === 'function' ? onEvent : () => {};
 
   const requireWa = () => {
@@ -103,6 +115,12 @@ function createHandlers(context) {
     'app:open-data-folder': () => {
       if (dialogs.openPath) dialogs.openPath(dataDir);
       return { ok: true };
+    },
+    'app:autostart-get': () => autostart.getAutostartStatus(autostartOptions),
+    'app:autostart-set': (payload) => {
+      const res = autostart.setAutostartEnabled(Boolean(payload?.enabled), autostartOptions);
+      if (typeof onAutostartChanged === 'function') onAutostartChanged(res);
+      return res;
     },
 
     'auth:status': () => auth.status(),

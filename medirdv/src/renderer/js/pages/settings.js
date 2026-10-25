@@ -310,8 +310,9 @@
       let invList = [];
       let invAlerts = { low_stock: [], expiring: [] };
       let staffList = [];
+      let autostartStatus = { enabled: settings.autostart_enabled !== '0' };
       try {
-        [backups, info, depts, usersList, auditEntries, auditCheck, closures, invList, invAlerts, staffList] = await Promise.all([
+        [backups, info, depts, usersList, auditEntries, auditCheck, closures, invList, invAlerts, staffList, autostartStatus] = await Promise.all([
           window.API.invoke('backup:list').catch(() => []),
           window.API.invoke('app:info').catch(() => ({})),
           window.API.invoke('departments:list', { include_inactive: true }).catch(() => []),
@@ -322,6 +323,7 @@
           window.API.invoke('ops:inventory').catch(() => []),
           window.API.invoke('ops:inventory-alerts').catch(() => ({ low_stock: [], expiring: [] })),
           window.API.invoke('ops:staff').catch(() => []),
+          window.API.invoke('app:autostart-get').catch(() => ({ enabled: settings.autostart_enabled !== '0' })),
         ]);
       } catch (error) {
         toast(errorMessage(error), 'error');
@@ -1024,6 +1026,14 @@
             ),
             card(
               t('settings.about'),
+              switchRow(
+                t('settings.autostartWindows'),
+                switchInput(Boolean(autostartStatus && autostartStatus.enabled), async (checked) => {
+                  const res = await window.API.invoke('app:autostart-set', { enabled: Boolean(checked) });
+                  window.App.settings.autostart_enabled = res && res.enabled ? '1' : '0';
+                  toast(t('common.saved'), 'ok');
+                }),
+              ),
               h('div', { class: 'info-line' }, h('span', { class: 'k' }, t('settings.version')), h('strong', {}, window.App.version)),
               h('div', { class: 'info-line' }, h('span', { class: 'k' }, t('settings.dataLocation')), h('span', { class: 'small', style: { wordBreak: 'break-all' } }, info.dataDir || '—')),
               info.logFile
