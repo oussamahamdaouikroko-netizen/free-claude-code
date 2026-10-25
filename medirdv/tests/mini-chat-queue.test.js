@@ -53,8 +53,10 @@ test('WhatsApp booking & cancellation populate Mini Chat and auto-remove from ac
   const day = b1.appointment.day;
   assert.equal(appointments.agenda(day).length, 3, 'all three patients are on the list');
 
-  // Patient #2 cancels via WhatsApp → automatically removed from the list!
-  const cancelled = bot.handle({ phone: '213555100002', text: 'إلغاء', delivery: 'local' });
+  // Patient #2 cancels via WhatsApp (2-step: request -> confirm) → automatically removed from the list!
+  const askCancel = bot.handle({ phone: '213555100002', text: 'إلغاء', delivery: 'local' });
+  assert.equal(askCancel.action, 'cancel_confirm');
+  const cancelled = bot.handle({ phone: '213555100002', text: 'نعم', delivery: 'local' });
   assert.equal(cancelled.action, 'cancelled');
 
   const afterCancel = appointments.agenda(day);

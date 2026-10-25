@@ -411,6 +411,18 @@ class WhatsAppService {
 
     if (!this.canReply(phone)) return this.skip('rate_limit', tag);
 
+    // Acknowledge interactive button / list callback queries immediately so client spinner clears.
+    if (
+      [
+        'buttonsResponseMessage',
+        'listResponseMessage',
+        'templateButtonReplyMessage',
+      ].includes(kind) &&
+      typeof this.sock?.readMessages === 'function'
+    ) {
+      await this.sock.readMessages([key]).catch(() => {});
+    }
+
     const result = !text
       ? bot.handle({ phone, text: '', isMedia: true, delivery: 'queued' })
       : bot.handle({ phone, text, delivery: 'queued' });

@@ -47,11 +47,11 @@ test('Phase 10 — lossless V1 (MIGRATION_1) -> V10 (SCHEMA_VERSION=10) upgrade 
   ).run();
   raw.close();
 
-  // 2. Open through MediRDV db.open() -> runs MIGRATION_2 .. MIGRATION_11 + seedDefaults
+  // 2. Open through MediRDV db.open() -> runs MIGRATION_2 .. MIGRATION_12 + seedDefaults
   dbMod.open(dbPath);
   const upgraded = dbMod.getDb();
   assert.equal(upgraded.pragma('user_version', { simple: true }), SCHEMA_VERSION);
-  assert.equal(SCHEMA_VERSION, 11);
+  assert.equal(SCHEMA_VERSION, 12);
 
   // 3. Verify 100% preservation of V1 records + usability of new V2 columns
   const p = patients.get(1);

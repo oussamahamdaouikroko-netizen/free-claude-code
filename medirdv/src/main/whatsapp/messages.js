@@ -140,9 +140,26 @@ const t = {
     noAppointment: () =>
       `Vous n'avez aucun rendez-vous en cours.\nEnvoyez votre nom complet pour réserver.`,
 
-    cancelled: (s, { day }) =>
+    cancelConfirm: (_s, { day, slotTime, queue, department, cooldownMinutes = 30 }) =>
+      `⚠️ Êtes-vous sûr de vouloir annuler votre rendez-vous du ${formatLong(day, 'fr')}` +
+      (slotTime ? ` à ${slotTime}` : queue ? ` (tour n° ${queue})` : '') +
+      (department ? ` — ${department}` : '') +
+      ` ?\n` +
+      `Attention : après annulation, vous ne pourrez réserver un nouveau rendez-vous qu'après ${cooldownMinutes} minutes.\n\n` +
+      `• ✅ Oui, annuler le rendez-vous (répondez OUI)\n` +
+      `• ❌ Non, garder le rendez-vous (répondez NON)`,
+
+    cancelAborted: () => `Votre rendez-vous est maintenu.`,
+
+    cancelStale: () => `Ce rendez-vous n'existe plus ou a déjà été annulé.`,
+
+    cancelForbidden: () => `Action refusée : ce rendez-vous ne vous appartient pas.`,
+
+    cancelled: (s, { day, rebookTime, cooldownMinutes }) =>
       `✅ Votre rendez-vous du ${formatLong(day, 'fr')} a bien été annulé.\n` +
-      `Envoyez votre nom complet si vous souhaitez reprendre un rendez-vous.`,
+      (rebookTime
+        ? `⏳ Vous pourrez réserver un nouveau rendez-vous dans ${cooldownMinutes || 30} minutes (à partir de ${rebookTime}).`
+        : `Envoyez votre nom complet si vous souhaitez reprendre un rendez-vous.`),
 
     nothingToCancel: () => `Vous n'avez aucun rendez-vous à annuler.`,
 
@@ -331,9 +348,26 @@ const t = {
     noAppointment: () =>
       `ليس لديكم أي موعد حاليا.\nأرسلوا اسمكم الكامل للحجز.`,
 
-    cancelled: (s, { day }) =>
+    cancelConfirm: (_s, { day, slotTime, queue, department, cooldownMinutes = 30 }) =>
+      `⚠️ هل أنت متأكد من إلغاء موعدك يوم ${formatLong(day, 'ar')}` +
+      (slotTime ? ` على الساعة ${slotTime}` : queue ? ` (رقم الدور ${queue})` : '') +
+      (department ? ` — ${department}` : '') +
+      `؟\n` +
+      `تنبيه: بعد الإلغاء لن تتمكن من حجز موعد جديد إلا بعد ${cooldownMinutes} دقيقة.\n\n` +
+      `• ✅ نعم، ألغِ الموعد (أرسل: نعم)\n` +
+      `• ❌ لا، احتفظ بالموعد (أرسل: لا)`,
+
+    cancelAborted: () => `تم الاحتفاظ بموعدك.`,
+
+    cancelStale: () => `هذا الموعد لم يعد قائماً.`,
+
+    cancelForbidden: () => `عذراً، لا تملكون صلاحية إلغاء هذا الموعد.`,
+
+    cancelled: (s, { day, rebookTime, cooldownMinutes }) =>
       `✅ تم إلغاء موعدكم يوم ${formatLong(day, 'ar')}.\n` +
-      `أرسلوا اسمكم الكامل إذا أردتم حجز موعد جديد.`,
+      (rebookTime
+        ? `⏳ يمكنكم حجز موعد جديد بعد ${cooldownMinutes || 30} دقيقة (ابتداءً من الساعة ${rebookTime}).`
+        : `أرسلوا اسمكم الكامل إذا أردتم حجز موعد جديد.`),
 
     nothingToCancel: () => `ليس لديكم أي موعد لإلغائه.`,
 

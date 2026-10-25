@@ -9,7 +9,7 @@
  * and medical certificates.
  */
 
-const SCHEMA_VERSION = 11;
+const SCHEMA_VERSION = 12;
 
 const MIGRATION_1 = `
 CREATE TABLE IF NOT EXISTS settings (
@@ -980,6 +980,10 @@ ALTER TABLE medications ADD COLUMN name_normalized TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_medications_name_norm ON medications(name_normalized);
 `;
 
+const MIGRATION_12 = `
+CREATE INDEX IF NOT EXISTS idx_bot_sessions_updated ON bot_sessions(updated_at);
+`;
+
 const MIGRATIONS = [
   MIGRATION_1,
   MIGRATION_2,
@@ -992,20 +996,72 @@ const MIGRATIONS = [
   MIGRATION_9,
   MIGRATION_10,
   MIGRATION_11,
+  MIGRATION_12,
 ];
+
+function hasColumn(db, tableName, colName) {
+  const cols = db.prepare(`PRAGMA table_info(${tableName})`).all();
+  return cols.some((c) => c.name === colName);
+}
+
+/**
+ * Idempotent schema upgrade for cooldown + secretary payment confirmation.
+ * Safe to run any number of times without errors or data loss.
+ */
+function ensureIdempotentColumns(db) {
+  const tx = db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS bot_sessions (
+        phone_key  TEXT PRIMARY KEY,
+        state_json TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_bot_sessions_updated ON bot_sessions(updated_at);
+    `);
+
+    if (!hasColumn(db, 'patients', 'blocked_until')) {
+      db.exec('ALTER TABLE patients ADD COLUMN blocked_until TEXT DEFAULT NULL;');
+    }
+
+    if (!hasColumn(db, 'appointments', 'is_paid')) {
+      db.exec('ALTER TABLE appointments ADD COLUMN is_paid INTEGER NOT NULL DEFAULT 0;');
+    }
+    if (!hasColumn(db, 'appointments', 'paid_at')) {
+      db.exec('ALTER TABLE appointments ADD COLUMN paid_at TEXT DEFAULT NULL;');
+    }
+    if (!hasColumn(db, 'appointments', 'paid_by')) {
+      db.exec('ALTER TABLE appointments ADD COLUMN paid_by TEXT DEFAULT NULL;');
+    }
+
+    // Backfill appointments already settled via `payments` so UI immediately reflects paid status.
+    db.exec(`
+      UPDATE appointments
+      SET is_paid = 1,
+          paid_at = COALESCE(
+            paid_at,
+            (SELECT MAX(pay.paid_at) FROM payments pay WHERE pay.appointment_id = appointments.id)
+          )
+      WHERE is_paid = 0
+        AND price > 0
+        AND COALESCE((SELECT SUM(pay.amount) FROM payments pay WHERE pay.appointment_id = appointments.id), 0) >= price - 0.009;
+    `);
+  });
+  tx();
+}
 
 function migrate(db) {
   const current = db.pragma('user_version', { simple: true });
-  if (current >= SCHEMA_VERSION) return current;
-
   const run = db.transaction(() => {
     for (let version = current; version < SCHEMA_VERSION; version += 1) {
       db.exec(MIGRATIONS[version]);
     }
-    db.pragma(`user_version = ${SCHEMA_VERSION}`);
+    ensureIdempotentColumns(db);
+    if (current < SCHEMA_VERSION) {
+      db.pragma(`user_version = ${SCHEMA_VERSION}`);
+    }
   });
   run();
   return SCHEMA_VERSION;
 }
 
-module.exports = { SCHEMA_VERSION, MIGRATIONS, migrate };
+module.exports = { SCHEMA_VERSION, MIGRATIONS, migrate, ensureIdempotentColumns };

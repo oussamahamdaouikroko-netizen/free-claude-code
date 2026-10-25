@@ -14,6 +14,7 @@
  */
 
 const dbMod = require('../db');
+const { CANCEL_COOLDOWN_MINUTES } = require('../config');
 const intents = require('./intents');
 const { message } = require('./messages');
 const patients = require('../services/patients');
@@ -496,11 +497,146 @@ function keepAwaitingName(phone, pending, lang) {
   }
 }
 
+function buildCancelButtons(appointmentId, lang) {
+  return lang === 'ar'
+    ? [
+        { id: `cancel_yes:${appointmentId}`, text: '✅ نعم، ألغِ الموعد' },
+        { id: `cancel_no:${appointmentId}`, text: '❌ لا، احتفظ بالموعد' },
+      ]
+    : [
+        { id: `cancel_yes:${appointmentId}`, text: '✅ Oui, annuler le rendez-vous' },
+        { id: `cancel_no:${appointmentId}`, text: '❌ Non, garder le rendez-vous' },
+      ];
+}
+
+function parseCallbackToken(raw) {
+  const s = String(raw ?? '').trim();
+  const m = s.match(/^(cancel_ask|cancel_yes|cancel_no|sec_paid|pay_confirm):(\d+)$/i);
+  if (!m) return null;
+  return { kind: m[1].toLowerCase(), id: Number.parseInt(m[2], 10) };
+}
+
+function parseCancelDecision(rawText) {
+  const norm = intents
+    .normalize(String(rawText ?? '').replace(/[✅❌⚠️•1️⃣2️⃣]/g, ' '))
+    .trim();
+  if (!norm) return null;
+  if (
+    norm === 'نعم' ||
+    norm === 'اه' ||
+    norm === 'ايه' ||
+    norm === 'اكيد' ||
+    norm === 'oui' ||
+    norm === 'yes' ||
+    norm === '1' ||
+    norm.startsWith('نعم ') ||
+    norm.startsWith('oui ') ||
+    norm.startsWith('yes ') ||
+    norm === 'الغ الموعد' ||
+    norm === 'الغي الموعد'
+  ) {
+    return 'yes';
+  }
+  if (
+    norm === 'لا' ||
+    norm === 'لالا' ||
+    norm === 'احتفظ بالموعد' ||
+    norm === 'احتفظ' ||
+    norm === 'non' ||
+    norm === 'no' ||
+    norm === '2' ||
+    norm.startsWith('لا ') ||
+    norm.startsWith('non ') ||
+    norm.startsWith('no ')
+  ) {
+    return 'no';
+  }
+  return null;
+}
+
+function promptCancelConfirmation({ phone, patient, appointment, lang }) {
+  const dept = departments.getOptional(appointment.department_id);
+  setPending(phone, {
+    step: 'confirm_cancel',
+    appointmentId: appointment.id,
+    patientId: patient.id,
+    lang,
+  });
+  return {
+    reply: reply(lang, 'cancelConfirm', {
+      day: appointment.day,
+      slotTime: appointment.slot_time || '',
+      queue: appointment.queue_number,
+      department: dept ? departments.labelFor(dept, lang) : '',
+      cooldownMinutes: CANCEL_COOLDOWN_MINUTES,
+    }),
+    lang,
+    action: 'cancel_confirm',
+    appointment,
+    buttons: buildCancelButtons(appointment.id, lang),
+    callbackAnswered: true,
+  };
+}
+
+function executeConfirmedCancel({ phone, patient, appointmentId, lang, delivery, nowMs }) {
+  const currentPending = getPending(phone);
+  if (currentPending?.step === 'confirm_cancel') {
+    clearPending(phone);
+  }
+  const outcome = appointments.cancelByPatient({
+    appointmentId,
+    patientId: patient?.id || null,
+    phone,
+    nowMs,
+    cooldownMinutes: CANCEL_COOLDOWN_MINUTES,
+  });
+
+  if (outcome.status === 'forbidden') {
+    return {
+      reply: reply(lang, 'cancelForbidden'),
+      lang,
+      action: 'forbidden',
+      callbackAnswered: true,
+    };
+  }
+
+  if (outcome.status === 'stale') {
+    return {
+      reply: reply(lang, 'cancelStale'),
+      lang,
+      action: 'stale_appointment',
+      callbackAnswered: true,
+    };
+  }
+
+  const replyText = reply(lang, 'cancelled', {
+    day: outcome.appointment.day,
+    rebookTime: outcome.rebookTime,
+    cooldownMinutes: outcome.cooldownMinutes,
+  });
+  const chatEvent = chat.recordCancelled(outcome.appointment, {
+    body: replyText,
+    phone,
+    lang,
+    delivery,
+  });
+  return {
+    reply: replyText,
+    lang,
+    action: 'cancelled',
+    appointment: outcome.appointment,
+    chatEvent,
+    blockedUntilUtc: outcome.blockedUntilUtc,
+    rebookTime: outcome.rebookTime,
+    callbackAnswered: true,
+  };
+}
+
 /**
- * @param {{phone: string, text: string, delivery?: 'local'|'queued'|'sent', isMedia?: boolean}} incoming
- * @returns {{reply: string, lang: 'fr'|'ar', action: string, appointment?: object, chatEvent?: object}}
+ * @param {{phone: string, text: string, callbackData?: string, delivery?: 'local'|'queued'|'sent', isMedia?: boolean, nowMs?: number}} incoming
+ * @returns {{reply: string, lang: 'fr'|'ar', action: string, appointment?: object, chatEvent?: object, buttons?: Array, callbackAnswered?: boolean}}
  */
-function handle({ phone, text, delivery = 'sent', isMedia = false }) {
+function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = false, nowMs = Date.now() }) {
   const patient = patients.findByPhone(phone);
   const registered = hasRegisteredName(patient);
 
@@ -514,6 +650,8 @@ function handle({ phone, text, delivery = 'sent', isMedia = false }) {
     return { reply: reply(lang, 'unsupported'), lang, action: 'unsupported' };
   }
 
+  const rawInput = String(callbackData || text || '');
+  const cbToken = parseCallbackToken(rawInput);
   const detection = intents.detect(text);
   const lang = resolveLanguage(
     phone,
@@ -525,6 +663,126 @@ function handle({ phone, text, delivery = 'sent', isMedia = false }) {
   const isMultiDept = activeDepts.length >= 2;
 
   try {
+    // 0. Structured button/callback payloads carrying explicit appointment IDs.
+    if (cbToken) {
+      if (cbToken.kind === 'sec_paid' || cbToken.kind === 'pay_confirm') {
+        // Patients on WhatsApp never hold secretary/admin payment authority.
+        return {
+          reply: reply(lang, 'cancelForbidden'),
+          lang,
+          action: 'forbidden',
+          callbackAnswered: true,
+        };
+      }
+      if (cbToken.kind === 'cancel_ask') {
+        const row = dbMod.getDb().prepare('SELECT * FROM appointments WHERE id = ?').get(cbToken.id);
+        if (!row) {
+          return {
+            reply: reply(lang, 'cancelStale'),
+            lang,
+            action: 'stale_appointment',
+            callbackAnswered: true,
+          };
+        }
+        if (!patient || Number(row.patient_id) !== Number(patient.id)) {
+          return {
+            reply: reply(lang, 'cancelForbidden'),
+            lang,
+            action: 'forbidden',
+            callbackAnswered: true,
+          };
+        }
+        if (row.status !== 'booked') {
+          return {
+            reply: reply(lang, 'cancelStale'),
+            lang,
+            action: 'stale_appointment',
+            callbackAnswered: true,
+          };
+        }
+        return promptCancelConfirmation({
+          phone,
+          patient,
+          appointment: appointments.get(row.id),
+          lang,
+        });
+      }
+      if (cbToken.kind === 'cancel_yes') {
+        return executeConfirmedCancel({
+          phone,
+          patient,
+          appointmentId: cbToken.id,
+          lang,
+          delivery,
+          nowMs,
+        });
+      }
+      if (cbToken.kind === 'cancel_no') {
+        const row = dbMod.getDb().prepare('SELECT * FROM appointments WHERE id = ?').get(cbToken.id);
+        if (row && (!patient || Number(row.patient_id) !== Number(patient.id))) {
+          return {
+            reply: reply(lang, 'cancelForbidden'),
+            lang,
+            action: 'forbidden',
+            callbackAnswered: true,
+          };
+        }
+        const cur = getPending(phone);
+        if (cur?.step === 'confirm_cancel') clearPending(phone);
+        if (!row || row.status !== 'booked') {
+          return {
+            reply: reply(lang, 'cancelStale'),
+            lang,
+            action: 'stale_appointment',
+            callbackAnswered: true,
+          };
+        }
+        return {
+          reply: reply(lang, 'cancelAborted'),
+          lang,
+          action: 'cancel_aborted',
+          callbackAnswered: true,
+        };
+      }
+    }
+
+    // 0b. Active cancellation confirmation state (yes / no decision).
+    const pendingBeforeCmd = getPending(phone);
+    if (pendingBeforeCmd?.step === 'confirm_cancel') {
+      const decision = parseCancelDecision(text);
+      if (decision === 'yes') {
+        return executeConfirmedCancel({
+          phone,
+          patient,
+          appointmentId: pendingBeforeCmd.appointmentId,
+          lang,
+          delivery,
+          nowMs,
+        });
+      }
+      if (decision === 'no') {
+        clearPending(phone);
+        const row = dbMod
+          .getDb()
+          .prepare('SELECT * FROM appointments WHERE id = ?')
+          .get(pendingBeforeCmd.appointmentId);
+        if (!row || row.status !== 'booked') {
+          return {
+            reply: reply(lang, 'cancelStale'),
+            lang,
+            action: 'stale_appointment',
+            callbackAnswered: true,
+          };
+        }
+        return {
+          reply: reply(lang, 'cancelAborted'),
+          lang,
+          action: 'cancel_aborted',
+          callbackAnswered: true,
+        };
+      }
+    }
+
     // 1. Explicit commands always take priority and never save command words as names.
     if (detection.intent === 'cancel') {
       clearPending(phone);
@@ -548,21 +806,7 @@ function handle({ phone, text, delivery = 'sent', isMedia = false }) {
         }
         return { reply: reply(lang, 'nothingToCancel'), lang, action: 'nothing_to_cancel' };
       }
-      appointments.cancel(upcoming.id);
-      const replyText = reply(lang, 'cancelled', { day: upcoming.day });
-      const chatEvent = chat.recordCancelled(upcoming, {
-        body: replyText,
-        phone,
-        lang,
-        delivery,
-      });
-      return {
-        reply: replyText,
-        lang,
-        action: 'cancelled',
-        appointment: upcoming,
-        chatEvent,
-      };
+      return promptCancelConfirmation({ phone, patient, appointment: upcoming, lang });
     }
 
     if (detection.intent === 'confirm') {

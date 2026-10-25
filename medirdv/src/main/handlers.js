@@ -388,9 +388,14 @@ function createHandlers(context) {
         const target = bookedToday[bookedToday.length - 1] || bookedToday[0];
         if (!target) throw new AppError('APPOINTMENT_NOT_FOUND');
         if (target.phone) {
-          const sim = bot.handle({
+          bot.handle({
             phone: target.phone,
             text: isAr ? 'إلغاء' : 'ANNULER',
+            delivery: 'local',
+          });
+          const sim = bot.handle({
+            phone: target.phone,
+            text: isAr ? 'نعم' : 'OUI',
             delivery: 'local',
           });
           emit({ type: 'chat', payload: { kind: 'cancelled', appointment_id: target.id } });

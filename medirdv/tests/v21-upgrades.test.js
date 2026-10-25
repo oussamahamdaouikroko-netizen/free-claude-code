@@ -118,14 +118,26 @@ test('v2.1.0 — WhatsApp queue-approaching alert & automatic removal + queue ad
   await new Promise((r) => setTimeout(r, 30));
   assert.equal(sentMessages.length, 3, 'all 3 waiting patients received WhatsApp turn/approaching alerts');
 
-  // 2. Now patient #3 (سليمة منصوري) sends "إلغاء" on WhatsApp!
+  // 2. Now patient #3 (سليمة منصوري) sends "إلغاء" on WhatsApp -> receives confirmation prompt -> confirms "نعم"!
+  sentMessages.length = 0;
+  events.length = 0;
+
+  await wa.handleIncoming({
+    key: { id: 'MSG-CANCEL-ASK-P3', remoteJid: '213551000003@s.whatsapp.net', fromMe: false },
+    messageTimestamp: Math.floor(Date.now() / 1000),
+    message: { conversation: 'إلغاء' },
+  });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(sentMessages.length, 1, 'confirmation prompt sent first without cancelling');
+  assert.match(sentMessages[0].text, /هل أنت متأكد من إلغاء موعدك/);
+
   sentMessages.length = 0;
   events.length = 0;
 
   await wa.handleIncoming({
     key: { id: 'MSG-CANCEL-P3', remoteJid: '213551000003@s.whatsapp.net', fromMe: false },
     messageTimestamp: Math.floor(Date.now() / 1000),
-    message: { conversation: 'إلغاء' },
+    message: { conversation: 'نعم' },
   });
   await new Promise((r) => setTimeout(r, 30));
 

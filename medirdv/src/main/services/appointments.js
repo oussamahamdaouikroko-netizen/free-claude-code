@@ -13,6 +13,7 @@
  */
 
 const { getDb } = require('../db');
+const { CANCEL_COOLDOWN_MINUTES, formatAlgeriaTime } = require('../config');
 const settings = require('./settings');
 const departments = require('./departments');
 const operations = require('./operations');
@@ -391,6 +392,78 @@ function cancel(id) {
   const cancelled = setStatus(id, 'cancelled');
   if (cancelled?.phone) cancelWaitingByPhone(cancelled.phone);
   return cancelled;
+}
+
+/**
+ * Patient self-cancellation after explicit confirmation.
+ * Atomically verifies:
+ *  - appointment exists;
+ *  - appointment belongs to `patientId` (ownership);
+ *  - appointment is still `booked` (idempotent on double-click / stale callback);
+ *  - sets `patients.blocked_until` in UTC (`now + cooldownMinutes`).
+ *
+ * Secretary / staff cancellations call `cancel(id)` directly and NEVER apply a cooldown.
+ */
+function cancelByPatient({
+  appointmentId,
+  patientId,
+  phone = '',
+  nowMs = Date.now(),
+  cooldownMinutes = CANCEL_COOLDOWN_MINUTES,
+} = {}) {
+  const db = getDb();
+  const apptId = Number.parseInt(appointmentId, 10);
+  if (!Number.isInteger(apptId) || apptId <= 0) {
+    return { status: 'stale' };
+  }
+  const existing = db.prepare('SELECT * FROM appointments WHERE id = ?').get(apptId);
+  if (!existing) {
+    return { status: 'stale' };
+  }
+  if (!patientId || Number(existing.patient_id) !== Number(patientId)) {
+    return { status: 'forbidden' };
+  }
+  if (existing.status !== 'booked') {
+    return { status: 'stale' };
+  }
+
+  const blockedUntilUtc = new Date(nowMs + cooldownMinutes * 60 * 1000).toISOString();
+  const updatedLocal = nowLocal();
+
+  const tx = db.transaction(() => {
+    const info = db
+      .prepare(
+        `UPDATE appointments
+         SET status = 'cancelled', updated_at = ?
+         WHERE id = ? AND patient_id = ? AND status = 'booked'`,
+      )
+      .run(updatedLocal, apptId, patientId);
+    if (info.changes !== 1) return false;
+
+    db.prepare('UPDATE patients SET blocked_until = ?, updated_at = ? WHERE id = ?').run(
+      blockedUntilUtc,
+      updatedLocal,
+      patientId,
+    );
+    return true;
+  });
+
+  const didCancel = tx();
+  if (!didCancel) {
+    return { status: 'stale' };
+  }
+
+  const cancelled = get(apptId);
+  if (phone || cancelled?.phone) {
+    cancelWaitingByPhone(phone || cancelled.phone);
+  }
+  return {
+    status: 'cancelled',
+    appointment: cancelled,
+    blockedUntilUtc,
+    rebookTime: formatAlgeriaTime(blockedUntilUtc),
+    cooldownMinutes,
+  };
 }
 
 /**
@@ -827,6 +900,7 @@ module.exports = {
   setStatus,
   confirmAppointment,
   cancel,
+  cancelByPatient,
   cancelWaitingByPhone,
   queuePosition,
   completeAndAdvance,
