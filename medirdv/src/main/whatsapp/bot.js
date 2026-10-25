@@ -3,6 +3,8 @@
  * WhatsApp booking conversation engine (independent from Baileys).
  *
  * Supports:
+ *  - Strict greeting vs. full-name registration gate for unregistered callers
+ *    (with persistent SQLite session state across bot restarts).
  *  - Solo specialist cabinet: 1-step booking (send full name -> booked).
  *  - Multi-department polyclinic (2+ active departments): patient sends full
  *    name -> receives numbered list of departments -> replies with department
@@ -11,6 +13,7 @@
  *    the department number first, then sending full name.
  */
 
+const dbMod = require('../db');
 const intents = require('./intents');
 const { message } = require('./messages');
 const patients = require('../services/patients');
@@ -27,20 +30,47 @@ const lastLanguage = new Map();
 const LANG_TTL_MS = 24 * 60 * 60 * 1000;
 const languageSeenAt = new Map();
 
-/** Pending multi-department conversation state per phone (TTL 30 min). */
+/** Fallback in-memory pending state (used only if DB is not open). */
 const pendingByPhone = new Map();
 const PENDING_TTL_MS = 30 * 60 * 1000;
+const AWAIT_NAME_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function langKey(phone) {
   return phoneKey(phone) || String(phone || '');
 }
 
+function ttlForStep(step) {
+  const s = String(step || '');
+  if (s === 'await_full_name' || s === 'await_name') return AWAIT_NAME_TTL_MS;
+  return PENDING_TTL_MS;
+}
+
 function getPending(phone) {
   const key = langKey(phone);
   if (!key) return null;
+
+  if (dbMod.isOpen()) {
+    try {
+      const row = dbMod
+        .getDb()
+        .prepare('SELECT state_json, updated_at FROM bot_sessions WHERE phone_key = ?')
+        .get(key);
+      if (!row) return null;
+      const parsed = JSON.parse(row.state_json);
+      const updatedAt = Number(row.updated_at) || 0;
+      if (Date.now() - updatedAt > ttlForStep(parsed?.step)) {
+        dbMod.getDb().prepare('DELETE FROM bot_sessions WHERE phone_key = ?').run(key);
+        return null;
+      }
+      return { ...parsed, createdAt: updatedAt };
+    } catch (_err) {
+      // Fall back to in-memory map if bot_sessions is unavailable
+    }
+  }
+
   const entry = pendingByPhone.get(key);
   if (!entry) return null;
-  if (Date.now() - entry.createdAt > PENDING_TTL_MS) {
+  if (Date.now() - entry.createdAt > ttlForStep(entry.step)) {
     pendingByPhone.delete(key);
     return null;
   }
@@ -50,31 +80,68 @@ function getPending(phone) {
 function setPending(phone, data) {
   const key = langKey(phone);
   if (!key) return;
-  pendingByPhone.set(key, { ...data, createdAt: Date.now() });
+  const now = Date.now();
+  const payload = { ...data };
+  delete payload.createdAt;
+  pendingByPhone.set(key, { ...payload, createdAt: now });
+
+  if (dbMod.isOpen()) {
+    try {
+      dbMod
+        .getDb()
+        .prepare(
+          `INSERT INTO bot_sessions (phone_key, state_json, updated_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(phone_key) DO UPDATE SET
+             state_json = excluded.state_json,
+             updated_at = excluded.updated_at`,
+        )
+        .run(key, JSON.stringify(payload), now);
+    } catch (_err) {
+      // Ignore if DB is read-only or pre-migration
+    }
+  }
 }
 
 function clearPending(phone) {
   const key = langKey(phone);
-  if (key) pendingByPhone.delete(key);
+  if (!key) return;
+  pendingByPhone.delete(key);
+  if (dbMod.isOpen()) {
+    try {
+      dbMod.getDb().prepare('DELETE FROM bot_sessions WHERE phone_key = ?').run(key);
+    } catch (_err) {
+      // Ignore
+    }
+  }
+}
+
+function scopedLangKey(phone) {
+  const base = langKey(phone);
+  if (!base) return '';
+  return `${dbMod.getPath() || 'mem'}:${base}`;
 }
 
 function rememberLanguage(phone, lang) {
-  const key = langKey(phone);
+  const key = scopedLangKey(phone);
   if (!key) return;
   lastLanguage.set(key, lang);
   languageSeenAt.set(key, Date.now());
 }
 
 function rememberedLanguage(phone) {
-  const key = langKey(phone);
+  const key = scopedLangKey(phone);
   if (!key) return null;
   const seen = languageSeenAt.get(key);
   if (seen && Date.now() - seen > LANG_TTL_MS) {
     lastLanguage.delete(key);
     languageSeenAt.delete(key);
-    return null;
+  } else if (lastLanguage.has(key)) {
+    return lastLanguage.get(key) || null;
   }
-  return lastLanguage.get(key) || null;
+  const pending = getPending(phone);
+  if (pending?.lang === 'ar' || pending?.lang === 'fr') return pending.lang;
+  return null;
 }
 
 function resolveLanguage(phone, detected, isArabic) {
@@ -98,10 +165,16 @@ function reply(lang, key, vars = {}) {
 }
 
 function forgetLanguage(phone) {
-  const key = langKey(phone);
-  lastLanguage.delete(key);
-  languageSeenAt.delete(key);
-  pendingByPhone.delete(key);
+  const scoped = scopedLangKey(phone);
+  if (scoped) {
+    lastLanguage.delete(scoped);
+    languageSeenAt.delete(scoped);
+  }
+  clearPending(phone);
+}
+
+function hasRegisteredName(patient) {
+  return Boolean(patient && String(patient.full_name || '').trim().length > 0);
 }
 
 /**
@@ -126,8 +199,8 @@ function matchDepartmentInput(rawText, activeDepts) {
     const ar = intents.normalize(dept.name_ar);
     const spec = intents.normalize(dept.specialty);
     if (
-      (fr && (norm === fr || fr.includes(norm) && norm.length >= 4)) ||
-      (ar && (norm === ar || ar.includes(norm) && norm.length >= 4)) ||
+      (fr && (norm === fr || (fr.includes(norm) && norm.length >= 4))) ||
+      (ar && (norm === ar || (ar.includes(norm) && norm.length >= 4))) ||
       (spec && norm === spec)
     ) {
       return { dept };
@@ -140,8 +213,10 @@ function finalizeBooking({ phone, patientObj, name, department, lang, delivery }
   const deptId = department ? department.id : null;
   const deptLabel = department ? departments.labelFor(department, lang) : '';
 
-  if (patientObj) {
-    const existingUpcoming = appointments.upcomingForPatient(patientObj.id, toISODate(), deptId);
+  const effectiveExisting = hasRegisteredName(patientObj) ? patientObj : null;
+
+  if (effectiveExisting) {
+    const existingUpcoming = appointments.upcomingForPatient(effectiveExisting.id, toISODate(), deptId);
     if (existingUpcoming && existingUpcoming.status === 'booked') {
       return {
         reply: reply(lang, 'alreadyBooked', {
@@ -156,8 +231,8 @@ function finalizeBooking({ phone, patientObj, name, department, lang, delivery }
     }
   }
 
-  const person = patientObj
-    ? { patient: patientObj, created: false }
+  const person = effectiveExisting
+    ? { patient: effectiveExisting, created: false }
     : patients.upsertFromWhatsApp({ name, phone });
 
   let appointment;
@@ -227,6 +302,7 @@ function finalizeBooking({ phone, patientObj, name, department, lang, delivery }
     patientId: person.patient.id,
     appointmentId: appointment.id,
     isChild,
+    lang,
   });
   return {
     reply: replyText,
@@ -262,7 +338,7 @@ function advanceIntakeQuestion({ phone, pending, lang, nextQ }) {
       intake: draft,
     };
   }
-  setPending(phone, { ...pending, step: 'intake_q', q: nextQ, retries: 0 });
+  setPending(phone, { ...pending, step: 'intake_q', q: nextQ, retries: 0, lang });
   return {
     reply: promptForIntakeStep(lang, nextQ, pending.isChild),
     lang,
@@ -290,6 +366,7 @@ function handleIntakeState({ phone, text, lang, pending }) {
         appointmentId: pending.appointmentId || null,
         isChild: Boolean(pending.isChild),
         retries: 0,
+        lang,
       });
       return {
         reply: promptForIntakeStep(lang, 'age', Boolean(pending.isChild)),
@@ -326,6 +403,7 @@ function handleIntakeState({ phone, text, lang, pending }) {
         appointmentId: pending.appointmentId || null,
         isChild: childFlag,
         retries: 0,
+        lang,
       });
       return {
         reply: promptForIntakeStep(lang, 'weight', childFlag),
@@ -343,7 +421,7 @@ function handleIntakeState({ phone, text, lang, pending }) {
 
   if (intake.isRestartInput(text)) {
     const reset = intake.resetAnswers(pending.intakeId);
-    setPending(phone, { ...pending, step: 'intake_q', q: 'age', retries: 0 });
+    setPending(phone, { ...pending, step: 'intake_q', q: 'age', retries: 0, lang });
     return {
       reply: promptForIntakeStep(lang, 'age', pending.isChild),
       lang,
@@ -366,7 +444,7 @@ function handleIntakeState({ phone, text, lang, pending }) {
         });
         pending.isChild = childFlag;
       } else if ((pending.retries || 0) < 1) {
-        setPending(phone, { ...pending, retries: 1 });
+        setPending(phone, { ...pending, retries: 1, lang });
         return {
           reply: reply(lang, 'intakeRetryAge'),
           lang,
@@ -383,7 +461,7 @@ function handleIntakeState({ phone, text, lang, pending }) {
       if (parsed.ok) {
         intake.update(pending.intakeId, { weight_kg: parsed.value });
       } else if ((pending.retries || 0) < 1) {
-        setPending(phone, { ...pending, retries: 1 });
+        setPending(phone, { ...pending, retries: 1, lang });
         return {
           reply: reply(lang, 'intakeRetryWeight'),
           lang,
@@ -410,20 +488,44 @@ function handleIntakeState({ phone, text, lang, pending }) {
   return null;
 }
 
+function keepAwaitingName(phone, pending, lang) {
+  if (pending?.step === 'await_name' && pending.departmentId) {
+    setPending(phone, { step: 'await_name', departmentId: pending.departmentId, lang });
+  } else {
+    setPending(phone, { step: 'await_full_name', lang });
+  }
+}
+
 /**
- * @param {{phone: string, text: string, delivery?: 'local'|'queued'|'sent'}} incoming
+ * @param {{phone: string, text: string, delivery?: 'local'|'queued'|'sent', isMedia?: boolean}} incoming
  * @returns {{reply: string, lang: 'fr'|'ar', action: string, appointment?: object, chatEvent?: object}}
  */
-function handle({ phone, text, delivery = 'sent' }) {
-  const detection = intents.detect(text);
-  const lang = resolveLanguage(phone, settings.get('bot_language'), detection.isArabic);
-  rememberLanguage(phone, lang);
+function handle({ phone, text, delivery = 'sent', isMedia = false }) {
   const patient = patients.findByPhone(phone);
+  const registered = hasRegisteredName(patient);
+
+  if (isMedia) {
+    const lang = resolveLanguage(phone, settings.get('bot_language'), false);
+    rememberLanguage(phone, lang);
+    if (!registered) {
+      keepAwaitingName(phone, getPending(phone), lang);
+      return { reply: reply(lang, 'nonTextAskName'), lang, action: 'unsupported' };
+    }
+    return { reply: reply(lang, 'unsupported'), lang, action: 'unsupported' };
+  }
+
+  const detection = intents.detect(text);
+  const lang = resolveLanguage(
+    phone,
+    settings.get('bot_language'),
+    detection.isArabic || (registered && /[\u0600-\u06FF]/.test(patient.full_name)),
+  );
+  rememberLanguage(phone, lang);
   const activeDepts = departments.listActive();
   const isMultiDept = activeDepts.length >= 2;
 
   try {
-    // 1. Explicit commands always take priority and clear any pending multi-step state.
+    // 1. Explicit commands always take priority and never save command words as names.
     if (detection.intent === 'cancel') {
       clearPending(phone);
       const upcoming = patient ? appointments.upcomingForPatient(patient.id) : null;
@@ -520,8 +622,9 @@ function handle({ phone, text, delivery = 'sent' }) {
 
     // 1c. Keyword trigger ("fiche", "معلومات", "وزن") to start pre-visit intake anytime.
     if (detection.intent === 'intake') {
-      if (!patient) {
-        return { reply: reply(lang, 'noAppointment'), lang, action: 'no_appointment' };
+      if (!registered) {
+        keepAwaitingName(phone, getPending(phone), lang);
+        return { reply: reply(lang, 'welcomeAskName'), lang, action: 'no_appointment' };
       }
       const upcoming = appointments.upcomingForPatient(patient.id);
       const isChild = intake.detectChildContext(patient);
@@ -530,6 +633,7 @@ function handle({ phone, text, delivery = 'sent' }) {
         patientId: patient.id,
         appointmentId: upcoming ? upcoming.id : null,
         isChild,
+        lang,
       });
       return {
         reply: reply(lang, 'intakeInvite'),
@@ -538,6 +642,119 @@ function handle({ phone, text, delivery = 'sent' }) {
       };
     }
 
+    // 2. Caller has NO registered name yet: enforce greeting vs. valid full-name gate.
+    if (!registered) {
+      const pending = getPending(phone);
+
+      if (isMultiDept) {
+        const deptMatch = matchDepartmentInput(text, activeDepts);
+        if (pending?.step === 'await_department' && pending.name) {
+          if (deptMatch?.dept) {
+            clearPending(phone);
+            return finalizeBooking({
+              phone,
+              patientObj: patient,
+              name: pending.name,
+              department: deptMatch.dept,
+              lang,
+              delivery,
+            });
+          }
+          if (deptMatch?.outOfRange) {
+            return {
+              reply: reply(lang, 'invalidDepartmentChoice', { departments: activeDepts }),
+              lang,
+              action: 'invalid_department',
+            };
+          }
+        }
+
+        if (pending?.step !== 'await_name' && deptMatch?.dept) {
+          setPending(phone, { step: 'await_name', departmentId: deptMatch.dept.id, lang });
+          return {
+            reply: reply(lang, 'askNameForDepartment', {
+              department: departments.labelFor(deptMatch.dept, lang),
+            }),
+            lang,
+            action: 'ask_name_for_department',
+            department: deptMatch.dept,
+          };
+        }
+        if (pending?.step !== 'await_name' && deptMatch?.outOfRange) {
+          return {
+            reply: reply(lang, 'invalidDepartmentChoice', { departments: activeDepts }),
+            lang,
+            action: 'invalid_department',
+          };
+        }
+      }
+
+      if (detection.isGreeting) {
+        keepAwaitingName(phone, pending, lang);
+        return {
+          reply: reply(lang, 'welcomeAskName'),
+          lang,
+          action: 'help',
+        };
+      }
+
+      if (detection.intent === 'help' && !detection.isStopWord) {
+        keepAwaitingName(phone, pending, lang);
+        return {
+          reply: reply(lang, 'help', { departments: activeDepts }),
+          lang,
+          action: 'help',
+        };
+      }
+
+      if (detection.intent === 'name') {
+        if (isMultiDept) {
+          if (pending?.step === 'await_name') {
+            const chosenDept =
+              activeDepts.find((d) => d.id === pending.departmentId) || activeDepts[0];
+            clearPending(phone);
+            return finalizeBooking({
+              phone,
+              patientObj: patient,
+              name: detection.name,
+              department: chosenDept,
+              lang,
+              delivery,
+            });
+          }
+          setPending(phone, { step: 'await_department', name: detection.name, lang });
+          return {
+            reply: reply(lang, 'chooseDepartment', {
+              name: detection.name,
+              departments: activeDepts,
+            }),
+            lang,
+            action: 'choose_department',
+          };
+        }
+
+        clearPending(phone);
+        const singleDept = activeDepts.length === 1 ? activeDepts[0] : null;
+        return finalizeBooking({
+          phone,
+          patientObj: patient,
+          name: detection.name,
+          department: singleDept,
+          lang,
+          delivery,
+        });
+      }
+
+      // Neither a greeting nor a valid name -> stay in "awaiting name" state & ask politely.
+      keepAwaitingName(phone, pending, lang);
+      return {
+        reply: reply(lang, 'invalidName'),
+        lang,
+        action: 'unsupported',
+      };
+    }
+
+    // 3. Caller ALREADY has a valid registered name: unchanged normal bot behavior.
     if (detection.intent === 'help') {
       clearPending(phone);
       return {
@@ -547,7 +764,6 @@ function handle({ phone, text, delivery = 'sent' }) {
       };
     }
 
-    // 2. Multi-department state machine (2+ active departments).
     if (isMultiDept) {
       const pending = getPending(phone);
       const deptMatch = matchDepartmentInput(text, activeDepts);
@@ -558,7 +774,7 @@ function handle({ phone, text, delivery = 'sent' }) {
           return finalizeBooking({
             phone,
             patientObj: patient,
-            name: pending.name,
+            name: patient.full_name,
             department: deptMatch.dept,
             lang,
             delivery,
@@ -573,42 +789,16 @@ function handle({ phone, text, delivery = 'sent' }) {
         }
       }
 
-      if (pending?.step === 'await_name' && detection.intent === 'name') {
-        const chosenDept =
-          activeDepts.find((d) => d.id === pending.departmentId) || activeDepts[0];
+      if (deptMatch?.dept) {
         clearPending(phone);
         return finalizeBooking({
           phone,
           patientObj: patient,
-          name: detection.name,
-          department: chosenDept,
+          name: patient.full_name,
+          department: deptMatch.dept,
           lang,
           delivery,
         });
-      }
-
-      // Patient sent a department number/name first without pending state.
-      if (deptMatch?.dept) {
-        if (patient) {
-          clearPending(phone);
-          return finalizeBooking({
-            phone,
-            patientObj: patient,
-            name: patient.full_name,
-            department: deptMatch.dept,
-            lang,
-            delivery,
-          });
-        }
-        setPending(phone, { step: 'await_name', departmentId: deptMatch.dept.id });
-        return {
-          reply: reply(lang, 'askNameForDepartment', {
-            department: departments.labelFor(deptMatch.dept, lang),
-          }),
-          lang,
-          action: 'ask_name_for_department',
-          department: deptMatch.dept,
-        };
       }
       if (deptMatch?.outOfRange) {
         return {
@@ -618,13 +808,11 @@ function handle({ phone, text, delivery = 'sent' }) {
         };
       }
 
-      // Patient sent their full name -> ask them which department they want.
       if (detection.intent === 'name') {
-        const candidateName = patient ? patient.full_name : detection.name;
-        setPending(phone, { step: 'await_department', name: candidateName });
+        setPending(phone, { step: 'await_department', name: patient.full_name, lang });
         return {
           reply: reply(lang, 'chooseDepartment', {
-            name: candidateName,
+            name: patient.full_name,
             departments: activeDepts,
           }),
           lang,
@@ -633,13 +821,12 @@ function handle({ phone, text, delivery = 'sent' }) {
       }
     }
 
-    // 3. Solo cabinet (0 departments) or single-department cabinet (1 department).
     if (detection.intent === 'name') {
       const singleDept = activeDepts.length === 1 ? activeDepts[0] : null;
       return finalizeBooking({
         phone,
         patientObj: patient,
-        name: detection.name,
+        name: patient.full_name,
         department: singleDept,
         lang,
         delivery,
@@ -660,16 +847,31 @@ function reminderText({ name, day, queue, department = '', lang = 'fr' }) {
 
 function expirePendingForTest(phone) {
   const key = langKey(phone);
+  if (!key) return;
+  const expiredAt = Date.now() - PENDING_TTL_MS - 1000;
   const entry = pendingByPhone.get(key);
-  if (entry) entry.createdAt = Date.now() - PENDING_TTL_MS - 1000;
+  if (entry) entry.createdAt = expiredAt;
+  if (dbMod.isOpen()) {
+    try {
+      dbMod
+        .getDb()
+        .prepare('UPDATE bot_sessions SET updated_at = ? WHERE phone_key = ?')
+        .run(expiredAt, key);
+    } catch (_err) {
+      // Ignore
+    }
+  }
 }
 
 module.exports = {
   handle,
+  getPending,
+  setPending,
+  clearPending,
   reminderText,
   forgetLanguage,
   preferredLanguage,
-  clearPending,
   expirePendingForTest,
   PENDING_TTL_MS,
+  AWAIT_NAME_TTL_MS,
 };

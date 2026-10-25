@@ -8,6 +8,7 @@
 
 const { ALGERIA_MEDICATIONS, STARTER_TEMPLATES } = require('./algeria-drugs');
 const { seedOfficialAlgerianMedications } = require('./official-medications');
+const { normalizeSearch } = require('../utils/common');
 const {
   STARTER_DOSE_RULES,
   STARTER_INTERACTION_PAIRS,
@@ -120,14 +121,15 @@ function seedDefaults(db) {
       const insertMed = db.prepare(`
         INSERT INTO medications
           (brand, dci, strength, form, specialty, keywords_ar, default_dosage, default_duration,
-           reference_dci_group, folded_search, source, verified, custom)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'starter', 0, 0)
+           reference_dci_group, name_normalized, folded_search, source, verified, custom)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'starter', 0, 0)
       `);
       for (const row of ALGERIA_MEDICATIONS) {
         const [brand, dci, strength, form, spec, kwAr, defDos, defDur] = row;
-        const dciGroup = `${String(dci || '').trim().toLowerCase()}|${String(strength || '').trim().toLowerCase()}`;
-        const folded = `${brand} ${dci} ${strength} ${form} ${spec} ${kwAr}`.toLowerCase();
-        insertMed.run(brand, dci, strength, form, spec, kwAr, defDos, defDur, dciGroup, folded);
+        const dciGroup = `${normalizeSearch(dci)}|${normalizeSearch(strength).replace(/\s+/g, '')}`;
+        const nameNorm = normalizeSearch(brand);
+        const folded = normalizeSearch(`${brand} ${dci} ${strength} ${form} ${spec} ${kwAr}`);
+        insertMed.run(brand, dci, strength, form, spec, kwAr, defDos, defDur, dciGroup, nameNorm, folded);
       }
     }
 

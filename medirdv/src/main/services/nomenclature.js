@@ -12,19 +12,11 @@
 const fs = require('node:fs');
 const zlib = require('node:zlib');
 const { getDb } = require('../db');
-const { AppError, cleanText, requireId } = require('../utils/common');
+const { AppError, cleanText, requireId, normalizeSearch, escapeLike } = require('../utils/common');
 const { toISODate } = require('../utils/dates');
 
 function foldSearch(text) {
-  return String(text || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u0640]/g, '')
-    .replace(/[أإآٱ]/g, 'ا')
-    .replace(/ة/g, 'ه')
-    .replace(/ى/g, 'ي')
-    .trim();
+  return normalizeSearch(text);
 }
 
 function makeDciGroup(dci, strength) {
@@ -319,7 +311,8 @@ function mapNomenclatureRecord(rawRow = {}) {
   const effectiveBrand = brand || dci;
   const dciGroup =
     cleanText(pickField(row, ['reference_dci_group']), 180) || makeDciGroup(dci, strength);
-  const folded = foldSearch(`${effectiveBrand} ${dci} ${strength} ${form} ${laboratory} ${specialty} ${keywordsAr}`);
+  const nameNormalized = normalizeSearch(effectiveBrand);
+  const folded = normalizeSearch(`${effectiveBrand} ${dci} ${strength} ${form} ${laboratory} ${specialty} ${keywordsAr}`);
 
   return {
     brand: effectiveBrand,
@@ -340,6 +333,7 @@ function mapNomenclatureRecord(rawRow = {}) {
     schedule,
     marketed,
     expiry_of_registration: expiry,
+    name_normalized: nameNormalized,
     folded_search: folded,
   };
 }
@@ -408,13 +402,13 @@ function importNomenclature({
        registration_number, laboratory, country, is_generic, reference_dci_group,
        ppa, reference_price, reimbursable, reimbursement_rate,
        schedule, marketed, expiry_of_registration,
-       source, verified, last_updated, folded_search, custom, active)
+       source, verified, last_updated, name_normalized, folded_search, custom, active)
     VALUES
       (@brand, @dci, @strength, @form, @specialty, @keywords_ar,
        @registration_number, @laboratory, @country, @is_generic, @reference_dci_group,
        @ppa, @reference_price, @reimbursable, @reimbursement_rate,
        @schedule, @marketed, @expiry_of_registration,
-       @source, @verified, @last_updated, @folded_search, 0, @active)
+       @source, @verified, @last_updated, @name_normalized, @folded_search, 0, @active)
   `);
 
   const updateStmt = db.prepare(`
@@ -438,6 +432,7 @@ function importNomenclature({
       source = @source,
       verified = @verified,
       last_updated = @last_updated,
+      name_normalized = @name_normalized,
       folded_search = @folded_search,
       active = @active
     WHERE id = @id
@@ -488,7 +483,8 @@ function searchFast({ query = '', specialty = '', onlyReimbursable = false, only
   const db = getDb();
   const max = Math.min(200, Math.max(1, Number.parseInt(limit, 10) || 60));
   const spec = cleanText(specialty, 40).toLowerCase();
-  const foldedQuery = foldSearch(query);
+  const rawTrimmed = String(query ?? '').trim();
+  const foldedQuery = normalizeSearch(rawTrimmed);
 
   const filterClauses = [];
   const filterParams = [];
@@ -508,7 +504,7 @@ function searchFast({ query = '', specialty = '', onlyReimbursable = false, only
   const whereExtra = filterClauses.length ? `AND ${filterClauses.join(' AND ')}` : '';
   const priorityOrder = `m.custom DESC, CASE WHEN m.source = 'nomenclature' THEN 0 WHEN m.source = 'starter' THEN 1 ELSE 2 END ASC`;
 
-  if (!foldedQuery) {
+  if (!rawTrimmed) {
     return db
       .prepare(
         `SELECT m.* FROM medications m
@@ -519,47 +515,57 @@ function searchFast({ query = '', specialty = '', onlyReimbursable = false, only
       .all(...filterParams, max);
   }
 
-  // Try FTS5 prefix search first for < 5ms latency on 5,000+ drugs
-  const ftsTokens = foldedQuery
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .split(/\s+/)
-    .filter((t) => t.length >= 2);
-
-  if (ftsTokens.length > 0) {
-    const ftsMatch = ftsTokens.map((tok) => `"${tok}"*`).join(' AND ');
-    try {
-      const ftsRows = db
-        .prepare(
-          `SELECT m.*
-           FROM medications_fts f
-           JOIN medications m ON m.id = f.rowid
-           WHERE medications_fts MATCH ? ${whereExtra}
-           ORDER BY ${priorityOrder}, bm25(medications_fts), m.brand COLLATE NOCASE ASC
-           LIMIT ?`,
-        )
-        .all(ftsMatch, ...filterParams, max);
-      if (ftsRows.length > 0) return ftsRows;
-    } catch (_ftsErr) {
-      // Fall back to folded LIKE below
-    }
+  if (!foldedQuery) {
+    return [];
   }
 
-  // Substring fallback on indexed/precomputed folded_search + Arabic keywords
-  const tokens = foldedQuery.split(/\s+/).filter(Boolean);
-  const likeClauses = tokens.map(() => '(m.folded_search LIKE ? OR m.keywords_ar LIKE ?)');
+  const tokens = foldedQuery.split(' ').filter(Boolean);
+  const likeClauses = [];
   const likeParams = [];
+  const brandTokenClauses = [];
+  const brandTokenParams = [];
+
   for (const tok of tokens) {
-    likeParams.push(`%${tok}%`, `%${tok}%`);
+    const escapedTok = `%${escapeLike(tok)}%`;
+    likeClauses.push(
+      "(m.name_normalized LIKE ? ESCAPE '\\' OR m.folded_search LIKE ? ESCAPE '\\' OR lower(m.dci) LIKE ? ESCAPE '\\' OR m.keywords_ar LIKE ? ESCAPE '\\')",
+    );
+    likeParams.push(escapedTok, escapedTok, escapedTok, escapedTok);
+
+    brandTokenClauses.push("m.name_normalized LIKE ? ESCAPE '\\'");
+    brandTokenParams.push(escapedTok);
   }
+
+  const escapedFull = escapeLike(foldedQuery);
+  const firstPrefix = `${escapeLike(tokens[0])}%`;
+  const allBrandMatchSql = brandTokenClauses.join(' AND ');
 
   return db
     .prepare(
       `SELECT m.* FROM medications m
        WHERE ${likeClauses.join(' AND ')} ${whereExtra}
-       ORDER BY ${priorityOrder}, m.brand COLLATE NOCASE ASC
+       ORDER BY
+         CASE
+           WHEN m.name_normalized = ? THEN 0
+           WHEN m.name_normalized LIKE ? ESCAPE '\\' THEN 1
+           WHEN (m.name_normalized LIKE ? ESCAPE '\\' AND (${allBrandMatchSql})) THEN 1
+           WHEN (${allBrandMatchSql}) THEN 2
+           ELSE 3
+         END ASC,
+         ${priorityOrder},
+         m.brand COLLATE NOCASE ASC
        LIMIT ?`,
     )
-    .all(...likeParams, ...filterParams, max);
+    .all(
+      ...likeParams,
+      ...filterParams,
+      foldedQuery,
+      `${escapedFull}%`,
+      firstPrefix,
+      ...brandTokenParams,
+      ...brandTokenParams,
+      max,
+    );
 }
 
 /**
@@ -627,6 +633,8 @@ function nomenclatureSummary() {
 
 module.exports = {
   foldSearch,
+  normalizeSearch,
+  normalize_search: normalizeSearch,
   makeDciGroup,
   parseXlsxBuffer,
   parseCsvText,

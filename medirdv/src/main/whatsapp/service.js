@@ -377,7 +377,10 @@ class WhatsAppService {
     if (key.fromMe) return this.skip('own_message', tag);
     // Receipts, reactions, deletions and edits are not patient questions and
     // must never trigger a reply (replying to a reaction looks like spam).
-    if (['protocolMessage', 'reactionMessage', 'senderKeyDistributionMessage'].includes(kind)) {
+    if (
+      !kind ||
+      ['protocolMessage', 'reactionMessage', 'senderKeyDistributionMessage'].includes(kind)
+    ) {
       return this.skip('not_a_question', tag);
     }
     // Only private chats, never groups, statuses or channels. `@lid`
@@ -408,19 +411,9 @@ class WhatsAppService {
 
     if (!this.canReply(phone)) return this.skip('rate_limit', tag);
 
-    if (!text) {
-      const lang = settings.get('bot_language');
-      const { message: tpl } = require('./messages');
-      const answer = tpl(lang, 'unsupported', {
-        clinic: settings.get('clinic_name'),
-        phone: settings.get('clinic_phone'),
-        currency: settings.get('currency'),
-      });
-      if (await this.reply(phone, replyJid, answer)) this.stats.replied += 1;
-      return;
-    }
-
-    const result = bot.handle({ phone, text, delivery: 'queued' });
+    const result = !text
+      ? bot.handle({ phone, text: '', isMedia: true, delivery: 'queued' })
+      : bot.handle({ phone, text, delivery: 'queued' });
     if (!result || !result.reply) return this.skip('no_reply', tag);
 
     // Broadcast database state changes IMMEDIATELY (before anti-ban typing delay)

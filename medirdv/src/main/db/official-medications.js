@@ -10,23 +10,14 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const zlib = require('node:zlib');
+const { normalizeSearch } = require('../utils/common');
 
 const GZ_PATH = path.join(__dirname, 'algeria-medications.csv.gz');
 
 let cachedCatalog = null;
 
 function foldText(str) {
-  return String(str ?? '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u0640]/g, '')
-    .replace(/[أإآٱ]/g, 'ا')
-    .replace(/ة/g, 'ه')
-    .replace(/ى/g, 'ي')
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s+.-]/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return normalizeSearch(str);
 }
 
 function makeGroup(dci, strength) {
@@ -168,7 +159,8 @@ function loadOfficialAlgerianMedications() {
     const formFolded = foldText(fullForm);
     const specialty = inferSpecialty(dciFolded, formFolded);
     const dciGroup = makeGroup(dci, strength);
-    const folded = foldText(`${brand} ${dci} ${strength} ${fullForm} ${laboratory} ${regNum} ${specialty}`);
+    const nameNorm = normalizeSearch(brand);
+    const folded = normalizeSearch(`${brand} ${dci} ${strength} ${fullForm} ${laboratory} ${regNum} ${specialty}`);
 
     records.push([
       brand,
@@ -183,6 +175,7 @@ function loadOfficialAlgerianMedications() {
       dciGroup,
       schedule,
       expiry,
+      nameNorm,
       folded,
     ]);
   }
@@ -209,12 +202,12 @@ function seedOfficialAlgerianMedications(db) {
       (brand, dci, strength, form, specialty, keywords_ar, default_dosage, default_duration,
        registration_number, laboratory, country, is_generic, reference_dci_group,
        schedule, marketed, expiry_of_registration,
-       source, verified, last_updated, folded_search, custom, active)
+       source, verified, last_updated, name_normalized, folded_search, custom, active)
     VALUES
       (?, ?, ?, ?, ?, '', '', '',
        ?, ?, ?, ?, ?,
        ?, 1, ?,
-       'official_dz', 1, '2026-10-25', ?, 0, 1)
+       'official_dz', 1, '2026-10-25', ?, ?, 0, 1)
   `);
 
   const bulkTx = db.transaction((rows) => {

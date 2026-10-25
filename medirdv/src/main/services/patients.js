@@ -263,10 +263,16 @@ function findByPhone(phone) {
   return row ? rowToPatient(row) : null;
 }
 
-/** Create the patient if the phone is unknown, otherwise reuse the file. */
+/** Create the patient if the phone is unknown, or fill in full_name if cleared by migration. */
 function upsertFromWhatsApp({ name, phone }) {
   const existing = findByPhone(phone);
-  if (existing) return { patient: existing, created: false };
+  if (existing) {
+    if (!String(existing.full_name || '').trim() && String(name || '').trim()) {
+      const updated = update({ id: existing.id, full_name: name });
+      return { patient: updated, created: false };
+    }
+    return { patient: existing, created: false };
+  }
   const patient = create({ full_name: name, phone });
   return { patient, created: true };
 }

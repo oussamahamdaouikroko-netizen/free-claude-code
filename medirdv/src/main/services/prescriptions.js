@@ -10,18 +10,11 @@ const departments = require('./departments');
 const safety = require('./safety');
 const nomenclature = require('./nomenclature');
 const { toISODate } = require('../utils/dates');
-const { AppError, cleanText, requireId } = require('../utils/common');
+const { AppError, cleanText, requireId, normalizeSearch } = require('../utils/common');
 
 /** Strip Latin diacritics + normalize Arabic alef/ta-marbuta for fast offline search. */
 function foldSearch(text) {
-  return String(text || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[أإآ]/g, 'ا')
-    .replace(/ة/g, 'ه')
-    .replace(/ى/g, 'ي')
-    .trim();
+  return normalizeSearch(text);
 }
 
 function computeAgeFromBirthDate(birthDate) {
@@ -93,7 +86,8 @@ function createMedication(input = {}) {
   const reimbursementRate = Number.parseInt(input.reimbursement_rate, 10) || (reimbursable ? 80 : 0);
   const schedule = cleanText(input.schedule, 30);
   const dciGroup = nomenclature.makeDciGroup(dci, strength);
-  const folded = nomenclature.foldSearch(`${brand} ${dci} ${strength} ${form} ${laboratory} ${specialty} ${keywordsAr}`);
+  const nameNorm = normalizeSearch(brand);
+  const folded = normalizeSearch(`${brand} ${dci} ${strength} ${form} ${laboratory} ${specialty} ${keywordsAr}`);
 
   const info = getDb()
     .prepare(
@@ -101,14 +95,14 @@ function createMedication(input = {}) {
         (brand, dci, strength, form, specialty, keywords_ar, default_dosage, default_duration,
          registration_number, laboratory, is_generic, reference_dci_group,
          ppa, reference_price, reimbursable, reimbursement_rate, schedule,
-         source, verified, last_updated, folded_search, custom, active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'custom', 1, ?, ?, 1, 1)`,
+         source, verified, last_updated, name_normalized, folded_search, custom, active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'custom', 1, ?, ?, ?, 1, 1)`,
     )
     .run(
       brand, dci, strength, form, specialty, keywordsAr, defaultDosage, defaultDuration,
       registrationNumber, laboratory, isGeneric, dciGroup,
       ppa, referencePrice, reimbursable, reimbursementRate, schedule,
-      toISODate(), folded,
+      toISODate(), nameNorm, folded,
     );
   return getDb().prepare('SELECT * FROM medications WHERE id = ?').get(info.lastInsertRowid);
 }

@@ -74,8 +74,20 @@ const t = {
       `Merci.`,
 
     askName: (s) =>
-      `Bienvenue au ${s.clinic}. 🙏\nEnvoyez votre nom complet (prénom + nom) ` +
+      `Bienvenue au ${s.clinic}. 🙏\nEnvoyez votre nom complet (prénom + nom, ex : Oussama Hamdaoui) ` +
       `pour réserver le premier créneau disponible.`,
+
+    welcomeAskName: (s) =>
+      `Bienvenue au ${s.clinic} 👋\n` +
+      `Veuillez entrer votre nom complet (exemple : Oussama Hamdaoui).`,
+
+    invalidName: () =>
+      `Le nom saisi n'est pas valide 🙏\n` +
+      `Veuillez entrer votre nom complet en lettres uniquement, sans chiffres ni symboles (exemple : Oussama Hamdaoui).`,
+
+    nonTextAskName: () =>
+      `Je comprends uniquement les messages texte 🙂\n` +
+      `Veuillez envoyer votre nom complet par écrit (exemple : Oussama Hamdaoui).`,
 
     chooseDepartment: (s, { name, departments }) =>
       `🏥 Bonjour ${name}, veuillez choisir le service médical souhaité en envoyant son numéro :\n\n` +
@@ -84,7 +96,7 @@ const t = {
 
     askNameForDepartment: (s, { department }) =>
       `🏥 Service sélectionné : ${department}.\n` +
-      `Envoyez maintenant votre nom complet (prénom et nom) pour confirmer le rendez-vous.`,
+      `Envoyez maintenant votre nom complet (exemple : Oussama Hamdaoui) pour confirmer le rendez-vous.`,
 
     invalidDepartmentChoice: (s, { departments }) =>
       `Numéro de service invalide. Merci d'envoyer un numéro entre 1 et ${departments.length} :\n\n` +
@@ -252,8 +264,20 @@ const t = {
       `شكرا.`,
 
     askName: (s) =>
-      `مرحبا بكم في ${s.clinic}. 🙏\nأرسلوا اسمكم الكامل (الاسم واللقب) ` +
+      `مرحبا بكم في ${s.clinic}. 🙏\nأرسلوا اسمكم الكامل (الاسم واللقب، مثال: أسامة حمداوي) ` +
       `لحجز أول موعد متاح.`,
+
+    welcomeAskName: (s) =>
+      `أهلاً بك في ${s.clinic} 👋\n` +
+      `من فضلك أدخل اسمك الكامل (مثال: أسامة حمداوي).`,
+
+    invalidName: () =>
+      `عذراً، الاسم المدخل غير صالح 🙏\n` +
+      `من فضلك أدخل اسمك الكامل بالحروف فقط دون أرقام أو رموز (مثال: أسامة حمداوي).`,
+
+    nonTextAskName: () =>
+      `عذراً، أستقبل الرسائل النصية فقط 🙂\n` +
+      `من فضلك أرسل اسمك الكامل نصاً (مثال: أسامة حمداوي).`,
 
     chooseDepartment: (s, { name, departments }) =>
       `🏥 مرحبا ${name}، يرجى اختيار المصلحة الطبية المطلوبة بإرسال رقمها:\n\n` +
@@ -262,7 +286,7 @@ const t = {
 
     askNameForDepartment: (s, { department }) =>
       `🏥 تم اختيار المصلحة: ${department}.\n` +
-      `أرسلوا الآن اسمكم الكامل (الاسم واللقب) لتأكيد حجز الموعد.`,
+      `أرسلوا الآن اسمكم الكامل (مثال: أسامة حمداوي) لتأكيد حجز الموعد.`,
 
     invalidDepartmentChoice: (s, { departments }) =>
       `رقم المصلحة غير صحيح. يرجى إرسال رقم بين 1 و ${departments.length}:\n\n` +

@@ -9,7 +9,7 @@
  * and medical certificates.
  */
 
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 11;
 
 const MIGRATION_1 = `
 CREATE TABLE IF NOT EXISTS settings (
@@ -969,6 +969,17 @@ CREATE TABLE IF NOT EXISTS clinical_documents (
 CREATE INDEX IF NOT EXISTS idx_clin_docs_patient ON clinical_documents(patient_id, day DESC);
 `;
 
+const MIGRATION_11 = `
+CREATE TABLE IF NOT EXISTS bot_sessions (
+  phone_key  TEXT PRIMARY KEY,
+  state_json TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+ALTER TABLE medications ADD COLUMN name_normalized TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_medications_name_norm ON medications(name_normalized);
+`;
+
 const MIGRATIONS = [
   MIGRATION_1,
   MIGRATION_2,
@@ -980,6 +991,7 @@ const MIGRATIONS = [
   MIGRATION_8,
   MIGRATION_9,
   MIGRATION_10,
+  MIGRATION_11,
 ];
 
 function migrate(db) {
