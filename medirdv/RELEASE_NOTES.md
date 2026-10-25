@@ -1,6 +1,6 @@
 # MediRDV v2.1.0 — Suite Clinique Complète Hors-Ligne pour Cabinets & Polycliniques (Algérie)
 
-## Nouveautés de la version 2.1.0 (تحديثات الإصدار 2.1.0)
+## Nouveautés de la version 2.1.0 (تحديثات الإصدار 2.1.0 — 2026-10-25)
 
 1. **Base officielle complète de 5 381 médicaments algériens intégrée d’office** : Les **5 381 spécialités pharmaceutiques algériennes** (nom commercial, DCI, dosage, conditionnement, laboratoire, pays, numéro d’enregistrement, statut générique/princeps, liste réglementaire) sont désormais embarquées hors-ligne dès l’installation et ajoutées automatiquement aux bases existantes avec recherche instantanée FTS5 (`< 10 ms`).
 2. **Discussion WhatsApp pré-consultation simplifiée (Âge + Poids + Symptômes optionnels)** : Saisie rapide de **l’âge (`العمر`)** et du **poids (`الوزن`)** pour tous les patients afin d’aider immédiatement le médecin, avec possibilité optionnelle d’indiquer brièvement des symptômes — suppression des questions longues (taille, durée, traitements, allergies/pénicilline, antécédents).
