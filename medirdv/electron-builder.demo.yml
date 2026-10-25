@@ -10,6 +10,7 @@ directories:
 
 files:
   - src/**/*
+  - assets/icon.png
   - package.json
   - "!**/*.map"
   - "!**/README*"

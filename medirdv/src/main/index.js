@@ -12,9 +12,10 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { app, BrowserWindow, Menu, shell, dialog } = require('electron');
+const { app, BrowserWindow, Menu, Tray, nativeImage, Notification, shell, dialog } = require('electron');
 const { STARTUP_DELAY_SECONDS, APP_NAME } = require('./config');
 const autostart = require('./autostart');
+const { TrayController, resolveIconPath } = require('./tray');
 const db = require('./db');
 const log = require('./log');
 const auth = require('./services/auth');
@@ -50,6 +51,7 @@ const isDev = !app.isPackaged;
 let mainWindow = null;
 let waService = null;
 let reminderTimer = null;
+let trayController = null;
 
 /** All clinic data lives in one folder, easy to copy / backup. */
 function resolveDataDir() {
@@ -70,12 +72,14 @@ function broadcastEvent(event) {
 }
 
 function createWindow({ startHidden = false } = {}) {
+  const iconFile = resolveIconPath();
   const win = new BrowserWindow({
     width: 1360,
     height: 860,
     minWidth: 1024,
     minHeight: 680,
     show: false,
+    icon: iconFile || undefined,
     backgroundColor: '#f3f7fc',
     title: DEMO ? `${APP_NAME} — Démonstration` : APP_NAME,
     autoHideMenuBar: true,
@@ -104,6 +108,12 @@ function createWindow({ startHidden = false } = {}) {
 
   if (isDev && process.env.MEDIRDV_DEVTOOLS) win.webContents.openDevTools({ mode: 'detach' });
 
+  win.on('close', (event) => {
+    if (!DEMO && trayController) {
+      trayController.handleWindowClose(event, win);
+    }
+  });
+
   win.on('closed', () => {
     mainWindow = null;
   });
@@ -111,8 +121,15 @@ function createWindow({ startHidden = false } = {}) {
   return win;
 }
 
+function stopReminderScheduler() {
+  if (reminderTimer) {
+    clearInterval(reminderTimer);
+    reminderTimer = null;
+  }
+}
+
 function startReminderScheduler() {
-  if (reminderTimer) clearInterval(reminderTimer);
+  stopReminderScheduler();
   reminderTimer = setInterval(() => {
     if (!waService) return;
     if (!settings.getBool('bot_enabled') || !settings.getBool('reminder_enabled')) return;
@@ -137,6 +154,7 @@ function boot() {
 
   log.init(path.join(dataDir, 'medirdv.log'));
   log.attachConsole();
+  log.attachProcessErrorHandlers();
   console.log('[boot] MediRDV', app.getVersion(), '| electron', process.versions.electron);
   console.log('[boot] data dir', dataDir, '| cwd', cwdResult.cwd, '| autostart', autostartLaunch);
 
@@ -168,6 +186,38 @@ function boot() {
     onEvent: broadcastEvent,
   });
 
+  if (!DEMO) {
+    trayController = new TrayController({
+      electron: { app, Tray, Menu, dialog, nativeImage, Notification },
+      getMainWindow: () => mainWindow,
+      createMainWindow: () => createWindow({ startHidden: false }),
+      getAutostartEnabled: () => autostart.getAutostartStatus(autostartOptions).enabled,
+      setAutostartEnabled: (enabled) => autostart.setAutostartEnabled(enabled, autostartOptions),
+      stopSchedulers: () => {
+        stopReminderScheduler();
+        backup.stopScheduler();
+      },
+      stopBot: async () => {
+        if (waService) await waService.stop();
+      },
+      closeDb: () => {
+        try {
+          db.close();
+        } catch (error) {
+          console.warn('[db] close failed', error.message);
+        }
+      },
+      closeLog: () => {
+        console.log('[boot] shutdown');
+        log.detachProcessErrorHandlers();
+        log.detachConsole();
+        log.close();
+      },
+      quitApp: () => app.quit(),
+    });
+    trayController.init();
+  }
+
   registerIpc({
     version: app.getVersion(),
     dataDir,
@@ -177,6 +227,9 @@ function boot() {
     printReceipt: printDocument,
     onEvent: broadcastEvent,
     autostartOptions,
+    onAutostartChanged: () => {
+      if (trayController) trayController.refreshMenu();
+    },
     wa: DEMO ? null : waService,
   });
 
@@ -199,10 +252,20 @@ if (!gotLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
+    if (trayController) {
+      trayController.openWindow();
+      return;
+    }
     if (mainWindow) {
+      if (!mainWindow.isVisible()) mainWindow.show();
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
     }
+  });
+
+  // Never block Windows Shutdown / Restart / Logoff (`WM_QUERYENDSESSION` / `WM_ENDSESSION`).
+  app.on('session-end', () => {
+    if (trayController) trayController.markSystemShutdown();
   });
 
   app.whenReady().then(() => {
@@ -218,16 +281,29 @@ if (!gotLock) {
     }
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      if (trayController) {
+        trayController.openWindow();
+      } else if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      }
     });
   });
 
   app.on('window-all-closed', () => {
+    if (!DEMO && trayController && !trayController.isQuitting) {
+      // Stay running in the Windows System Tray.
+      return;
+    }
     app.quit();
   });
 
   app.on('before-quit', () => {
-    if (reminderTimer) clearInterval(reminderTimer);
+    if (trayController) {
+      trayController.markSystemShutdown();
+      trayController.performCleanShutdown().catch(() => {});
+      return;
+    }
+    stopReminderScheduler();
     backup.stopScheduler();
     if (waService) waService.stop().catch(() => {});
     try {
@@ -236,8 +312,15 @@ if (!gotLock) {
       console.warn('[db] close failed', error.message);
     }
     console.log('[boot] shutdown');
+    log.detachProcessErrorHandlers();
     log.detachConsole();
     log.close();
+  });
+}
+
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.on(sig, () => {
+    if (trayController) trayController.markSystemShutdown();
   });
 }
 
