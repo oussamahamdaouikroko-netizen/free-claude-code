@@ -35,6 +35,7 @@ const DEFAULT_SETTINGS = {
   doctor_signature_data: '',
   bot_darija_mode: '0',
   currency: 'DZD',
+  default_consultation_fee: '0',
   language: 'fr',
   daily_capacity: '15',
   // 0 = Sunday … 6 = Saturday. Algeria works Sunday → Thursday.

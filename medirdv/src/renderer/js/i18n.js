@@ -870,6 +870,14 @@
     'print.recipientDoc': 'Confrère / Spécialité destinataire',
     'print.summaryLabel': 'Résumé clinique / Constatations',
     'settings.fileSize': 'Taille',
+    'pay.markPaid': 'Payé',
+    'pay.paidBadge': 'Payé',
+    'pay.confirmedToast': 'Paiement confirmé et ajouté aux recettes',
+    'pay.askAmountTitle': 'Confirmer le montant du paiement',
+    'pay.askAmountHelp': 'Aucun tarif n’est enregistré sur ce rendez-vous. Choisissez ou saisissez le montant encaissé :',
+    'error.AMOUNT_REQUIRED': 'Veuillez indiquer le montant du paiement.',
+    'error.ALREADY_PAID': 'Ce rendez-vous est déjà marqué comme payé.',
+    'error.BOOKING_COOLDOWN': 'Réservation temporairement bloquée après annulation.',
   };
 
   const ar = {
@@ -1740,6 +1748,14 @@
     'print.recipientDoc': 'الطبيب الموجه إليه أو الاختصاص',
     'print.summaryLabel': 'الملخص السريري والمعاينات الطبية',
     'settings.fileSize': 'الحجم',
+    'pay.markPaid': 'تم الدفع',
+    'pay.paidBadge': 'مدفوع',
+    'pay.confirmedToast': 'تم تأكيد الدفع وتسجيله في المداخيل',
+    'pay.askAmountTitle': 'تأكيد مبلغ الدفع',
+    'pay.askAmountHelp': 'لا يوجد سعر مسجل لهذا الموعد، يرجى اختيار أو إدخال المبلغ المقبوض مرة واحدة:',
+    'error.AMOUNT_REQUIRED': 'يرجى تحديد مبلغ الدفع.',
+    'error.ALREADY_PAID': 'تم تأكيد دفع هذا الموعد مسبقاً.',
+    'error.BOOKING_COOLDOWN': 'الحجز موقوف مؤقتاً بعد إلغاء الموعد.',
   };
 
   const DICT = { fr, ar };

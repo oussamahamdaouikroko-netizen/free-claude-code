@@ -61,6 +61,10 @@
         ),
       );
     }
+    if (appointment.status !== 'cancelled') {
+      const secPayBtn = window.Components.confirmPaymentButton(appointment, onChanged);
+      if (secPayBtn) actions.append(secPayBtn);
+    }
     if (due > 0) {
       actions.append(
         h(

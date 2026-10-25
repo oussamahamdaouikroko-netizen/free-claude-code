@@ -36,7 +36,7 @@ const ROLE_PERMISSIONS = {
     'app:*', 'auth:*', 'dashboard:*', 'patients:list', 'patients:get', 'patients:create', 'patients:update',
     'intake:create', 'intake:update', 'intake:for-patient', 'intake:latest', 'intake:pending', 'intake:for-appointment',
     'appointments:*', 'departments:list', 'treatments:list',
-    'payments:*', 'billing:preview', 'billing:invoice-create', 'billing:invoice-get', 'billing:invoices', 'billing:invoice-html', 'billing:z-report',
+    'payments:*', 'secretary:confirm-payment', 'billing:preview', 'billing:invoice-create', 'billing:invoice-get', 'billing:invoices', 'billing:invoice-html', 'billing:z-report',
     'print:receipt', 'print:invoice', 'print:certificate', 'chat:*', 'wa:*',
     'privacy:consents', 'privacy:consent-record',
     'ops:slots', 'ops:waiting-room', 'ops:closures', 'ops:noshow-stats', 'ops:attendance', 'ops:rooms',

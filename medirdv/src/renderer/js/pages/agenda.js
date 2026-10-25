@@ -71,6 +71,8 @@
       );
     }
     if (appointment.status !== 'cancelled') {
+      const secPayBtn = window.Components.confirmPaymentButton(appointment, ctx.refresh);
+      if (secPayBtn) buttons.append(secPayBtn);
       buttons.append(
         h(
           'button',

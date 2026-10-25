@@ -511,6 +511,21 @@ function createHandlers(context) {
 
     /* -------------------------------- payments ----------------------------- */
     'payments:add': (payload) => payments.add(payload),
+    'secretary:confirm-payment': (payload) => {
+      const res = payments.confirmAppointmentPayment({
+        ...(payload || {}),
+        actor: auth.currentUser(),
+      });
+      emit({
+        type: 'payment',
+        payload: {
+          appointment_id: res.appointment?.id || payload?.appointment_id,
+          payment_id: res.payment?.id || null,
+          already_paid: Boolean(res.already_paid),
+        },
+      });
+      return res;
+    },
     'payments:pay-debt': (payload) => payments.payDebt(payload),
     'payments:by-day': (payload) => payments.byDay(payload?.day),
     'payments:by-patient': (payload) => payments.byPatient(payload?.patient_id),

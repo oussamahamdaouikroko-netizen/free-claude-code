@@ -52,7 +52,14 @@ function deptKey(departmentId) {
 function decorate(row) {
   if (!row) return null;
   const paid = money(row.paid ?? 0);
-  return { ...row, paid, balance: money(row.price - paid) };
+  const price = money(row.price ?? 0);
+  const settled = Boolean(row.is_paid) || (price > 0 && paid >= price - 0.009);
+  return {
+    ...row,
+    paid,
+    balance: money(Math.max(0, price - paid)),
+    is_paid: settled ? 1 : 0,
+  };
 }
 
 /** How many active patients a (day, department) already holds. */

@@ -1093,6 +1093,141 @@
     });
   };
 
+  /* ---------------- Secretary one-click payment confirmation ------------- */
+  C.canConfirmPayment = function canConfirmPayment() {
+    const role = window.App?.bootInfo?.auth?.user?.role || 'admin';
+    return role === 'admin' || role === 'secretary';
+  };
+
+  C.openQuickAmountConfirmModal = function openQuickAmountConfirmModal({
+    appointment,
+    commonAmounts = [1000, 1500, 2000, 2500, 3000],
+    onConfirmed,
+  } = {}) {
+    const error = inlineError();
+    const amountIn = input({ type: 'number', min: '1', step: '50', placeholder: '1500' });
+    let closeHandle = null;
+
+    const submitAmount = async (val) => {
+      error.textContent = '';
+      const num = Number(val);
+      if (!Number.isFinite(num) || num <= 0) {
+        error.textContent = t('error.INVALID_AMOUNT');
+        return false;
+      }
+      try {
+        const res = await window.API.invoke('secretary:confirm-payment', {
+          appointment_id: appointment.id,
+          amount: num,
+        });
+        toast(t('pay.confirmedToast'), 'ok');
+        if (onConfirmed) onConfirmed(res);
+        if (closeHandle && typeof closeHandle.close === 'function') closeHandle.close();
+        return true;
+      } catch (err) {
+        error.textContent = errorMessage(err);
+        return false;
+      }
+    };
+
+    const presetRow = h(
+      'div',
+      { class: 'row wrap', style: { gap: '8px' } },
+      ...commonAmounts.map((amt) =>
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'btn sm soft',
+            onClick: () => submitAmount(amt),
+          },
+          formatMoney(amt, currency()),
+        ),
+      ),
+    );
+
+    closeHandle = modal({
+      title: `${t('pay.askAmountTitle')} · ${appointment.full_name || ''}`,
+      body: h(
+        'div',
+        { class: 'col' },
+        h('div', { class: 'help' }, t('pay.askAmountHelp')),
+        presetRow,
+        field(`${t('common.amount')} (${currency()})`, amountIn),
+        error,
+      ),
+      actions: [
+        { label: t('common.cancel'), kind: 'ghost' },
+        {
+          label: t('common.confirm'),
+          kind: 'primary',
+          onClick: async () => (await submitAmount(amountIn.value)) || false,
+        },
+      ],
+    });
+  };
+
+  C.confirmPaymentButton = function confirmPaymentButton(appointment, onChanged) {
+    if (!appointment || !C.canConfirmPayment()) return null;
+    const settled =
+      Boolean(appointment.is_paid) ||
+      (Number(appointment.price) > 0 && Number(appointment.paid) >= Number(appointment.price) - 0.009);
+
+    if (settled) {
+      return h(
+        'button',
+        {
+          type: 'button',
+          class: 'btn sm soft sec-paid-badge',
+          disabled: true,
+        },
+        '💰 ' + t('pay.paidBadge'),
+      );
+    }
+
+    if (appointment.status === 'cancelled') return null;
+
+    const btn = h(
+      'button',
+      {
+        type: 'button',
+        class: 'btn sm primary sec-mark-paid-btn',
+        onClick: async () => {
+          if (btn.disabled) return;
+          btn.disabled = true;
+          try {
+            const res = await window.API.invoke('secretary:confirm-payment', {
+              appointment_id: appointment.id,
+            });
+            btn.textContent = '💰 ' + t('pay.paidBadge');
+            btn.className = 'btn sm soft sec-paid-badge';
+            toast(t('pay.confirmedToast'), 'ok');
+            if (onChanged) onChanged(res);
+          } catch (err) {
+            if (err && err.code === 'AMOUNT_REQUIRED') {
+              btn.disabled = false;
+              C.openQuickAmountConfirmModal({
+                appointment,
+                commonAmounts: err.details?.common_amounts || [1000, 1500, 2000, 2500, 3000],
+                onConfirmed: (res) => {
+                  btn.disabled = true;
+                  btn.textContent = '💰 ' + t('pay.paidBadge');
+                  btn.className = 'btn sm soft sec-paid-badge';
+                  if (onChanged) onChanged(res);
+                },
+              });
+              return;
+            }
+            btn.disabled = false;
+            toast(errorMessage(err), 'error');
+          }
+        },
+      },
+      '✅ ' + t('pay.markPaid'),
+    );
+    return btn;
+  };
+
   C.methodOptions = methodOptions;
   C.currency = currency;
   C.fillSelect = fillSelect;
