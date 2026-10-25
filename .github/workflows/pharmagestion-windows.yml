@@ -12,7 +12,6 @@ name: Build PharmaGestion DZ for Windows
 
 on:
   push:
-    tags: ["v*"]
     branches: [main, master]
     paths:
       - "pharmagestion/**"
@@ -22,6 +21,14 @@ on:
       - "pharmagestion/**"
       - ".github/workflows/pharmagestion-windows.yml"
   workflow_dispatch:
+  # Called by pharmagestion-release.yml when a version tag is pushed: that
+  # workflow has no `paths` filter, so a tag always produces a release.
+  workflow_call:
+    inputs:
+      publish_release:
+        description: "Attach the installer to a GitHub Release"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -181,8 +188,8 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Publish the release (tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/') || inputs.publish_release == true
         uses: softprops/action-gh-release@v2
         with:
           name: PharmaGestion DZ ${{ github.ref_name }}

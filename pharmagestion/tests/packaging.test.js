@@ -264,4 +264,37 @@ test('the Windows workflow builds and publishes the installer', () => {
   const upload = steps.find((step) => step.with && step.with.name === 'PharmaGestion-DZ-Setup');
   assert.ok(upload, 'the installer is uploaded as an artifact');
   assert.match(JSON.stringify(upload.with.path), /release\/PharmaGestion-DZ-Setup\.exe/);
+
+  // The build publishes its facts (path, size, SHA-256) where a human can read
+  // them without downloading anything.
+  assert.match(script, /Get-FileHash/, 'the installer hash is reported');
+  assert.ok(
+    steps.some((step) => /build report/i.test(step.name || '')),
+    'a build report step publishes the verification output',
+  );
+});
+
+test('a version tag publishes a downloadable release (no paths filter)', () => {
+  const workflowPath = path.join(ROOT, '..', '.github', 'workflows', 'pharmagestion-release.yml');
+  assert.ok(fs.existsSync(workflowPath), 'the release workflow exists');
+  const workflow = yaml.load(fs.readFileSync(workflowPath, 'utf8'));
+
+  const tags = workflow.on.push.tags;
+  assert.ok(tags.includes('pharmagestion-v*'), 'tag pattern is declared');
+  // A tag push must always build: a `paths` filter here would silently skip the
+  // release whenever the tagged commit only touched documentation.
+  assert.equal(workflow.on.push.paths, undefined, 'no paths filter on tag pushes');
+  assert.equal(workflow.jobs.release.with.publish_release, true);
+  assert.equal(workflow.jobs.release.uses, './.github/workflows/pharmagestion-windows.yml');
+  assert.equal(workflow.permissions.contents, 'write', 'needed to create the release');
+
+  // The reusable workflow must declare workflow_call and be allowed to publish.
+  const main = yaml.load(
+    fs.readFileSync(path.join(ROOT, '..', '.github', 'workflows', 'pharmagestion-windows.yml'), 'utf8'),
+  );
+  assert.ok(main.on.workflow_call, 'the build workflow is reusable');
+  const releaseStep = main.jobs.build.steps.find((step) => String(step.uses).includes('action-gh-release'));
+  assert.ok(releaseStep, 'the release step exists');
+  assert.match(releaseStep.if, /inputs\.publish_release/);
+  assert.match(JSON.stringify(releaseStep.with), /PharmaGestion-DZ-Setup\.exe/);
 });

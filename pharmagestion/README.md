@@ -20,6 +20,9 @@
 
 ## 1. التنصيب (Installation)
 
+**من أين أحمّل الملف؟** من صفحة **Releases** في المستودع على GitHub:
+`PharmaGestion DZ … → PharmaGestion-DZ-Setup.exe` (الحجم حوالي 100 ميغابايت).
+
 1. حمّل الملف `PharmaGestion-DZ-Setup.exe`.
 2. شغّله بالنقر المزدوج.
 3. اختر مجلد التنصيب (أو اترك المجلد الافتراضي).

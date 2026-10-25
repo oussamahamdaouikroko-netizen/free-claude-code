@@ -1,0 +1,28 @@
+name: Release PharmaGestion DZ
+
+# Pushing a version tag publishes a GitHub Release with the Windows installer
+# attached, so the pharmacy can download the .exe without a GitHub account.
+#
+#   git tag pharmagestion-v0.1.0
+#   git push origin pharmagestion-v0.1.0
+#
+# This workflow deliberately has **no `paths` filter**: a tag push must always
+# build, whatever files the tagged commit happens to touch. The real work
+# (tests, NSIS build, smoke run, verification) is reused from
+# pharmagestion-windows.yml through `workflow_call`.
+
+on:
+  push:
+    tags:
+      - "pharmagestion-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release:
+    uses: ./.github/workflows/pharmagestion-windows.yml
+    with:
+      publish_release: true
