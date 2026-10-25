@@ -88,6 +88,21 @@ Built on a GitHub Actions `windows-latest` runner by
 | `app.asar` contents | application only — no `tests/`, `docs/`, `fixtures/`, `scripts/` |
 | SQLite binaries packaged | only `win32-x64.node` |
 
+### Published artifact
+
+| | |
+|---|---|
+| Release | <https://github.com/oussamahamdaouikroko-netizen/free-claude-code/releases/tag/pharmagestion-v0.1.0> |
+| Download | <https://github.com/oussamahamdaouikroko-netizen/free-claude-code/releases/download/pharmagestion-v0.1.0/PharmaGestion-DZ-Setup.exe> |
+| Size | 104 921 112 bytes (100.06 MiB) |
+| SHA-256 | `0816b9c0297bf7e601a1ef56d4f2857e310d5b6262da081e564fdfb993d61f4c` |
+
+> Each build embeds build timestamps, so two builds of the same source produce
+> installers that differ by a few bytes (and therefore by hash). The SHA-256
+> above belongs to the **published** asset and is the one to check after
+> downloading. The hash of the earlier pull-request build was
+> `b307ca10f16ca27229d2f334fa3aabf85c06e479ce3b8665b2b1496e223b63be`.
+
 Raw verification output (from the build):
 
 ```

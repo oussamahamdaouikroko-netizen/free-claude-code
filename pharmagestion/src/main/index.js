@@ -61,6 +61,7 @@ function broadcastEvent(event) {
 }
 
 function createWindow() {
+  if (bootError) return null; // never open a window on a half-initialised app
   const win = new BrowserWindow({
     width: 1320,
     height: 860,
@@ -85,21 +86,10 @@ function createWindow() {
 
   win.once('ready-to-show', () => win.show());
 
-  const indexFile = path.join(__dirname, '..', 'renderer', 'index.html');
-  if (bootError) {
-    // A failed boot must still show something explainable rather than a
-    // silent, invisible application.
-    win.loadURL(
-      `data:text/html;charset=utf-8,${encodeURIComponent(
-        `<html dir="rtl"><body style="font-family:Segoe UI,Arial;padding:40px">
-         <h2>تعذر بدء التطبيق / Démarrage impossible</h2>
-         <p>${String(bootError.message || bootError).replace(/[<>&]/g, '')}</p>
-         <p style="color:#666">Consultez / راجع: ${resolveDataDir()}</p></body></html>`,
-      )}`,
-    );
-  } else {
-    win.loadFile(indexFile);
-  }
+  // Only the packaged, local page is ever loaded. A boot failure is reported
+  // with a native dialog instead of an ad-hoc HTML page (no `data:` URL, no
+  // second, weaker document in the app).
+  win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 
   // External links open in the real browser, never inside the app.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -224,11 +214,11 @@ if (!gotLock) {
     } catch (error) {
       bootError = error;
       console.error('[boot] fatal error', error);
-      createWindow();
       dialog.showErrorBox(
         APP_NAME,
         `تعذر بدء التطبيق / Impossible de démarrer l'application.\n\n${error.message}\n\n${resolveDataDir()}`,
       );
+      app.quit();
     }
 
     app.on('activate', () => {

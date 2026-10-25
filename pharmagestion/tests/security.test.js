@@ -113,9 +113,11 @@ test('the BrowserWindow uses the secure Electron options', () => {
   assert.match(source, /will-navigate/);
   assert.match(source, /setPermissionRequestHandler/);
   assert.match(source, /will-attach-webview/);
-  // Only local content is loaded.
+  // Only local content is loaded. A boot failure uses a native dialog, never a
+  // second document (no data: URL, no remote page).
   assert.match(source, /loadFile\(/);
-  assert.doesNotMatch(source, /loadURL\(\s*['"`]https?:/);
+  assert.doesNotMatch(source, /loadURL\(/);
+  assert.doesNotMatch(source, /data:text\/html/);
 });
 
 test('the preload exposes a minimal, frozen surface', () => {

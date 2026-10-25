@@ -21,7 +21,14 @@
 ## 1. التنصيب (Installation)
 
 **من أين أحمّل الملف؟** من صفحة **Releases** في المستودع على GitHub:
-`PharmaGestion DZ … → PharmaGestion-DZ-Setup.exe` (الحجم حوالي 100 ميغابايت).
+
+```
+https://github.com/oussamahamdaouikroko-netizen/free-claude-code/releases
+→ PharmaGestion-DZ-Setup.exe   (الحجم حوالي 100 ميغابايت)
+```
+
+بصمة الملف المنشور (SHA-256):
+`0816b9c0297bf7e601a1ef56d4f2857e310d5b6262da081e564fdfb993d61f4c`
 
 1. حمّل الملف `PharmaGestion-DZ-Setup.exe`.
 2. شغّله بالنقر المزدوج.
