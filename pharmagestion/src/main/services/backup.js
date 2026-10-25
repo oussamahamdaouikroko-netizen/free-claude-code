@@ -68,7 +68,12 @@ function kindOf(name) {
 function create(options = {}) {
   const kind = options.kind === 'manual' ? 'manual' : 'auto';
   const dir = ensureDir(backupsDir());
-  const file = path.join(dir, `pharmagestion-${kind}-${stamp()}.sqlite`);
+  // Two snapshots requested inside the same millisecond (double click, or an
+  // automatic backup racing a manual one) must never overwrite each other.
+  let file = path.join(dir, `pharmagestion-${kind}-${stamp()}.sqlite`);
+  for (let suffix = 2; fs.existsSync(file); suffix += 1) {
+    file = path.join(dir, `pharmagestion-${kind}-${stamp()}-${suffix}.sqlite`);
+  }
   db.backupTo(file);
   const stat = fs.statSync(file);
   settings.set('last_backup_at', nowLocal());

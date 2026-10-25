@@ -42,7 +42,7 @@ test('a manual backup produces a complete, readable database', () =>
     const result = backup.create({ kind: 'manual' });
 
     assert.ok(fs.existsSync(result.file));
-    assert.match(result.name, /^pharmagestion-manual-\d{8}-\d{6}-\d{3}\.sqlite$/);
+    assert.match(result.name, /^pharmagestion-manual-\d{8}-\d{6}-\d{3}(-\d+)?\.sqlite$/);
     assert.equal(result.kind, 'manual');
     assert.ok(result.size > 0);
 
@@ -63,13 +63,16 @@ test('a manual backup produces a complete, readable database', () =>
     assert.ok(fs.existsSync(folder.backupsDir));
   }));
 
-test('two backups taken in the same second do not overwrite each other', () =>
+test('backups never overwrite each other, even in the same millisecond', () =>
   withDataFolder(() => {
-    const first = backup.create({ kind: 'manual' });
-    const second = backup.create({ kind: 'manual' });
-    assert.notEqual(first.file, second.file);
-    assert.equal(fs.existsSync(first.file), true);
-    assert.equal(fs.existsSync(second.file), true);
+    // A tight loop is exactly the case that used to collide on fast machines:
+    // the timestamp has millisecond precision, the loop takes microseconds.
+    const created = [];
+    for (let index = 0; index < 8; index += 1) created.push(backup.create({ kind: 'manual' }));
+    const files = created.map((entry) => entry.file);
+    assert.equal(new Set(files).size, files.length, 'every snapshot has its own file');
+    for (const file of files) assert.equal(fs.existsSync(file), true, `${file} exists`);
+    assert.equal(backup.list().filter((entry) => entry.kind === 'manual').length, 8);
   }));
 
 test('pruning keeps the configured number of snapshots', () =>
