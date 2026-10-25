@@ -1,0 +1,239 @@
+name: Build PharmaGestion DZ for Windows
+
+# Free Windows builds on GitHub-hosted runners:
+#   - pull request / push to main → downloadable installer artifact (kept 30 days)
+#   - tag v*                     → published GitHub Release with the setup file
+#   - manual run                 → same as a push to main
+#
+# The Linux job runs the unit tests (no Electron binary needed).
+# The Windows job builds the real NSIS installer, launches the packaged
+# application in smoke mode to prove it creates its own database, then verifies
+# the installer with scripts/verify-package.js.
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "pharmagestion/**"
+      - ".github/workflows/pharmagestion-windows.yml"
+  pull_request:
+    paths:
+      - "pharmagestion/**"
+      - ".github/workflows/pharmagestion-windows.yml"
+  workflow_dispatch:
+  # Called by pharmagestion-release.yml when a version tag is pushed: that
+  # workflow has no `paths` filter, so a tag always produces a release.
+  workflow_call:
+    inputs:
+      publish_release:
+        description: "Attach the installer to a GitHub Release"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: pharmagestion-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: pharmagestion
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: pharmagestion/package-lock.json
+
+      # The Electron binary is only needed for packaging, not for the tests:
+      # better-sqlite3 ships Node-API prebuilds so nothing has to be compiled.
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+
+      - name: Run tests
+        shell: bash
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee test-output.txt
+
+      # CI logs are not always reachable (restricted networks, archived runs),
+      # so a failing test run reports itself on the pull request.
+      - name: Report a failed test run
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "### PharmaGestion DZ - test failure (Linux)"
+            echo ''
+            echo 'Failing tests:'
+            echo '```'
+            grep -E '^not ok' test-output.txt || echo '(no TAP "not ok" line found)'
+            echo '```'
+            echo ''
+            echo 'Error details:'
+            echo '```'
+            awk '/^not ok /{show=1; count=0} show{print; count++} count>28{show=0}' test-output.txt |
+              head -c 12000 || true
+            echo ''
+            echo 'Summary:'
+            grep -E '^# (tests|pass|fail|cancelled)' test-output.txt || true
+            echo '```'
+          } > test-report.md
+          cat test-report.md
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            gh pr comment "${{ github.event.pull_request.number }}" --body-file test-report.md
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    name: Windows installer
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: pharmagestion
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: pharmagestion/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests on Windows
+        run: npm test
+
+      - name: Build the NSIS installer
+        run: npm run dist
+
+      - name: Verify the installer exists at the expected path
+        shell: pwsh
+        run: |
+          $installer = "release\PharmaGestion-DZ-Setup.exe"
+          if (-not (Test-Path $installer)) {
+            Get-ChildItem -Recurse release | Select-Object FullName, Length | Format-Table -AutoSize
+            throw "Installer not found at $installer"
+          }
+          $size = (Get-Item $installer).Length
+          Write-Host "Installer: $((Resolve-Path $installer).Path) ($([math]::Round($size/1MB,1)) MB)"
+          if ($size -lt 20MB) { throw "Installer is too small ($size bytes)" }
+          Get-ChildItem release | Format-Table Name, Length -AutoSize
+
+      - name: Smoke-test the packaged application
+        shell: pwsh
+        run: |
+          # Launch the packaged app (not the dev one) against a throwaway data
+          # folder, let it create its database, and wait for it to exit.
+          $dataDir = Join-Path $env:RUNNER_TEMP "pg-smoke"
+          New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+          "PHARMAGESTION_DATA_DIR=$dataDir" >> $env:GITHUB_ENV
+          $env:PHARMAGESTION_DATA_DIR = $dataDir
+          $env:PHARMAGESTION_SMOKE = "1"
+          $exe = "release\win-unpacked\PharmaGestion DZ.exe"
+          $process = Start-Process -FilePath $exe -PassThru -Wait
+          Write-Host "Exit code: $($process.ExitCode)"
+          if ($process.ExitCode -ne 0) { throw "The packaged application exited with $($process.ExitCode)" }
+          Get-ChildItem $dataDir -Recurse | Format-Table FullName, Length -AutoSize
+          if (Test-Path "$dataDir\pharmagestion.log") {
+            Write-Host "---- application log ----"
+            Get-Content "$dataDir\pharmagestion.log"
+          }
+
+      - name: Verify the package contents and database
+        shell: pwsh
+        run: |
+          node scripts/verify-package.js --smoke-data "$env:PHARMAGESTION_DATA_DIR" *>&1 |
+            Tee-Object -FilePath verify-report.txt
+
+      # Publish the facts where a human can read them without downloading
+      # anything: the workflow summary and a comment on the pull request.
+      - name: Publish the build report
+        if: always()
+        shell: pwsh
+        run: |
+          $installer = "release\PharmaGestion-DZ-Setup.exe"
+          $lines = @()
+          if (Test-Path $installer) {
+            $item = Get-Item $installer
+            $hash = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLower()
+            $lines += "- **Installer**: ``$((Resolve-Path $installer).Path)``"
+            $lines += "- **Size**: $([math]::Round($item.Length/1MB,2)) MB ($($item.Length) bytes)"
+            $lines += "- **SHA-256**: ``$hash``"
+          } else {
+            $lines += "- **Installer**: **MISSING** (the build did not produce it)"
+          }
+          $lines += "- **Smoke data folder**: ``$env:PHARMAGESTION_DATA_DIR``"
+          if (Test-Path verify-report.txt) {
+            $lines += ""
+            $lines += "<details><summary>scripts/verify-package.js output</summary>"
+            $lines += ""
+            $lines += "``````"
+            $lines += (Get-Content verify-report.txt -Raw)
+            $lines += "``````"
+            $lines += "</details>"
+          }
+          $title = "### PharmaGestion DZ - Windows build report"
+          "## $title" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          ($lines -join "`n") | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          if ("${{ github.event_name }}" -eq "pull_request") {
+            $pr = "${{ github.event.pull_request.number }}"
+            $body = "$title`n" + ($lines -join "`n")
+            $body | Out-File -FilePath pr-comment.md -Encoding utf8
+            gh pr comment $pr --body-file pr-comment.md
+          }
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload the installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: PharmaGestion-DZ-Setup
+          path: pharmagestion/release/PharmaGestion-DZ-Setup.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload the verification log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PharmaGestion-build-report
+          path: |
+            pharmagestion/release/*.yml
+            pharmagestion/release/builder-debug.yml
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/') || inputs.publish_release == true
+        uses: softprops/action-gh-release@v2
+        with:
+          name: PharmaGestion DZ ${{ github.ref_name }}
+          files: pharmagestion/release/PharmaGestion-DZ-Setup.exe
+          body: |
+            PharmaGestion DZ — assistant de gestion de pharmacie hors ligne.
+
+            Téléchargez `PharmaGestion-DZ-Setup.exe` et lancez-le.
+            Windows 10 / 11, 64 bits. Aucun droit administrateur n'est nécessaire.
+            Vos données restent sur votre ordinateur, dans
+            `%APPDATA%\PharmaGestion DZ\data`.
+
+            حمّل الملف `PharmaGestion-DZ-Setup.exe` ثم شغّله.
+            يعمل على Windows 10 / 11 بنسخة 64 بت، دون الحاجة إلى صلاحيات المسؤول.

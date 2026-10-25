@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# electron-builder output (installer, unpacked app)
+release/
+dist/
+
+# Local databases and backups (never commit a pharmacy database)
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+data/
+backups/
+exports/
+
+# Logs
+*.log
+npm-debug.log*
