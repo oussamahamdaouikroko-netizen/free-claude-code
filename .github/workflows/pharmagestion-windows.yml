@@ -76,8 +76,19 @@ jobs:
         run: |
           {
             echo "### PharmaGestion DZ - test failure (Linux)"
+            echo ''
+            echo 'Failing tests:'
             echo '```'
-            tail -c 14000 test-output.txt || true
+            grep -E '^not ok' test-output.txt || echo '(no TAP "not ok" line found)'
+            echo '```'
+            echo ''
+            echo 'Error details:'
+            echo '```'
+            awk '/^not ok /{show=1; count=0} show{print; count++} count>28{show=0}' test-output.txt |
+              head -c 12000 || true
+            echo ''
+            echo 'Summary:'
+            grep -E '^# (tests|pass|fail|cancelled)' test-output.txt || true
             echo '```'
           } > test-report.md
           cat test-report.md
