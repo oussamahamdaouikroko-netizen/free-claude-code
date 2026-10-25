@@ -210,7 +210,10 @@ function matchDepartmentInput(rawText, activeDepts) {
   return null;
 }
 
-function finalizeBooking({ phone, patientObj, name, department, lang, delivery }) {
+function finalizeBooking({ phone, patientObj, name, department, lang, delivery, nowMs = Date.now() }) {
+  const cooldownGuard = checkCooldownReply({ patient: patientObj, phone, lang, nowMs });
+  if (cooldownGuard) return cooldownGuard;
+
   const deptId = department ? department.id : null;
   const deptLabel = department ? departments.labelFor(department, lang) : '';
 
@@ -242,6 +245,7 @@ function finalizeBooking({ phone, patientObj, name, department, lang, delivery }
       patient_id: person.patient.id,
       department_id: deptId,
       source: 'whatsapp',
+      nowMs,
       notes: department
         ? `Réservation WhatsApp — ${department.name_fr}`
         : person.created
@@ -249,10 +253,22 @@ function finalizeBooking({ phone, patientObj, name, department, lang, delivery }
           : 'Réservation WhatsApp (patient existant)',
     });
   } catch (error) {
+    if (error instanceof AppError && error.code === 'BOOKING_COOLDOWN') {
+      return {
+        reply: reply(lang, 'bookingCooldown', {
+          minutes: error.details?.remainingMinutes || 1,
+          time: error.details?.unlockTimeLocal || '',
+        }),
+        lang,
+        action: 'cooldown_blocked',
+      };
+    }
     if (error instanceof AppError && error.code === 'HORIZON_REACHED') {
       appointments.addToWaitingList({
         full_name: person.patient.full_name || name,
         phone,
+        enforceCooldown: true,
+        nowMs,
         note: department
           ? `Planning complet (WhatsApp — ${department.name_fr})`
           : 'Planning complet (WhatsApp)',
@@ -511,9 +527,27 @@ function buildCancelButtons(appointmentId, lang) {
 
 function parseCallbackToken(raw) {
   const s = String(raw ?? '').trim();
-  const m = s.match(/^(cancel_ask|cancel_yes|cancel_no|sec_paid|pay_confirm):(\d+)$/i);
+  if (/^book_start$/i.test(s)) return { kind: 'book_start', id: 0 };
+  const m = s.match(/^(cancel_ask|cancel_yes|cancel_no|sec_paid|pay_confirm|dept_select):(\d+)$/i);
   if (!m) return null;
   return { kind: m[1].toLowerCase(), id: Number.parseInt(m[2], 10) };
+}
+
+function checkCooldownReply({ patient, phone, lang, nowMs }) {
+  const check = appointments.canUserBook({ patientId: patient?.id, phone }, nowMs);
+  if (check.allowed) return null;
+  return {
+    reply: reply(lang, 'bookingCooldown', {
+      minutes: check.remainingMinutes,
+      time: check.unlockTimeLocal,
+    }),
+    lang,
+    action: 'cooldown_blocked',
+    remainingMinutes: check.remainingMinutes,
+    unlockTimeLocal: check.unlockTimeLocal,
+    blockedUntilUtc: check.blockedUntilUtc,
+    callbackAnswered: true,
+  };
 }
 
 function parseCancelDecision(rawText) {
@@ -673,6 +707,69 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
           action: 'forbidden',
           callbackAnswered: true,
         };
+      }
+      if (cbToken.kind === 'book_start' || cbToken.kind === 'dept_select') {
+        const cd = checkCooldownReply({ patient, phone, lang, nowMs });
+        if (cd) return cd;
+        if (!registered) {
+          if (cbToken.kind === 'dept_select') {
+            const dept = activeDepts.find((d) => d.id === cbToken.id);
+            if (dept) {
+              setPending(phone, { step: 'await_name', departmentId: dept.id, lang });
+              return {
+                reply: reply(lang, 'askNameForDepartment', {
+                  department: departments.labelFor(dept, lang),
+                }),
+                lang,
+                action: 'ask_name_for_department',
+                department: dept,
+                callbackAnswered: true,
+              };
+            }
+          }
+          keepAwaitingName(phone, getPending(phone), lang);
+          return {
+            reply: reply(lang, 'welcomeAskName'),
+            lang,
+            action: 'help',
+            callbackAnswered: true,
+          };
+        }
+        if (cbToken.kind === 'dept_select') {
+          const dept = activeDepts.find((d) => d.id === cbToken.id) || activeDepts[0] || null;
+          clearPending(phone);
+          return finalizeBooking({
+            phone,
+            patientObj: patient,
+            name: patient.full_name,
+            department: dept,
+            lang,
+            delivery,
+            nowMs,
+          });
+        }
+        if (isMultiDept) {
+          setPending(phone, { step: 'await_department', name: patient.full_name, lang });
+          return {
+            reply: reply(lang, 'chooseDepartment', {
+              name: patient.full_name,
+              departments: activeDepts,
+            }),
+            lang,
+            action: 'choose_department',
+            callbackAnswered: true,
+          };
+        }
+        const singleDept = activeDepts.length === 1 ? activeDepts[0] : null;
+        return finalizeBooking({
+          phone,
+          patientObj: patient,
+          name: patient.full_name,
+          department: singleDept,
+          lang,
+          delivery,
+          nowMs,
+        });
       }
       if (cbToken.kind === 'cancel_ask') {
         const row = dbMod.getDb().prepare('SELECT * FROM appointments WHERE id = ?').get(cbToken.id);
@@ -890,8 +987,19 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
     if (!registered) {
       const pending = getPending(phone);
 
+      if (detection.intent === 'book') {
+        const cd = checkCooldownReply({ patient, phone, lang, nowMs });
+        if (cd) return cd;
+        keepAwaitingName(phone, pending, lang);
+        return { reply: reply(lang, 'welcomeAskName'), lang, action: 'help' };
+      }
+
       if (isMultiDept) {
         const deptMatch = matchDepartmentInput(text, activeDepts);
+        if (deptMatch?.dept || deptMatch?.outOfRange) {
+          const cd = checkCooldownReply({ patient, phone, lang, nowMs });
+          if (cd) return cd;
+        }
         if (pending?.step === 'await_department' && pending.name) {
           if (deptMatch?.dept) {
             clearPending(phone);
@@ -902,6 +1010,7 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
               department: deptMatch.dept,
               lang,
               delivery,
+              nowMs,
             });
           }
           if (deptMatch?.outOfRange) {
@@ -952,6 +1061,8 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
       }
 
       if (detection.intent === 'name') {
+        const cd = checkCooldownReply({ patient, phone, lang, nowMs });
+        if (cd) return cd;
         if (isMultiDept) {
           if (pending?.step === 'await_name') {
             const chosenDept =
@@ -964,6 +1075,7 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
               department: chosenDept,
               lang,
               delivery,
+              nowMs,
             });
           }
           setPending(phone, { step: 'await_department', name: detection.name, lang });
@@ -986,6 +1098,7 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
           department: singleDept,
           lang,
           delivery,
+          nowMs,
         });
       }
 
@@ -1012,6 +1125,11 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
       const pending = getPending(phone);
       const deptMatch = matchDepartmentInput(text, activeDepts);
 
+      if (deptMatch?.dept || deptMatch?.outOfRange || detection.intent === 'name' || detection.intent === 'book') {
+        const cd = checkCooldownReply({ patient, phone, lang, nowMs });
+        if (cd) return cd;
+      }
+
       if (pending?.step === 'await_department') {
         if (deptMatch?.dept) {
           clearPending(phone);
@@ -1022,6 +1140,7 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
             department: deptMatch.dept,
             lang,
             delivery,
+            nowMs,
           });
         }
         if (deptMatch?.outOfRange) {
@@ -1042,6 +1161,7 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
           department: deptMatch.dept,
           lang,
           delivery,
+          nowMs,
         });
       }
       if (deptMatch?.outOfRange) {
@@ -1052,7 +1172,7 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
         };
       }
 
-      if (detection.intent === 'name') {
+      if (detection.intent === 'name' || detection.intent === 'book') {
         setPending(phone, { step: 'await_department', name: patient.full_name, lang });
         return {
           reply: reply(lang, 'chooseDepartment', {
@@ -1065,7 +1185,9 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
       }
     }
 
-    if (detection.intent === 'name') {
+    if (detection.intent === 'name' || detection.intent === 'book') {
+      const cd = checkCooldownReply({ patient, phone, lang, nowMs });
+      if (cd) return cd;
       const singleDept = activeDepts.length === 1 ? activeDepts[0] : null;
       return finalizeBooking({
         phone,
@@ -1074,6 +1196,7 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
         department: singleDept,
         lang,
         delivery,
+        nowMs,
       });
     }
 

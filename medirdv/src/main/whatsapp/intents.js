@@ -219,6 +219,11 @@ const INTAKE_WORDS = [
   'معلومات', 'معلوماتي', 'وزن', 'الوزن', 'استماره', 'ملفي', 'ملف طبي',
 ];
 
+const BOOK_WORDS = [
+  '/book', 'book', 'reserver', 'prendre rdv', 'prendre rendez vous', 'nouveau rdv',
+  'حجز', 'حجز موعد', 'حجز جديد', 'اريد حجز', 'اريد موعد', 'نحجز',
+];
+
 /** Short acknowledgements must never be mistaken for a patient name. */
 const STOP_WORDS = new Set([
   'ok', 'oui', 'non', 'si', 'merci', 'daccord', 'd accord', 'bon', 'bien', 'yes', 'no',
@@ -308,6 +313,9 @@ function detect(rawText, options = {}) {
   if (INTAKE_WORDS.some((word) => normalized === word || normalized.startsWith(`${word} `))) {
     return { intent: 'intake', text: original, isArabic, language };
   }
+  if (BOOK_WORDS.some((word) => normalized === word || normalized.startsWith(`${word} `))) {
+    return { intent: 'book', text: original, isArabic, language };
+  }
   if (HELP_WORDS.some((word) => normalized === word)) {
     return { intent: 'help', text: original, isArabic, language };
   }
@@ -343,6 +351,7 @@ module.exports = {
   CANCEL_WORDS,
   MY_APPOINTMENT_WORDS,
   INTAKE_WORDS,
+  BOOK_WORDS,
   HELP_WORDS,
   STOP_WORDS,
 };

@@ -152,6 +152,13 @@ function create(input = {}) {
   const patient = getDb().prepare('SELECT id FROM patients WHERE id = ?').get(patientId);
   if (!patient) throw new AppError('PATIENT_NOT_FOUND');
 
+  if (input.source === 'whatsapp' || input.enforceCooldown === true) {
+    const check = canUserBook(patientId, input.nowMs ?? Date.now());
+    if (!check.allowed) {
+      throw new AppError('BOOKING_COOLDOWN', 'Patient is temporarily blocked after cancellation', check);
+    }
+  }
+
   let dept = null;
   if (input.department_id) {
     dept = departments.get(input.department_id);
@@ -392,6 +399,55 @@ function cancel(id) {
   const cancelled = setStatus(id, 'cancelled');
   if (cancelled?.phone) cancelWaitingByPhone(cancelled.phone);
   return cancelled;
+}
+
+/**
+ * Shared cooldown check for all patient booking entry points.
+ * Accepts a numeric `patientId`, a phone string, or `{ patientId, phone }`.
+ *
+ * @returns {{ allowed: boolean, remainingMinutes: number, unlockTimeLocal: string, blockedUntilUtc: string|null }}
+ */
+function canUserBook(target, nowMs = Date.now()) {
+  const db = getDb();
+  let row = null;
+
+  if (typeof target === 'number' || (typeof target === 'string' && /^\d+$/.test(target) && target.length < 8)) {
+    row = db.prepare('SELECT id, blocked_until FROM patients WHERE id = ?').get(Number(target));
+  } else if (target && typeof target === 'object') {
+    if (target.patientId) {
+      row = db.prepare('SELECT id, blocked_until FROM patients WHERE id = ?').get(Number(target.patientId));
+    }
+    if (!row && target.phone) {
+      const pKey = phoneKey(target.phone);
+      if (pKey) {
+        row = db
+          .prepare('SELECT id, blocked_until FROM patients WHERE phone_norm = ?')
+          .get(pKey);
+      }
+    }
+  } else if (typeof target === 'string' && target.trim()) {
+    const pKey = phoneKey(target);
+    if (pKey) {
+      row = db.prepare('SELECT id, blocked_until FROM patients WHERE phone_norm = ?').get(pKey);
+    }
+  }
+
+  if (!row || !row.blocked_until) {
+    return { allowed: true, remainingMinutes: 0, unlockTimeLocal: '', blockedUntilUtc: null };
+  }
+
+  const untilMs = Date.parse(row.blocked_until);
+  if (Number.isNaN(untilMs) || nowMs >= untilMs) {
+    return { allowed: true, remainingMinutes: 0, unlockTimeLocal: '', blockedUntilUtc: null };
+  }
+
+  const remainingMinutes = Math.max(1, Math.ceil((untilMs - nowMs) / 60000));
+  return {
+    allowed: false,
+    remainingMinutes,
+    unlockTimeLocal: formatAlgeriaTime(untilMs),
+    blockedUntilUtc: row.blocked_until,
+  };
 }
 
 /**
@@ -865,7 +921,13 @@ function dayStats(day = toISODate(), departmentId = null) {
 
 /* ------------------------------ waiting list ----------------------------- */
 
-function addToWaitingList({ full_name, phone, note }) {
+function addToWaitingList({ full_name, phone, note, enforceCooldown = false, nowMs = Date.now() }) {
+  if (enforceCooldown && phone) {
+    const check = canUserBook({ phone }, nowMs);
+    if (!check.allowed) {
+      throw new AppError('BOOKING_COOLDOWN', 'Patient is temporarily blocked after cancellation', check);
+    }
+  }
   const name = cleanText(full_name, 80);
   if (name.length < 2) throw new AppError('PATIENT_NAME_REQUIRED');
   const info = getDb()
@@ -901,6 +963,8 @@ module.exports = {
   confirmAppointment,
   cancel,
   cancelByPatient,
+  canUserBook,
+  can_user_book: canUserBook,
   cancelWaitingByPhone,
   queuePosition,
   completeAndAdvance,

@@ -155,6 +155,9 @@ const t = {
 
     cancelForbidden: () => `Action refusée : ce rendez-vous ne vous appartient pas.`,
 
+    bookingCooldown: (_s, { minutes, time }) =>
+      `⏳ Vous ne pouvez pas réserver un nouveau rendez-vous maintenant. Vous pourrez réessayer dans ${minutes} minute${minutes > 1 ? 's' : ''} (à ${time}).`,
+
     cancelled: (s, { day, rebookTime, cooldownMinutes }) =>
       `✅ Votre rendez-vous du ${formatLong(day, 'fr')} a bien été annulé.\n` +
       (rebookTime
@@ -362,6 +365,9 @@ const t = {
     cancelStale: () => `هذا الموعد لم يعد قائماً.`,
 
     cancelForbidden: () => `عذراً، لا تملكون صلاحية إلغاء هذا الموعد.`,
+
+    bookingCooldown: (_s, { minutes, time }) =>
+      `⏳ لا يمكنك حجز موعد جديد الآن. يمكنك المحاولة بعد ${minutes} دقيقة (الساعة ${time}).`,
 
     cancelled: (s, { day, rebookTime, cooldownMinutes }) =>
       `✅ تم إلغاء موعدكم يوم ${formatLong(day, 'ar')}.\n` +
