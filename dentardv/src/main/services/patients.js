@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Patients service: CRUD + financial balance.
+ * Patients service: CRUD + clinical dental profile + financial balance.
  *
  * Balance = sum of prices of appointments that were not cancelled
  *         − sum of all payments recorded for the patient.
@@ -71,13 +71,20 @@ function normalizeInput(input, { partial = false } = {}) {
   }
   if (input.birth_date !== undefined) {
     const birth = cleanText(input.birth_date, 10);
-    if (birth && !/^\d{4}-\d{2}-\d{2}$/.test(birth)) throw new AppError('INVALID_DATE');
+    if (birth && !/^\d{4}(?:-\d{2}-\d{2})?$/.test(birth)) throw new AppError('INVALID_DATE');
     out.birth_date = birth || null;
   }
   if (input.gender !== undefined) {
     out.gender = input.gender === 'm' || input.gender === 'f' ? input.gender : null;
   }
   if (input.notes !== undefined) out.notes = cleanText(input.notes, 1000) || null;
+  if (input.allergies !== undefined) out.allergies = cleanText(input.allergies, 400);
+  if (input.chronic_conditions !== undefined) {
+    out.chronic_conditions = cleanText(input.chronic_conditions, 400);
+  }
+  if (input.blood_group !== undefined) {
+    out.blood_group = cleanText(input.blood_group, 10).toUpperCase();
+  }
   return out;
 }
 
@@ -90,8 +97,11 @@ function create(input = {}) {
   const info = getDb()
     .prepare(
       `INSERT INTO patients
-         (full_name, phone, phone_norm, birth_date, gender, notes, created_at, updated_at)
-       VALUES (@full_name, @phone, @phone_norm, @birth_date, @gender, @notes, @now, @now)`,
+         (full_name, phone, phone_norm, birth_date, gender, notes,
+          allergies, chronic_conditions, blood_group, created_at, updated_at)
+       VALUES
+         (@full_name, @phone, @phone_norm, @birth_date, @gender, @notes,
+          @allergies, @chronic_conditions, @blood_group, @now, @now)`,
     )
     .run({
       full_name: data.full_name,
@@ -100,6 +110,9 @@ function create(input = {}) {
       birth_date: data.birth_date ?? null,
       gender: data.gender ?? null,
       notes: data.notes ?? null,
+      allergies: data.allergies ?? '',
+      chronic_conditions: data.chronic_conditions ?? '',
+      blood_group: data.blood_group ?? '',
       now: nowLocal(),
     });
   return get(info.lastInsertRowid);
@@ -121,7 +134,10 @@ function update(input = {}) {
         phone_norm = @phone_norm,
         birth_date = @birth_date,
         gender = @gender,
-        notes = COALESCE(@notes, notes),
+        notes = @notes,
+        allergies = @allergies,
+        chronic_conditions = @chronic_conditions,
+        blood_group = @blood_group,
         updated_at = datetime('now')
        WHERE id = @id`,
     )
@@ -132,7 +148,14 @@ function update(input = {}) {
       phone_norm: data.phone !== undefined ? data.phone_norm : current.phone_norm,
       birth_date: data.birth_date !== undefined ? data.birth_date : current.birth_date,
       gender: data.gender !== undefined ? data.gender : current.gender,
-      notes: data.notes ?? null,
+      notes: data.notes !== undefined ? data.notes : current.notes,
+      allergies: data.allergies !== undefined ? data.allergies : (current.allergies || ''),
+      chronic_conditions:
+        data.chronic_conditions !== undefined
+          ? data.chronic_conditions
+          : (current.chronic_conditions || ''),
+      blood_group:
+        data.blood_group !== undefined ? data.blood_group : (current.blood_group || ''),
     });
   return get(id);
 }
@@ -150,7 +173,13 @@ function findByPhone(phone) {
 /** Create the patient if the phone is unknown, otherwise reuse the file. */
 function upsertFromWhatsApp({ name, phone }) {
   const existing = findByPhone(phone);
-  if (existing) return { patient: existing, created: false };
+  if (existing) {
+    const cleanName = cleanText(name, 80);
+    if (cleanName && cleanName.length >= 2 && existing.full_name !== cleanName) {
+      return { patient: update({ id: existing.id, full_name: cleanName }), created: false };
+    }
+    return { patient: existing, created: false };
+  }
   const patient = create({ full_name: name, phone });
   return { patient, created: true };
 }

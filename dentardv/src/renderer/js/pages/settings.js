@@ -86,6 +86,9 @@
       const clinicName = input({ value: settings.clinic_name || '' });
       const clinicPhone = input({ value: settings.clinic_phone || '', inputmode: 'tel' });
       const clinicAddress = input({ value: settings.clinic_address || '' });
+      const doctorName = input({ value: settings.doctor_name || '', placeholder: 'Dr. …' });
+      const doctorSpecialty = input({ value: settings.doctor_specialty || 'Chirurgien-Dentiste' });
+      const doctorOrdre = input({ value: settings.doctor_ordre || '', placeholder: 'OMD-…' });
       const currency = input({ value: settings.currency || 'DZD', style: { maxWidth: '120px' } });
       const language = select([
         { value: 'fr', label: t('common.french') },
@@ -120,6 +123,9 @@
         { value: 'fr', label: t('common.french') },
         { value: 'ar', label: t('common.arabic') },
       ], { value: settings.bot_language });
+      const botDarija = input({ type: 'checkbox', checked: settings.bot_darija_mode === '1' });
+      const intakeEnabled = input({ type: 'checkbox', checked: settings.intake_enabled !== '0' });
+      const autostartEnabled = input({ type: 'checkbox', checked: settings.autostart_enabled !== '0' });
       const reminderEnabled = input({ type: 'checkbox', checked: settings.reminder_enabled === '1' });
       const reminderHour = input({ type: 'number', min: '0', max: '23', value: settings.reminder_hour, style: { maxWidth: '100px' } });
       const minDelay = input({ type: 'number', min: '1500', max: '60000', step: '500', value: settings.send_min_delay_ms, style: { maxWidth: '140px' } });
@@ -136,6 +142,9 @@
             clinic_name: clinicName.value.trim() || 'Cabinet Dentaire',
             clinic_phone: clinicPhone.value.trim(),
             clinic_address: clinicAddress.value.trim(),
+            doctor_name: doctorName.value.trim(),
+            doctor_specialty: doctorSpecialty.value.trim() || 'Chirurgien-Dentiste',
+            doctor_ordre: doctorOrdre.value.trim(),
             currency: currency.value.trim() || 'DZD',
             language: language.value,
             daily_capacity: capacity.value,
@@ -145,6 +154,9 @@
             queue_notify_enabled: queueNotify.checked ? '1' : '0',
             working_days: [...working].sort().join(','),
             bot_language: botLanguage.value,
+            bot_darija_mode: botDarija.checked ? '1' : '0',
+            intake_enabled: intakeEnabled.checked ? '1' : '0',
+            autostart_enabled: autostartEnabled.checked ? '1' : '0',
             reminder_enabled: reminderEnabled.checked ? '1' : '0',
             reminder_hour: reminderHour.value,
             send_min_delay_ms: minDelay.value,
@@ -171,10 +183,14 @@
       /* ------------------------------ backups ----------------------------- */
       let backups = [];
       let info = {};
+      let medSummary = null;
+      let licStatus = null;
       try {
-        [backups, info] = await Promise.all([
+        [backups, info, medSummary, licStatus] = await Promise.all([
           window.API.invoke('backup:list').catch(() => []),
           window.API.invoke('app:info').catch(() => ({})),
+          window.API.invoke('nomenclature:summary').catch(() => null),
+          window.API.invoke('license:status').catch(() => null),
         ]);
       } catch (error) {
         toast(errorMessage(error), 'error');
@@ -311,6 +327,9 @@
             h('div', { class: 'grid two' }, field(t('settings.phone'), clinicPhone), field(t('settings.currency'), currency)),
             field(t('settings.address'), clinicAddress),
             field(t('settings.language'), language),
+            h('h3', { style: { margin: '10px 0 0', fontSize: '0.95rem' } }, t('settings.doctorSection')),
+            field(t('settings.doctorName'), doctorName),
+            h('div', { class: 'grid two' }, field(t('settings.doctorSpecialty'), doctorSpecialty), field(t('settings.doctorOrdre'), doctorOrdre)),
           ),
           card(
             t('settings.agenda'),
@@ -323,6 +342,9 @@
           card(
             t('settings.whatsapp'),
             field(t('wa.botLanguage'), botLanguage),
+            switchRow(t('settings.botDarija'), h('label', { class: 'switch' }, botDarija, h('span', {}))),
+            switchRow(t('settings.intakeEnabled'), h('label', { class: 'switch' }, intakeEnabled, h('span', {}))),
+            switchRow(t('settings.autostart'), h('label', { class: 'switch' }, autostartEnabled, h('span', {}))),
             switchRow(t('settings.reminderEnabled'), h('label', { class: 'switch' }, reminderEnabled, h('span', {}))),
             field(t('settings.reminderHour'), reminderHour),
             h('div', { class: 'muted small' }, t('settings.reminderNote')),
@@ -333,6 +355,36 @@
           h(
             'div',
             { class: 'col' },
+            card(
+              t('settings.dentalCatalogTitle'),
+              h('div', { class: 'muted small' }, t('settings.dentalCatalogDesc')),
+              h(
+                'div',
+                { class: 'info-line' },
+                h('span', { class: 'k' }, t('rx.dentalOnlyBadge', { n: medSummary?.total || 620 })),
+                h('strong', {}, '✓'),
+              ),
+            ),
+            card(
+              t('lic.title'),
+              h(
+                'div',
+                { class: 'info-line' },
+                h('span', { class: 'k' }, t('lic.machineCode')),
+                h('strong', { style: { fontFamily: 'monospace' }, dir: 'ltr' }, licStatus?.machineCode || '—'),
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  class: 'btn soft',
+                  onClick: () => window.Components?.openLicenseModal({}),
+                },
+                window.Icons ? window.Icons.el('key', { size: 17 }) : '',
+                ' ',
+                t('lic.activateBtn'),
+              ),
+            ),
             card(
               t('settings.backups'),
               switchRow(t('settings.backupEnabled'), backupAuto),

@@ -42,6 +42,8 @@ test('WhatsApp booking & cancellation populate Mini Chat and auto-remove from ac
   const ctx = setupClinic();
   t.after(() => ctx.cleanup());
 
+  settings.set('intake_enabled', '0');
+
   const b1 = bot.handle({ phone: '213555100001', text: 'أحمد بن علي', delivery: 'local' });
   const b2 = bot.handle({ phone: '213555100002', text: 'سارة قادري', delivery: 'local' });
   const b3 = bot.handle({ phone: '213555100003', text: 'ياسين بلقاسم', delivery: 'local' });
@@ -53,8 +55,10 @@ test('WhatsApp booking & cancellation populate Mini Chat and auto-remove from ac
   const day = b1.appointment.day;
   assert.equal(appointments.agenda(day).length, 3, 'all three patients are on the list');
 
-  // Patient #2 cancels via WhatsApp → automatically removed from the list!
-  const cancelled = bot.handle({ phone: '213555100002', text: 'إلغاء', delivery: 'local' });
+  // Patient #2 cancels via WhatsApp (2-step confirmation) → automatically removed from the list!
+  const askCancel = bot.handle({ phone: '213555100002', text: 'إلغاء', delivery: 'local' });
+  assert.equal(askCancel.action, 'cancel_confirm');
+  const cancelled = bot.handle({ phone: '213555100002', text: 'نعم', delivery: 'local' });
   assert.equal(cancelled.action, 'cancelled');
 
   const afterCancel = appointments.agenda(day);

@@ -141,6 +141,7 @@ jobs:
           generate_release_notes: true
           files: |
             dentardv/release/DentaRDV-Setup-*.exe
+            dentardv/release/DentaRDV-Demo-*.exe
           body_path: dentardv/RELEASE_NOTES.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

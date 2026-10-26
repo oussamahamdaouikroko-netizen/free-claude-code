@@ -12,6 +12,7 @@
     ['dashboard', 'dashboard', 'nav.dashboard'],
     ['agenda', 'calendar', 'nav.agenda'],
     ['patients', 'users', 'nav.patients'],
+    ['prescriptions', 'prescription', 'nav.prescriptions'],
     ['treatments', 'tooth', 'nav.treatments'],
     ['expenses', 'wallet', 'nav.expenses'],
     ['reports', 'chart', 'nav.reports'],
@@ -20,8 +21,9 @@
   ];
 
   const App = {
-    version: '1.2.0', // replaced by app:info at boot (demo server / Electron)
+    version: '2.0.0', // replaced by app:info at boot (demo server / Electron)
     settings: {},
+    licenseStatus: null,
     language: getLanguage(),
     page: 'dashboard',
     day: window.UI.todayISO(),
@@ -179,6 +181,45 @@
       h('strong', {}, '🧪 ' + t('demo.banner')),
     );
   }
+
+  function licenseBanner() {
+    if (App.demo) return null;
+    const lic = App.licenseStatus;
+    if (!lic || lic.state === 'demo') return null;
+    if (lic.state === 'activated' && (lic.plan === 'LIFE' || (lic.daysRemaining ?? 99) > 15)) {
+      return null;
+    }
+    const isExpired = lic.state === 'expired';
+    const isWarn = !isExpired && (lic.daysRemaining ?? 7) <= 3;
+    const msg = isExpired
+      ? t('lic.expiredBanner')
+      : lic.state === 'activated'
+        ? t('lic.activatedBanner', {
+            plan: lic.plan || 'PRO',
+            date: window.I18N.formatDate((lic.expiresAt || '').slice(0, 10)),
+          })
+        : t('lic.trialBanner', { d: lic.daysRemaining ?? 7 });
+
+    return h(
+      'div',
+      { class: `license-banner ${isExpired ? 'expired' : isWarn ? 'warn' : ''}` },
+      h(
+        'div',
+        { class: 'row wrap', style: { gap: '8px' } },
+        window.Icons ? window.Icons.el(isExpired ? 'lock' : 'key', { size: 17 }) : '',
+        h('span', { class: 'strong' }, msg),
+      ),
+      h(
+        'button',
+        {
+          type: 'button',
+          class: `btn sm ${isExpired ? 'primary' : 'soft'}`,
+          onClick: () => window.Components?.openLicenseModal({}),
+        },
+        t('lic.activateBtn'),
+      ),
+    );
+  }
     App.content = h('main', { class: 'content', id: 'content' });
 
     const shell = h(
@@ -242,7 +283,7 @@
           ),
           App.pageActions,
         ),
-        App.demo ? demoBanner() : null,
+        App.demo ? demoBanner() : licenseBanner(),
         App.content,
       ),
     );
@@ -290,7 +331,12 @@
   async function rerender() {
     if (!App.shell || !App.bootInfo?.auth?.unlocked) return;
     try {
-      App.settings = await window.API.invoke('settings:get');
+      const [settingsRes, licRes] = await Promise.all([
+        window.API.invoke('settings:get'),
+        window.API.invoke('license:status').catch(() => App.licenseStatus),
+      ]);
+      App.settings = settingsRes;
+      App.licenseStatus = licRes;
     } catch (error) {
       if (error.code === 'LOCKED') return renderAuth('login', {});
       throw error;
@@ -306,6 +352,7 @@
 
   async function startApp() {
     App.bootInfo = await window.API.invoke('app:bootstrap');
+    App.licenseStatus = App.bootInfo?.license || null;
     App.settings = await window.API.invoke('settings:get');
     // Respect the language saved in settings on first launch.
     const stored = localStorage.getItem('dentardv.lang');
@@ -358,12 +405,23 @@
       }
     });
 
+    window.addEventListener('license-expired', () => {
+      if (App.bootInfo?.auth?.unlocked && window.Components?.openLicenseModal) {
+        window.Components.openLicenseModal({});
+      }
+    });
+
     // WhatsApp & live queue events → toasts, Mini Chat sync, and active list refresh.
     App.onExternalChatUpdate = () => {
       if (!App.bootInfo?.auth?.unlocked) return;
       if (['dashboard', 'agenda', 'whatsapp'].includes(App.page)) App.renderPage();
     };
     window.API.onEvent((event) => {
+      if (event?.type === 'license') {
+        App.licenseStatus = event.payload;
+        if (App.bootInfo?.auth?.unlocked) rerender();
+        return;
+      }
       if (event?.type === 'reminders' && event.payload?.sent) {
         toast(t('wa.sentNow', { n: event.payload.sent }), 'ok');
       }

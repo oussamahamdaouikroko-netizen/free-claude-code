@@ -1,47 +1,145 @@
 'use strict';
 /**
- * The booking conversation, independent from Baileys.
+ * DentaRDV v2.0.0 WhatsApp booking conversation engine (independent from Baileys).
  *
- * `handle()` receives one incoming text message and returns the text to send
- * back. No network code here, which makes the whole patient flow unit-testable
- * (see tests/bot.test.js).
+ * Features:
+ *  - Strict greeting vs. valid full-name registration gate for unregistered callers
+ *  - Persistent SQLite `bot_sessions` across restarts
+ *  - 2-step interactive cancellation confirmation (`cancel_confirm` -> `OUI`/`نعم`)
+ *    with 30-minute re-booking cooldown (`CANCEL_COOLDOWN_MINUTES`)
+ *  - Attendance confirmation (`CONFIRMER` / `تأكيد`)
+ *  - Post-booking Law 18-07 dental intake (Age + Weight + optional dental symptoms ONLY)
+ *  - License validity guard on new bookings
  */
 
+const dbMod = require('../db');
+const { CANCEL_COOLDOWN_MINUTES } = require('../config');
+const license = require('../services/license');
 const intents = require('./intents');
 const { message } = require('./messages');
 const patients = require('../services/patients');
 const appointments = require('../services/appointments');
+const intake = require('../services/intake');
 const settings = require('../services/settings');
 const chat = require('../services/chat');
 const { AppError, phoneKey } = require('../utils/common');
 const { toISODate } = require('../utils/dates');
 
-/** Last language used with a phone number (so replies stay consistent). */
 const lastLanguage = new Map();
 const LANG_TTL_MS = 24 * 60 * 60 * 1000;
 const languageSeenAt = new Map();
+
+const pendingByPhone = new Map();
+const PENDING_TTL_MS = 30 * 60 * 1000;
+const AWAIT_NAME_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function langKey(phone) {
   return phoneKey(phone) || String(phone || '');
 }
 
-function rememberLanguage(phone, lang) {
+function ttlForStep(step) {
+  const s = String(step || '');
+  if (s === 'await_full_name' || s === 'await_name') return AWAIT_NAME_TTL_MS;
+  return PENDING_TTL_MS;
+}
+
+function getPending(phone) {
   const key = langKey(phone);
+  if (!key) return null;
+
+  if (dbMod.isOpen()) {
+    try {
+      const row = dbMod
+        .getDb()
+        .prepare('SELECT state_json, updated_at FROM bot_sessions WHERE phone_key = ?')
+        .get(key);
+      if (!row) return null;
+      const parsed = JSON.parse(row.state_json);
+      const updatedAt = Number(row.updated_at) || 0;
+      if (Date.now() - updatedAt > ttlForStep(parsed?.step)) {
+        dbMod.getDb().prepare('DELETE FROM bot_sessions WHERE phone_key = ?').run(key);
+        return null;
+      }
+      return { ...parsed, createdAt: updatedAt };
+    } catch (_err) {
+      // Fall back to in-memory map
+    }
+  }
+
+  const entry = pendingByPhone.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.createdAt > ttlForStep(entry.step)) {
+    pendingByPhone.delete(key);
+    return null;
+  }
+  return entry;
+}
+
+function setPending(phone, data) {
+  const key = langKey(phone);
+  if (!key) return;
+  const now = Date.now();
+  const payload = { ...data };
+  delete payload.createdAt;
+  pendingByPhone.set(key, { ...payload, createdAt: now });
+
+  if (dbMod.isOpen()) {
+    try {
+      dbMod
+        .getDb()
+        .prepare(
+          `INSERT INTO bot_sessions (phone_key, state_json, updated_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(phone_key) DO UPDATE SET
+             state_json = excluded.state_json,
+             updated_at = excluded.updated_at`,
+        )
+        .run(key, JSON.stringify(payload), now);
+    } catch (_err) {
+      // Ignore if read-only
+    }
+  }
+}
+
+function clearPending(phone) {
+  const key = langKey(phone);
+  if (!key) return;
+  pendingByPhone.delete(key);
+  if (dbMod.isOpen()) {
+    try {
+      dbMod.getDb().prepare('DELETE FROM bot_sessions WHERE phone_key = ?').run(key);
+    } catch (_err) {
+      // Ignore
+    }
+  }
+}
+
+function scopedLangKey(phone) {
+  const base = langKey(phone);
+  if (!base) return '';
+  return `${dbMod.getPath() || 'mem'}:${base}`;
+}
+
+function rememberLanguage(phone, lang) {
+  const key = scopedLangKey(phone);
   if (!key) return;
   lastLanguage.set(key, lang);
   languageSeenAt.set(key, Date.now());
 }
 
 function rememberedLanguage(phone) {
-  const key = langKey(phone);
+  const key = scopedLangKey(phone);
   if (!key) return null;
   const seen = languageSeenAt.get(key);
   if (seen && Date.now() - seen > LANG_TTL_MS) {
     lastLanguage.delete(key);
     languageSeenAt.delete(key);
-    return null;
+  } else if (lastLanguage.has(key)) {
+    return lastLanguage.get(key) || null;
   }
-  return lastLanguage.get(key) || null;
+  const pending = getPending(phone);
+  if (pending?.lang === 'ar' || pending?.lang === 'fr') return pending.lang;
+  return null;
 }
 
 function resolveLanguage(phone, detected, isArabic) {
@@ -49,7 +147,6 @@ function resolveLanguage(phone, detected, isArabic) {
   return rememberedLanguage(phone) || detected || settings.get('bot_language');
 }
 
-/** Language used for proactive queue updates to a patient. */
 function preferredLanguage(phone, fullName) {
   const known = rememberedLanguage(phone);
   if (known) return known;
@@ -57,11 +154,7 @@ function preferredLanguage(phone, fullName) {
 }
 
 function clinicSettings() {
-  return {
-    clinic: settings.get('clinic_name'),
-    phone: settings.get('clinic_phone'),
-    currency: settings.get('currency'),
-  };
+  return chat.clinicSettings();
 }
 
 function reply(lang, key, vars = {}) {
@@ -69,172 +162,817 @@ function reply(lang, key, vars = {}) {
 }
 
 function forgetLanguage(phone) {
-  const key = langKey(phone);
-  lastLanguage.delete(key);
-  languageSeenAt.delete(key);
+  const scoped = scopedLangKey(phone);
+  if (scoped) {
+    lastLanguage.delete(scoped);
+    languageSeenAt.delete(scoped);
+  }
+  clearPending(phone);
 }
 
-/**
- * @param {{phone: string, text: string, delivery?: 'local'|'queued'|'sent'}} incoming
- * @returns {{reply: string, lang: 'fr'|'ar', action: string, appointment?: object, chatEvent?: object}}
- */
-function handle({ phone, text, delivery = 'sent' }) {
-  const detection = intents.detect(text);
-  const lang = resolveLanguage(phone, settings.get('bot_language'), detection.isArabic);
-  rememberLanguage(phone, lang);
+function hasRegisteredName(patient) {
+  return Boolean(patient && String(patient.full_name || '').trim().length > 0);
+}
+
+function checkLicenseReply({ lang, nowMs }) {
+  const valid = license.is_license_valid(nowMs !== undefined ? { nowMs } : undefined);
+  if (valid) return null;
+  return {
+    reply: reply(lang, 'serviceSuspended'),
+    lang,
+    action: 'license_expired',
+    callbackAnswered: true,
+  };
+}
+
+function checkCooldownReply({ patient, phone, lang, nowMs }) {
+  const lic = checkLicenseReply({ lang, nowMs });
+  if (lic) return lic;
+  const effectiveNow = nowMs !== undefined ? nowMs : Date.now();
+  const check = appointments.canUserBook({ patientId: patient?.id, phone }, effectiveNow);
+  if (check.allowed) return null;
+  return {
+    reply: reply(lang, 'bookingCooldown', {
+      minutes: check.remainingMinutes,
+      time: check.unlockTimeLocal,
+    }),
+    lang,
+    action: 'cooldown_blocked',
+    remainingMinutes: check.remainingMinutes,
+    unlockTimeLocal: check.unlockTimeLocal,
+    blockedUntilUtc: check.blockedUntilUtc,
+    callbackAnswered: true,
+  };
+}
+
+function finalizeBooking({ phone, patientObj, name, lang, delivery, nowMs }) {
+  const cooldownGuard = checkCooldownReply({ patient: patientObj, phone, lang, nowMs });
+  if (cooldownGuard) return cooldownGuard;
+
+  const effectiveExisting = hasRegisteredName(patientObj) ? patientObj : null;
+
+  if (effectiveExisting) {
+    const existingUpcoming = appointments.upcomingForPatient(effectiveExisting.id, toISODate());
+    if (existingUpcoming && existingUpcoming.status === 'booked') {
+      return {
+        reply: reply(lang, 'alreadyBooked', {
+          day: existingUpcoming.day,
+          queue: existingUpcoming.queue_number,
+        }),
+        lang,
+        action: 'already_booked',
+        appointment: existingUpcoming,
+      };
+    }
+  }
+
+  const person = effectiveExisting
+    ? { patient: effectiveExisting, created: false }
+    : patients.upsertFromWhatsApp({ name, phone });
+
+  let appointment;
+  try {
+    appointment = appointments.create({
+      patient_id: person.patient.id,
+      source: 'whatsapp',
+      nowMs,
+      notes: person.created ? 'Réservation WhatsApp' : 'Réservation WhatsApp (patient existant)',
+    });
+  } catch (error) {
+    if (error instanceof AppError && error.code === 'BOOKING_COOLDOWN') {
+      return {
+        reply: reply(lang, 'bookingCooldown', {
+          minutes: error.details?.remainingMinutes || 1,
+          time: error.details?.unlockTimeLocal || '',
+        }),
+        lang,
+        action: 'cooldown_blocked',
+      };
+    }
+    if (error instanceof AppError && error.code === 'HORIZON_REACHED') {
+      appointments.addToWaitingList({
+        full_name: person.patient.full_name || name,
+        phone,
+        enforceCooldown: true,
+        nowMs,
+        note: 'Planning complet (WhatsApp)',
+      });
+      return {
+        reply: reply(lang, 'full'),
+        lang,
+        action: 'waiting_list',
+      };
+    }
+    if (error instanceof AppError && error.code === 'ALREADY_BOOKED') {
+      const existing = appointments.upcomingForPatient(person.patient.id, toISODate());
+      return {
+        reply: reply(lang, 'alreadyBooked', {
+          day: existing ? existing.day : error.details?.id,
+          queue: existing ? existing.queue_number : '-',
+        }),
+        lang,
+        action: 'already_booked',
+        appointment: existing || undefined,
+      };
+    }
+    throw error;
+  }
+
+  const doctorName = settings.get('doctor_name') || '';
+  const replyText = reply(lang, 'booked', {
+    name: person.patient.full_name,
+    day: appointment.day,
+    queue: appointment.queue_number,
+    doctor: doctorName,
+  });
+  const chatEvent = chat.recordBooked(appointment, {
+    body: replyText,
+    phone,
+    lang,
+    delivery,
+  });
+  if (settings.get('intake_enabled') !== '0') {
+    const isChild = intake.detectChildContext(person.patient);
+    setPending(phone, {
+      step: 'intake_consent',
+      patientId: person.patient.id,
+      appointmentId: appointment.id,
+      isChild,
+      lang,
+    });
+  }
+  return {
+    reply: replyText,
+    lang,
+    action: 'booked',
+    appointment,
+    chatEvent,
+  };
+}
+
+function promptForIntakeStep(lang, q, isChild) {
+  switch (q) {
+    case 'age':
+      return reply(lang, 'intakeAskAge', { isChild });
+    case 'weight':
+      return reply(lang, 'intakeAskWeight', { isChild });
+    case 'complaint':
+      return reply(lang, 'intakeAskComplaint', { isChild });
+    default:
+      return reply(lang, 'intakeAskAge', { isChild });
+  }
+}
+
+function advanceIntakeQuestion({ phone, pending, lang, nextQ }) {
+  const draft = intake.get(pending.intakeId);
+  if (nextQ === 'done') {
+    clearPending(phone);
+    return {
+      reply: reply(lang, 'intakeCompleted', { draft }),
+      lang,
+      action: 'intake_completed',
+      intake: draft,
+    };
+  }
+  setPending(phone, { ...pending, step: 'intake_q', q: nextQ, retries: 0, lang });
+  return {
+    reply: promptForIntakeStep(lang, nextQ, pending.isChild),
+    lang,
+    action: `intake_ask_${nextQ}`,
+    intake: draft,
+  };
+}
+
+function handleIntakeState({ phone, text, lang, pending }) {
+  if (pending.step === 'intake_consent') {
+    const yn = intake.parseYesNo(text);
+    if (yn === 'yes') {
+      const draft = intake.create({
+        patient_id: pending.patientId,
+        appointment_id: pending.appointmentId || null,
+        source: 'whatsapp',
+        consent: true,
+        is_child_intake: pending.isChild ? 1 : 0,
+      });
+      setPending(phone, {
+        step: 'intake_q',
+        q: 'age',
+        intakeId: draft.id,
+        patientId: pending.patientId,
+        appointmentId: pending.appointmentId || null,
+        isChild: Boolean(pending.isChild),
+        retries: 0,
+        lang,
+      });
+      return {
+        reply: promptForIntakeStep(lang, 'age', Boolean(pending.isChild)),
+        lang,
+        action: 'intake_started',
+        intake: draft,
+      };
+    }
+    if (yn === 'no' || intake.isSkipInput(text)) {
+      clearPending(phone);
+      return {
+        reply: reply(lang, 'intakeDeclined'),
+        lang,
+        action: 'intake_declined',
+      };
+    }
+    // Fast-path: patient replied directly with their age (e.g. "32", "32 سنة", "24 شهر").
+    const directAge = intake.parseAgeYears(text);
+    if (directAge.ok) {
+      const childFlag = Boolean(pending.isChild) || directAge.value < 15;
+      const draft = intake.create({
+        patient_id: pending.patientId,
+        appointment_id: pending.appointmentId || null,
+        source: 'whatsapp',
+        consent: true,
+        age_years: directAge.value,
+        is_child_intake: childFlag ? 1 : 0,
+      });
+      setPending(phone, {
+        step: 'intake_q',
+        q: 'weight',
+        intakeId: draft.id,
+        patientId: pending.patientId,
+        appointmentId: pending.appointmentId || null,
+        isChild: childFlag,
+        retries: 0,
+        lang,
+      });
+      return {
+        reply: promptForIntakeStep(lang, 'weight', childFlag),
+        lang,
+        action: 'intake_ask_weight',
+        intake: draft,
+      };
+    }
+    clearPending(phone);
+    return null;
+  }
+
+  if (pending.step !== 'intake_q') return null;
+
+  if (intake.isRestartInput(text)) {
+    const reset = intake.resetAnswers(pending.intakeId);
+    setPending(phone, { ...pending, step: 'intake_q', q: 'age', retries: 0, lang });
+    return {
+      reply: promptForIntakeStep(lang, 'age', pending.isChild),
+      lang,
+      action: 'intake_restarted',
+      intake: reset,
+    };
+  }
+
+  const skipped = intake.isSkipInput(text);
+  const q = pending.q;
+
+  if (q === 'age') {
+    if (!skipped) {
+      const parsed = intake.parseAgeYears(text);
+      if (parsed.ok) {
+        const childFlag = Boolean(pending.isChild) || parsed.value < 15;
+        intake.update(pending.intakeId, {
+          age_years: parsed.value,
+          is_child_intake: childFlag ? 1 : 0,
+        });
+        pending.isChild = childFlag;
+      } else if ((pending.retries || 0) < 1) {
+        setPending(phone, { ...pending, retries: 1, lang });
+        return {
+          reply: reply(lang, 'intakeRetryAge'),
+          lang,
+          action: 'intake_retry_age',
+        };
+      }
+    }
+    return advanceIntakeQuestion({ phone, pending, lang, nextQ: 'weight' });
+  }
+
+  if (q === 'weight') {
+    if (!skipped) {
+      const parsed = intake.parseWeightKg(text);
+      if (parsed.ok) {
+        intake.update(pending.intakeId, { weight_kg: parsed.value });
+      } else if ((pending.retries || 0) < 1) {
+        setPending(phone, { ...pending, retries: 1, lang });
+        return {
+          reply: reply(lang, 'intakeRetryWeight'),
+          lang,
+          action: 'intake_retry_weight',
+        };
+      }
+    }
+    return advanceIntakeQuestion({ phone, pending, lang, nextQ: 'complaint' });
+  }
+
+  if (q === 'complaint') {
+    if (!skipped && !intake.isNoneInput(text)) {
+      const pRow = patients.get(pending.patientId);
+      const childDetected = pending.isChild || intake.detectChildContext(pRow, text);
+      pending.isChild = childDetected;
+      intake.update(pending.intakeId, {
+        chief_complaint: text,
+        is_child_intake: childDetected ? 1 : 0,
+      });
+    }
+    return advanceIntakeQuestion({ phone, pending, lang, nextQ: 'done' });
+  }
+
+  return null;
+}
+
+function buildCancelButtons(appointmentId, lang) {
+  return lang === 'ar'
+    ? [
+        { id: `cancel_yes:${appointmentId}`, text: '✅ نعم، ألغِ الموعد' },
+        { id: `cancel_no:${appointmentId}`, text: '❌ لا، احتفظ بالموعد' },
+      ]
+    : [
+        { id: `cancel_yes:${appointmentId}`, text: '✅ Oui, annuler le rendez-vous' },
+        { id: `cancel_no:${appointmentId}`, text: '❌ Non, garder le rendez-vous' },
+      ];
+}
+
+function parseCallbackToken(raw) {
+  const s = String(raw ?? '').trim();
+  if (/^book_start$/i.test(s)) return { kind: 'book_start', id: 0 };
+  const m = s.match(/^(cancel_ask|cancel_yes|cancel_no|sec_paid|pay_confirm):(\d+)$/i);
+  if (!m) return null;
+  return { kind: m[1].toLowerCase(), id: Number.parseInt(m[2], 10) };
+}
+
+function parseCancelDecision(rawText) {
+  const norm = intents
+    .normalize(String(rawText ?? '').replace(/[✅❌⚠️•1️⃣2️⃣]/g, ' '))
+    .trim();
+  if (!norm) return null;
+  if (
+    norm === 'نعم' ||
+    norm === 'اه' ||
+    norm === 'ايه' ||
+    norm === 'اكيد' ||
+    norm === 'oui' ||
+    norm === 'yes' ||
+    norm === '1' ||
+    norm.startsWith('نعم ') ||
+    norm.startsWith('oui ') ||
+    norm.startsWith('yes ') ||
+    norm === 'الغ الموعد' ||
+    norm === 'الغي الموعد'
+  ) {
+    return 'yes';
+  }
+  if (
+    norm === 'لا' ||
+    norm === 'لالا' ||
+    norm === 'احتفظ بالموعد' ||
+    norm === 'احتفظ' ||
+    norm === 'non' ||
+    norm === 'no' ||
+    norm === '2' ||
+    norm.startsWith('لا ') ||
+    norm.startsWith('non ') ||
+    norm.startsWith('no ')
+  ) {
+    return 'no';
+  }
+  return null;
+}
+
+function promptCancelConfirmation({ phone, patient, appointment, lang }) {
+  setPending(phone, {
+    step: 'confirm_cancel',
+    appointmentId: appointment.id,
+    patientId: patient.id,
+    lang,
+  });
+  return {
+    reply: reply(lang, 'cancelConfirm', {
+      day: appointment.day,
+      slotTime: appointment.slot_time || '',
+      queue: appointment.queue_number,
+      cooldownMinutes: CANCEL_COOLDOWN_MINUTES,
+    }),
+    lang,
+    action: 'cancel_confirm',
+    appointment,
+    buttons: buildCancelButtons(appointment.id, lang),
+    callbackAnswered: true,
+  };
+}
+
+function executeConfirmedCancel({ phone, patient, appointmentId, lang, delivery, nowMs }) {
+  const currentPending = getPending(phone);
+  if (currentPending?.step === 'confirm_cancel') {
+    clearPending(phone);
+  }
+  const outcome = appointments.cancelByPatient({
+    appointmentId,
+    patientId: patient?.id || null,
+    phone,
+    nowMs,
+    cooldownMinutes: CANCEL_COOLDOWN_MINUTES,
+  });
+
+  if (outcome.status === 'forbidden') {
+    return {
+      reply: reply(lang, 'cancelForbidden'),
+      lang,
+      action: 'forbidden',
+      callbackAnswered: true,
+    };
+  }
+
+  if (outcome.status === 'stale') {
+    return {
+      reply: reply(lang, 'cancelStale'),
+      lang,
+      action: 'stale_appointment',
+      callbackAnswered: true,
+    };
+  }
+
+  const replyText = reply(lang, 'cancelled', {
+    day: outcome.appointment.day,
+    rebookTime: outcome.rebookTime,
+    cooldownMinutes: outcome.cooldownMinutes,
+  });
+  const chatEvent = chat.recordCancelled(outcome.appointment, {
+    body: replyText,
+    phone,
+    lang,
+    delivery,
+  });
+  return {
+    reply: replyText,
+    lang,
+    action: 'cancelled',
+    appointment: outcome.appointment,
+    chatEvent,
+    blockedUntilUtc: outcome.blockedUntilUtc,
+    rebookTime: outcome.rebookTime,
+    callbackAnswered: true,
+  };
+}
+
+function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = false, nowMs }) {
   const patient = patients.findByPhone(phone);
+  const registered = hasRegisteredName(patient);
+
+  if (isMedia) {
+    const lang = resolveLanguage(phone, settings.get('bot_language'), false);
+    rememberLanguage(phone, lang);
+    const licMedia = checkLicenseReply({ lang, nowMs });
+    if (licMedia) return licMedia;
+    if (!registered) {
+      setPending(phone, { step: 'await_full_name', lang });
+      return { reply: reply(lang, 'nonTextAskName'), lang, action: 'unsupported' };
+    }
+    return { reply: reply(lang, 'unsupported'), lang, action: 'unsupported' };
+  }
+
+  const rawInput = String(callbackData || text || '');
+  const cbToken = parseCallbackToken(rawInput);
+  const detection = intents.detect(text);
+  const lang = resolveLanguage(
+    phone,
+    settings.get('bot_language'),
+    detection.isArabic || (registered && /[\u0600-\u06FF]/.test(patient.full_name)),
+  );
+  rememberLanguage(phone, lang);
 
   try {
-    switch (detection.intent) {
-      case 'cancel': {
-        const upcoming = patient ? appointments.upcomingForPatient(patient.id) : null;
-        if (!upcoming || upcoming.status !== 'booked') {
-          const clearedWaiting = appointments.cancelWaitingByPhone(phone);
-          if (clearedWaiting > 0) {
-            const today = toISODate();
-            const replyText = reply(lang, 'cancelled', { day: today });
-            const chatEvent = chat.record({
-              kind: 'cancelled',
-              direction: 'out',
-              patient_id: patient?.id ?? null,
-              patient_name: patient?.full_name || phone,
-              phone,
-              day: today,
-              body: replyText,
-              delivery,
-            });
-            return { reply: replyText, lang, action: 'cancelled', chatEvent };
-          }
-          return { reply: reply(lang, 'nothingToCancel'), lang, action: 'nothing_to_cancel' };
+    // 0. Structured button/callback payloads
+    if (cbToken) {
+      if (cbToken.kind === 'sec_paid' || cbToken.kind === 'pay_confirm') {
+        return {
+          reply: reply(lang, 'cancelForbidden'),
+          lang,
+          action: 'forbidden',
+          callbackAnswered: true,
+        };
+      }
+      if (cbToken.kind === 'book_start') {
+        const cd = checkCooldownReply({ patient, phone, lang, nowMs });
+        if (cd) return cd;
+        if (!registered) {
+          setPending(phone, { step: 'await_full_name', lang });
+          return {
+            reply: reply(lang, 'welcomeAskName'),
+            lang,
+            action: 'help',
+            callbackAnswered: true,
+          };
         }
-        appointments.cancel(upcoming.id);
-        const replyText = reply(lang, 'cancelled', { day: upcoming.day });
-        const chatEvent = chat.recordCancelled(upcoming, {
-          body: replyText,
+        return finalizeBooking({
           phone,
+          patientObj: patient,
+          name: patient.full_name,
           lang,
           delivery,
+          nowMs,
         });
-        return {
-          reply: replyText,
-          lang,
-          action: 'cancelled',
-          appointment: upcoming,
-          chatEvent,
-        };
       }
-
-      case 'my_appointment': {
-        if (!patient) return { reply: reply(lang, 'noAppointment'), lang, action: 'no_appointment' };
-        const upcoming = appointments.upcomingForPatient(patient.id);
-        if (!upcoming || upcoming.status !== 'booked') {
-          return { reply: reply(lang, 'noAppointment'), lang, action: 'no_appointment' };
+      if (cbToken.kind === 'cancel_ask') {
+        const row = dbMod.getDb().prepare('SELECT * FROM appointments WHERE id = ?').get(cbToken.id);
+        if (!row || row.status !== 'booked') {
+          return {
+            reply: reply(lang, 'cancelStale'),
+            lang,
+            action: 'stale_appointment',
+            callbackAnswered: true,
+          };
         }
-        const livePos =
-          upcoming.day === toISODate()
-            ? appointments.queuePosition(upcoming)
-            : { ahead: null, etaMinutes: null };
-        return {
-          reply: reply(lang, 'myAppointment', {
-            day: upcoming.day,
-            queue: upcoming.queue_number,
-            treatment: upcoming.treatment_name || '',
-            ahead: livePos.ahead,
-            etaMinutes: livePos.etaMinutes,
-          }),
-          lang,
-          action: 'appointment_info',
-          appointment: upcoming,
-        };
-      }
-
-      case 'help':
-        return { reply: reply(lang, 'help'), lang, action: 'help' };
-
-      case 'name': {
-        // A known number that already holds an active booked slot is not booked twice.
-        if (patient) {
-          const upcoming = appointments.upcomingForPatient(patient.id);
-          if (upcoming && upcoming.status === 'booked') {
-            return {
-              reply: reply(lang, 'alreadyBooked', {
-                day: upcoming.day,
-                queue: upcoming.queue_number,
-              }),
-              lang,
-              action: 'already_booked',
-              appointment: upcoming,
-            };
-          }
+        if (!patient || Number(row.patient_id) !== Number(patient.id)) {
+          return {
+            reply: reply(lang, 'cancelForbidden'),
+            lang,
+            action: 'forbidden',
+            callbackAnswered: true,
+          };
         }
-
-        const person = patient
-          ? { patient, created: false }
-          : patients.upsertFromWhatsApp({ name: detection.name, phone });
-
-        let appointment;
-        try {
-          appointment = appointments.create({
-            patient_id: person.patient.id,
-            source: 'whatsapp',
-            notes: person.created ? 'Réservation WhatsApp' : 'Réservation WhatsApp (patient existant)',
-          });
-        } catch (error) {
-          if (error instanceof AppError && error.code === 'HORIZON_REACHED') {
-            appointments.addToWaitingList({
-              full_name: detection.name,
-              phone,
-              note: 'Planning complet (WhatsApp)',
-            });
-            return { reply: reply(lang, 'full'), lang, action: 'waiting_list' };
-          }
-          if (error instanceof AppError && error.code === 'ALREADY_BOOKED') {
-            const existing = appointments.upcomingForPatient(person.patient.id);
-            return {
-              reply: reply(lang, 'alreadyBooked', {
-                day: existing ? existing.day : error.details?.id,
-                queue: existing ? existing.queue_number : '-',
-              }),
-              lang,
-              action: 'already_booked',
-              appointment: existing || undefined,
-            };
-          }
-          throw error;
-        }
-
-        const replyText = reply(lang, 'booked', {
-          name: person.patient.full_name,
-          day: appointment.day,
-          queue: appointment.queue_number,
-        });
-        const chatEvent = chat.recordBooked(appointment, {
-          body: replyText,
+        return promptCancelConfirmation({
           phone,
+          patient,
+          appointment: appointments.get(row.id),
+          lang,
+        });
+      }
+      if (cbToken.kind === 'cancel_yes') {
+        return executeConfirmedCancel({
+          phone,
+          patient,
+          appointmentId: cbToken.id,
           lang,
           delivery,
+          nowMs,
         });
+      }
+      if (cbToken.kind === 'cancel_no') {
+        const row = dbMod.getDb().prepare('SELECT * FROM appointments WHERE id = ?').get(cbToken.id);
+        if (row && (!patient || Number(row.patient_id) !== Number(patient.id))) {
+          return {
+            reply: reply(lang, 'cancelForbidden'),
+            lang,
+            action: 'forbidden',
+            callbackAnswered: true,
+          };
+        }
+        const cur = getPending(phone);
+        if (cur?.step === 'confirm_cancel') clearPending(phone);
+        if (!row || row.status !== 'booked') {
+          return {
+            reply: reply(lang, 'cancelStale'),
+            lang,
+            action: 'stale_appointment',
+            callbackAnswered: true,
+          };
+        }
         return {
-          reply: replyText,
+          reply: reply(lang, 'cancelAborted'),
           lang,
-          action: 'booked',
-          appointment,
-          chatEvent,
+          action: 'cancel_aborted',
+          callbackAnswered: true,
         };
       }
-
-      default:
-        return { reply: reply(lang, 'unsupported'), lang, action: 'unsupported' };
     }
+
+    // 0b. Active cancellation confirmation state (yes / no decision).
+    const pendingBeforeCmd = getPending(phone);
+    if (pendingBeforeCmd?.step === 'confirm_cancel') {
+      const decision = parseCancelDecision(text);
+      if (decision === 'yes') {
+        return executeConfirmedCancel({
+          phone,
+          patient,
+          appointmentId: pendingBeforeCmd.appointmentId,
+          lang,
+          delivery,
+          nowMs,
+        });
+      }
+      if (decision === 'no') {
+        clearPending(phone);
+        const row = dbMod
+          .getDb()
+          .prepare('SELECT * FROM appointments WHERE id = ?')
+          .get(pendingBeforeCmd.appointmentId);
+        if (!row || row.status !== 'booked') {
+          return {
+            reply: reply(lang, 'cancelStale'),
+            lang,
+            action: 'stale_appointment',
+            callbackAnswered: true,
+          };
+        }
+        return {
+          reply: reply(lang, 'cancelAborted'),
+          lang,
+          action: 'cancel_aborted',
+          callbackAnswered: true,
+        };
+      }
+    }
+
+    // 1. Explicit commands
+    if (detection.intent === 'cancel') {
+      clearPending(phone);
+      const upcoming = patient ? appointments.upcomingForPatient(patient.id) : null;
+      if (!upcoming || upcoming.status !== 'booked') {
+        const clearedWaiting = appointments.cancelWaitingByPhone(phone);
+        if (clearedWaiting > 0) {
+          const today = toISODate();
+          const replyText = reply(lang, 'cancelled', { day: today });
+          const chatEvent = chat.record({
+            kind: 'cancelled',
+            direction: 'out',
+            patient_id: patient?.id ?? null,
+            patient_name: patient?.full_name || phone,
+            phone,
+            day: today,
+            body: replyText,
+            delivery,
+          });
+          return { reply: replyText, lang, action: 'cancelled', chatEvent };
+        }
+        return { reply: reply(lang, 'nothingToCancel'), lang, action: 'nothing_to_cancel' };
+      }
+      return promptCancelConfirmation({ phone, patient, appointment: upcoming, lang });
+    }
+
+    if (detection.intent === 'confirm') {
+      clearPending(phone);
+      if (!patient) return { reply: reply(lang, 'noAppointment'), lang, action: 'no_appointment' };
+      const upcoming = appointments.upcomingForPatient(patient.id);
+      if (!upcoming || upcoming.status !== 'booked') {
+        return { reply: reply(lang, 'noAppointment'), lang, action: 'no_appointment' };
+      }
+      const confirmed = appointments.confirmAppointment(upcoming.id);
+      const replyText =
+        lang === 'ar'
+          ? `✅ تم تأكيد حضوركم لموعد يوم ${confirmed.day} (الدور رقم ${confirmed.queue_number}). شكرا لكم!`
+          : `✅ Votre présence au rendez-vous du ${confirmed.day} (tour n° ${confirmed.queue_number}) est bien confirmée. Merci !`;
+      return {
+        reply: replyText,
+        lang,
+        action: 'confirmed',
+        appointment: confirmed,
+      };
+    }
+
+    if (detection.intent === 'my_appointment') {
+      clearPending(phone);
+      if (!patient) return { reply: reply(lang, 'noAppointment'), lang, action: 'no_appointment' };
+      const upcoming = appointments.upcomingForPatient(patient.id);
+      if (!upcoming || upcoming.status !== 'booked') {
+        return { reply: reply(lang, 'noAppointment'), lang, action: 'no_appointment' };
+      }
+      const livePos =
+        upcoming.day === toISODate()
+          ? appointments.queuePosition(upcoming)
+          : { ahead: null, etaMinutes: null };
+      return {
+        reply: reply(lang, 'myAppointment', {
+          day: upcoming.day,
+          queue: upcoming.queue_number,
+          treatment: upcoming.treatment_name || '',
+          ahead: livePos.ahead,
+          etaMinutes: livePos.etaMinutes,
+        }),
+        lang,
+        action: 'appointment_info',
+        appointment: upcoming,
+      };
+    }
+
+    // 1b. Active pre-visit intake conversation
+    const activePending = getPending(phone);
+    if (activePending && String(activePending.step || '').startsWith('intake_')) {
+      const intakeReply = handleIntakeState({ phone, text, lang, pending: activePending });
+      if (intakeReply) return intakeReply;
+    }
+
+    // 1c. Keyword trigger ("fiche", "معلومات", "وزن")
+    if (detection.intent === 'intake') {
+      if (!registered) {
+        setPending(phone, { step: 'await_full_name', lang });
+        return { reply: reply(lang, 'welcomeAskName'), lang, action: 'no_appointment' };
+      }
+      const upcoming = appointments.upcomingForPatient(patient.id);
+      const isChild = intake.detectChildContext(patient);
+      setPending(phone, {
+        step: 'intake_consent',
+        patientId: patient.id,
+        appointmentId: upcoming ? upcoming.id : null,
+        isChild,
+        lang,
+      });
+      return {
+        reply: reply(lang, 'intakeInvite'),
+        lang,
+        action: 'intake_invite',
+      };
+    }
+
+    // License guard before new bookings
+    const licGuard = checkLicenseReply({ lang, nowMs });
+    if (licGuard) return licGuard;
+
+    // 2. Unregistered caller: enforce greeting vs. valid full-name gate
+    if (!registered) {
+      if (detection.intent === 'book' || detection.isGreeting) {
+        const cd = checkCooldownReply({ patient, phone, lang, nowMs });
+        if (cd) return cd;
+        setPending(phone, { step: 'await_full_name', lang });
+        return { reply: reply(lang, 'welcomeAskName'), lang, action: 'help' };
+      }
+
+      if (detection.intent === 'help' && !detection.isStopWord) {
+        setPending(phone, { step: 'await_full_name', lang });
+        return { reply: reply(lang, 'help'), lang, action: 'help' };
+      }
+
+      if (detection.intent === 'name') {
+        const cd = checkCooldownReply({ patient, phone, lang, nowMs });
+        if (cd) return cd;
+        clearPending(phone);
+        return finalizeBooking({
+          phone,
+          patientObj: patient,
+          name: detection.name,
+          lang,
+          delivery,
+          nowMs,
+        });
+      }
+
+      setPending(phone, { step: 'await_full_name', lang });
+      return {
+        reply: reply(lang, 'invalidName'),
+        lang,
+        action: 'unsupported',
+      };
+    }
+
+    // 3. Registered caller
+    if (detection.intent === 'help') {
+      clearPending(phone);
+      return { reply: reply(lang, 'help'), lang, action: 'help' };
+    }
+
+    if (detection.intent === 'name' || detection.intent === 'book') {
+      const cd = checkCooldownReply({ patient, phone, lang, nowMs });
+      if (cd) return cd;
+      return finalizeBooking({
+        phone,
+        patientObj: patient,
+        name: patient.full_name,
+        lang,
+        delivery,
+        nowMs,
+      });
+    }
+
+    return { reply: reply(lang, 'unsupported'), lang, action: 'unsupported' };
   } catch (error) {
     console.error('[bot] handling failed:', error.message);
     return { reply: reply(lang, 'error'), lang, action: 'error', error: error.message };
   }
 }
 
-/** Text used for the automatic reminder the day before. */
 function reminderText({ name, day, queue, lang = 'fr' }) {
   return message(lang, 'reminder', clinicSettings(), { name, day, queue });
 }
 
-module.exports = { handle, reminderText, forgetLanguage, preferredLanguage };
+function expirePendingForTest(phone) {
+  const key = langKey(phone);
+  if (!key) return;
+  const expiredAt = Date.now() - PENDING_TTL_MS - 1000;
+  const entry = pendingByPhone.get(key);
+  if (entry) entry.createdAt = expiredAt;
+  if (dbMod.isOpen()) {
+    try {
+      dbMod
+        .getDb()
+        .prepare('UPDATE bot_sessions SET updated_at = ? WHERE phone_key = ?')
+        .run(expiredAt, key);
+    } catch (_err) {
+      // Ignore
+    }
+  }
+}
+
+module.exports = {
+  handle,
+  getPending,
+  setPending,
+  clearPending,
+  reminderText,
+  forgetLanguage,
+  preferredLanguage,
+  expirePendingForTest,
+  PENDING_TTL_MS,
+  AWAIT_NAME_TTL_MS,
+};

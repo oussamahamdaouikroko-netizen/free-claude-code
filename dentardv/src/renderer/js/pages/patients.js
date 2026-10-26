@@ -87,13 +87,20 @@
                         'td',
                         {},
                         h(
-                          'button',
-                          {
-                            class: 'btn ghost sm',
-                            style: { padding: '0', fontWeight: '700', minHeight: 'auto' },
-                            onClick: () => window.openPatientFile(patient.id),
-                          },
-                          patient.full_name,
+                          'div',
+                          { class: 'row wrap', style: { gap: '6px' } },
+                          h(
+                            'button',
+                            {
+                              class: 'btn ghost sm',
+                              style: { padding: '0', fontWeight: '700', minHeight: 'auto' },
+                              onClick: () => window.openPatientFile(patient.id),
+                            },
+                            patient.full_name,
+                          ),
+                          patient.allergies
+                            ? h('span', { class: 'badge danger' }, t('patients.allergyTag', { v: patient.allergies }))
+                            : null,
                         ),
                       ),
                       h('td', {}, patient.phone || '—'),
@@ -108,6 +115,15 @@
                       h(
                         'td',
                         { class: 'actions' },
+                        h(
+                          'button',
+                          {
+                            class: 'btn icon sm',
+                            title: t('rx.newPrescription'),
+                            onClick: () => window.openPrescriptionComposer && window.openPrescriptionComposer(patient),
+                          },
+                          window.Icons ? window.Icons.el('prescription', { size: 15 }) : '℞',
+                        ),
                         h(
                           'button',
                           {

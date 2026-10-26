@@ -1,41 +1,39 @@
 'use strict';
 /**
  * Shared test helpers: throwaway databases and Windows-safe cleanup.
- *
- * On Windows, SQLite keeps the .sqlite/-wal/-shm files locked until the
- * connection is closed, so deleting a data folder needs retries.
  */
 
 const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs');
 const db = require('../src/main/db');
+const license = require('../src/main/services/license');
 
 function safeRemove(target) {
   try {
     fs.rmSync(target, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   } catch (error) {
-    // A leftover temp folder must never turn a green run red.
     console.warn(`[test] could not remove ${target}: ${error.code || error.message}`);
   }
 }
 
 function useTempDb() {
   db.closeAndReset();
-  const file = path.join(
-    os.tmpdir(),
-    `dentardv-test-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.sqlite`,
-  );
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `dentardv-test-${process.pid}-`));
+  const file = path.join(dir, 'dentardv.sqlite');
   db.open(file);
+  license.init({ dataDir: dir, demo: true });
   return {
     file,
+    dir,
     cleanup() {
+      license.stopPeriodicCheck();
       try {
         db.close();
-      } catch (error) {
+      } catch (_error) {
         /* already closed */
       }
-      for (const suffix of ['', '-wal', '-shm']) safeRemove(`${file}${suffix}`);
+      safeRemove(dir);
     },
   };
 }

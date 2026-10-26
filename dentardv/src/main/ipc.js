@@ -1,17 +1,17 @@
 'use strict';
 /**
- * Electron IPC bridge.
+ * Electron IPC bridge (DentaRDV v2.0.0).
  *
- * One channel (`dentardv:invoke`) with an action allowlist. Every sensitive
- * action goes through `auth.requireUnlocked()`, results are wrapped so the
- * preload can rebuild a clean Error with a translatable `code`.
+ * One channel (`dentardv:invoke`) with an action allowlist, unlock check,
+ * and license write-guard for Read-Only expiry mode.
  */
 
 const { ipcMain, dialog, shell, clipboard, BrowserWindow } = require('electron');
 const path = require('node:path');
 const auth = require('./services/auth');
+const license = require('./services/license');
 const backup = require('./services/backup');
-const { createHandlers, PUBLIC } = require('./handlers');
+const { createHandlers, PUBLIC, WRITE_GATED } = require('./handlers');
 const { AppError } = require('./utils/common');
 const { toISODate } = require('./utils/dates');
 
@@ -21,17 +21,18 @@ function registerIpc(context = {}) {
   const dataDir = context.dataDir || '';
 
   handlers = createHandlers({
-    version: context.version || '1.0.0',
+    version: context.version || '2.0.0',
     dataDir,
     logFile: context.logFile,
     demo: Boolean(context.demo),
     wa: context.wa,
+    autostart: context.autostart,
     onEvent: context.onEvent,
     printReceipt: context.printReceipt,
+    prescriptionHtml: context.prescriptionHtml,
+    certificateHtml: context.certificateHtml,
     dialogs: {
       openPath: (target) => shell.openPath(target),
-      // « Copier pour Google Sheets » : the renderer cannot touch the OS
-      // clipboard (sandboxed preload), so the main process does it.
       copyText: (text) => clipboard.writeText(String(text ?? '')),
       chooseBackup: async () => {
         const { canceled, filePaths } = await dialog.showOpenDialog({
@@ -43,8 +44,6 @@ function registerIpc(context = {}) {
         return { canceled, file: filePaths?.[0] };
       },
       saveExport: async (filename) => {
-        // The default folder must exist, otherwise Windows opens the dialog
-        // in an unrelated place (Documents, Desktop…).
         const exportsDir = path.join(dataDir, 'exports');
         require('node:fs').mkdirSync(exportsDir, { recursive: true });
         const { canceled, filePath } = await dialog.showSaveDialog({
@@ -70,6 +69,7 @@ function registerIpc(context = {}) {
       const handler = handlers[method];
       if (!handler) throw new AppError('UNKNOWN_METHOD', `Unknown method: ${method}`);
       if (!PUBLIC.has(method)) auth.requireUnlocked();
+      if (WRITE_GATED.has(method)) license.requireValidLicense();
       const data = await handler(payload || {});
       return { ok: true, data };
     } catch (error) {
@@ -85,7 +85,6 @@ function registerIpc(context = {}) {
   });
 }
 
-/** Reload every window after a restore. */
 function reloadWindows() {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) win.reload();

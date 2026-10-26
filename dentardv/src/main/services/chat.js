@@ -22,7 +22,11 @@ function clinicSettings() {
   return {
     clinic: settings.get('clinic_name'),
     phone: settings.get('clinic_phone'),
+    address: settings.get('clinic_address'),
+    doctor: settings.get('doctor_name'),
+    specialty: settings.get('doctor_specialty'),
     currency: settings.get('currency'),
+    darija: settings.getBool('bot_darija_mode'),
   };
 }
 
@@ -37,24 +41,6 @@ function getById(id) {
   return getDb().prepare('SELECT * FROM chat_events WHERE id = ?').get(id) || null;
 }
 
-/**
- * Record an appointment/queue message in the feed.
- * @param {{
- *   kind: 'booked'|'cancelled'|'turn_now'|'queue_ahead'|'incoming',
- *   direction?: 'in'|'out',
- *   patient_id?: number|null,
- *   appointment_id?: number|null,
- *   patient_name?: string|null,
- *   phone?: string|null,
- *   day?: string|null,
- *   queue_number?: number|null,
- *   ahead_count?: number|null,
- *   eta_minutes?: number|null,
- *   body: string,
- *   delivery?: 'local'|'queued'|'sent'|'failed',
- *   read?: boolean,
- * }} input
- */
 function record(input = {}) {
   const kind = VALID_KINDS.has(input.kind) ? input.kind : 'booked';
   const direction = input.direction === 'in' ? 'in' : 'out';
@@ -109,6 +95,7 @@ function recordBooked(appointment, options = {}) {
       name: appointment.full_name || '',
       day: appointment.day,
       queue: appointment.queue_number,
+      doctor: settings.get('doctor_name') || '',
     });
   return record({
     kind: 'booked',
@@ -149,16 +136,11 @@ function recordCancelled(appointment, options = {}) {
   });
 }
 
-/** Update delivery status after WhatsApp transmission finishes. */
 function setDelivery(id, delivery) {
   if (!id || !VALID_DELIVERY.has(delivery)) return;
   getDb().prepare('UPDATE chat_events SET delivery = ? WHERE id = ?').run(delivery, id);
 }
 
-/**
- * Return the feed for the Mini Chat window (chronological order, newest last).
- * @param {{ kind?: 'all'|'booked'|'cancelled'|'queue', limit?: number }} [filter]
- */
 function feed(filter = {}) {
   const db = getDb();
   const limit = Math.min(Math.max(Number(filter.limit) || 60, 1), 200);

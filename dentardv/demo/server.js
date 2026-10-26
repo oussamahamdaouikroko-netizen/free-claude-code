@@ -1,15 +1,8 @@
 'use strict';
 /**
- * Browser preview / development server.
- *
- * It serves the exact same renderer as Electron and exposes /api/invoke on top
- * of the exact same handlers + services. Use it to click through the UI
- * without building the Windows installer:
+ * Browser preview / development server (DentaRDV v2.0.0).
  *
  *   npm run demo   →   http://localhost:4173
- *
- * The demo database lives in demo/demo.sqlite and is seeded with sample data.
- * The demo password is 1234 (only for this local preview).
  */
 
 const http = require('node:http');
@@ -17,10 +10,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const db = require('../src/main/db');
 const auth = require('../src/main/services/auth');
+const license = require('../src/main/services/license');
 const backup = require('../src/main/services/backup');
-const appointments = require('../src/main/services/appointments');
-const settings = require('../src/main/services/settings');
-const { createHandlers, PUBLIC } = require('../src/main/handlers');
+const { createHandlers, PUBLIC, WRITE_GATED } = require('../src/main/handlers');
+const { prescriptionHtml, certificateHtml } = require('../src/main/print');
 const { AppError } = require('../src/main/utils/common');
 const { seedDemoData } = require('../src/main/db/demo-seed');
 
@@ -40,10 +33,6 @@ const MIME = {
   '.woff2': 'font/woff2',
 };
 
-/* ------------------------------- demo data -------------------------------- */
-
-/* --------------------------------- server --------------------------------- */
-
 function send(res, status, body, type = 'application/json; charset=utf-8') {
   res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store' });
   res.end(body);
@@ -60,7 +49,7 @@ function createServer() {
         let body = {};
         try {
           body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
-        } catch (error) {
+        } catch (_error) {
           return send(res, 400, JSON.stringify({ ok: false, error: { code: 'BAD_JSON' } }));
         }
         const { method, payload } = body;
@@ -68,6 +57,7 @@ function createServer() {
           const handler = handlers[method];
           if (!handler) throw new AppError('UNKNOWN_METHOD', method);
           if (!PUBLIC.has(method)) auth.requireUnlocked();
+          if (WRITE_GATED.has(method)) license.requireValidLicense();
           const data = await handler(payload || {});
           return send(res, 200, JSON.stringify({ ok: true, data }));
         } catch (error) {
@@ -100,10 +90,6 @@ function createServer() {
 
 let handlers = {};
 
-/**
- * Prepare the demo database + handlers and bind the HTTP server.
- * Exported so the renderer smoke test can spin up an isolated instance.
- */
 async function startDemo(options = {}) {
   const port = options.port ?? DEFAULT_PORT;
   const host = options.host ?? DEFAULT_HOST;
@@ -112,24 +98,22 @@ async function startDemo(options = {}) {
   fs.mkdirSync(dataDir, { recursive: true });
 
   db.open(dbFile);
+  license.init({ dataDir, demo: true });
   backup.init(dataDir);
   seedDemoData();
 
   handlers = createHandlers({
-    version: '1.0.0-demo',
+    version: '2.0.0-demo',
     dataDir,
     demo: true,
-    // No Baileys in the browser preview, and printing needs Electron.
     wa: null,
     printReceipt: null,
+    prescriptionHtml,
+    certificateHtml,
     dialogs: {
       openPath: () => {},
-      // No OS clipboard in a plain browser tab: the renderer falls back to
-      // navigator.clipboard, so this handler must simply not exist here.
       chooseBackup: async () => ({ canceled: true }),
       saveBackup: async () => ({ canceled: true }),
-      // The browser preview writes the spreadsheet next to the demo database,
-      // exactly where a real export would land in the clinic's data folder.
       saveExport: async (filename) => {
         const dir = path.join(dataDir, 'exports');
         fs.mkdirSync(dir, { recursive: true });
@@ -147,8 +131,6 @@ async function startDemo(options = {}) {
     server.listen(port, host, resolve);
   });
   const actualPort = server.address().port;
-  // Use the bound address, not "localhost": on Windows localhost resolves to
-  // IPv6 first while the server may only listen on IPv4.
   const displayHost = host === '0.0.0.0' || host === '::' ? 'localhost' : host;
   return {
     server,
@@ -157,6 +139,7 @@ async function startDemo(options = {}) {
     dataDir,
     dbFile,
     async stop() {
+      license.stopPeriodicCheck();
       await new Promise((resolve) => server.close(resolve));
       db.close();
     },

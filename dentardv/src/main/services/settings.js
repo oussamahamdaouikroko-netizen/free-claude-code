@@ -35,11 +35,15 @@ const VALIDATORS = {
   },
   clinic_phone: (v) => String(v ?? '').trim().slice(0, 40),
   clinic_address: (v) => String(v ?? '').trim().slice(0, 160),
+  doctor_name: (v) => String(v ?? '').trim().slice(0, 100),
+  doctor_specialty: (v) => String(v ?? '').trim().slice(0, 120) || 'Chirurgien-Dentiste',
+  doctor_ordre: (v) => String(v ?? '').trim().slice(0, 60),
   currency: (v) => String(v ?? 'DZD').trim().toUpperCase().slice(0, 8) || 'DZD',
   language: (v) => (v === 'ar' ? 'ar' : 'fr'),
   daily_capacity: (v) => String(clampInt(v, 1, 100, 10)),
   working_days: (v) => {
-    const days = String(v ?? '')
+    const raw = Array.isArray(v) ? v.join(',') : String(v ?? '');
+    const days = raw
       .split(',')
       .map((d) => Number.parseInt(d, 10))
       .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
@@ -53,12 +57,16 @@ const VALIDATORS = {
   queue_notify_enabled: (v) => String(asFlag(v)),
   bot_enabled: (v) => String(asFlag(v)),
   bot_language: (v) => (v === 'ar' ? 'ar' : 'fr'),
+  bot_darija_mode: (v) => String(asFlag(v)),
+  intake_enabled: (v) => String(asFlag(v)),
   reminder_enabled: (v) => String(asFlag(v)),
   reminder_hour: (v) => String(clampInt(v, 0, 23, 17)),
   send_min_delay_ms: (v) => String(clampInt(v, 1500, 60000, 4000)),
   send_max_delay_ms: (v) => String(clampInt(v, 2000, 120000, 9000)),
   max_replies_per_hour: (v) => String(clampInt(v, 1, 60, 8)),
   max_replies_per_day: (v) => String(clampInt(v, 1, 500, 120)),
+  autostart_enabled: (v) => String(asFlag(v)),
+  autostart_initialized: (v) => String(asFlag(v)),
   backup_enabled: (v) => String(asFlag(v)),
   backup_keep: (v) => String(clampInt(v, 1, 365, 30)),
   last_backup_at: (v) => String(v ?? '').slice(0, 40),

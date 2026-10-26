@@ -1,13 +1,14 @@
 'use strict';
 /**
- * DentaRDV - Electron main process.
+ * DentaRDV v2.0.0 - Electron main process.
  *
  * Boot order:
- *  1. open SQLite (creates + seeds on first run);
- *  2. start backup scheduler (one snapshot per day);
- *  3. register IPC handlers;
- *  4. show the dashboard window;
- *  5. reconnect WhatsApp if it was enabled last time.
+ *  1. open SQLite (creates + seeds on first run, migrates existing DB);
+ *  2. initialize offline Ed25519 licensing (7-day trial + activation code);
+ *  3. start backup scheduler + Windows autostart + system tray;
+ *  4. register IPC handlers;
+ *  5. show dashboard window (or start minimized to tray on `--hidden`);
+ *  6. reconnect WhatsApp if it was enabled last time.
  */
 
 const fs = require('node:fs');
@@ -16,23 +17,15 @@ const { app, BrowserWindow, Menu, shell, dialog } = require('electron');
 const db = require('./db');
 const log = require('./log');
 const auth = require('./services/auth');
+const license = require('./services/license');
 const settings = require('./services/settings');
 const backup = require('./services/backup');
+const autostart = require('./autostart');
+const { createTrayController } = require('./tray');
 const { registerIpc, reloadWindows } = require('./ipc');
-const { printDocument } = require('./print');
+const { printDocument, prescriptionHtml, certificateHtml } = require('./print');
 const { WhatsAppService } = require('./whatsapp/service');
 
-/**
- * Demo mode: the portable "DentaRDV-Demo.exe" handed to a dentist during a
- * sales visit. It seeds sample data, auto-unlocks, never touches a real clinic
- * database and cannot link WhatsApp (so a prospect never pairs their own
- * phone inside a demo).
- *
- * Detected from:
- *  - the DENTARDV_DEMO=1 environment variable (development), or
- *  - a `demo.mode` marker packed next to the executable by
- *    electron-builder.demo.yml.
- */
 function isDemoMode() {
   if (process.env.DENTARDV_DEMO === '1') return true;
   const markers = [path.dirname(app.getPath('exe'))];
@@ -40,24 +33,24 @@ function isDemoMode() {
   return markers.some((dir) => {
     try {
       return Boolean(dir) && fs.existsSync(path.join(dir, 'demo.mode'));
-    } catch (error) {
+    } catch (_error) {
       return false;
     }
   });
 }
 
 const DEMO = isDemoMode();
+const START_HIDDEN = process.argv.includes('--hidden') || process.argv.includes('--autostart');
 
-// Pin the data folder to %APPDATA%\DentaRDV (npm package name is lowercase).
-// The demo gets its own folder so a sales demo can never mix with real data.
 if (typeof app.setName === 'function') app.setName(DEMO ? 'DentaRDV-Demo' : 'DentaRDV');
 
 const isDev = !app.isPackaged;
 let mainWindow = null;
 let waService = null;
+let trayCtrl = null;
 let reminderTimer = null;
+let isQuitting = false;
 
-/** All clinic data lives in one folder, easy to copy / backup. */
 function resolveDataDir() {
   if (process.env.DENTARDV_DATA_DIR) return path.resolve(process.env.DENTARDV_DATA_DIR);
   return path.join(app.getPath('userData'), DEMO ? 'demo-data' : 'data');
@@ -67,6 +60,7 @@ function broadcastStatus(status) {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) win.webContents.send('dentardv:wa-status', status);
   }
+  if (trayCtrl) trayCtrl.update(status);
 }
 
 function broadcastEvent(event) {
@@ -75,10 +69,20 @@ function broadcastEvent(event) {
   }
 }
 
-function createWindow() {
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow({ showImmediately: true });
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function createWindow({ showImmediately = !START_HIDDEN } = {}) {
   const win = new BrowserWindow({
-    width: 1360,
-    height: 860,
+    width: 1380,
+    height: 880,
     minWidth: 1024,
     minHeight: 680,
     show: false,
@@ -94,16 +98,26 @@ function createWindow() {
     },
   });
 
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => {
+    if (showImmediately) win.show();
+  });
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 
-  // External links open in the real browser, never inside the app.
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
   win.webContents.on('will-navigate', (event, url) => {
     if (!url.startsWith('file://')) event.preventDefault();
+  });
+
+  // Minimize to Windows system tray on window close when tray is active
+  win.on('close', (event) => {
+    if (!isQuitting && !DEMO && trayCtrl && trayCtrl.isActive()) {
+      event.preventDefault();
+      win.hide();
+      trayCtrl.notifyMinimizedOnce();
+    }
   });
 
   if (isDev && process.env.DENTARDV_DEVTOOLS) win.webContents.openDevTools({ mode: 'detach' });
@@ -131,8 +145,6 @@ function boot() {
   const dataDir = resolveDataDir();
   const databaseFile = path.join(dataDir, 'dentardv.sqlite');
 
-  // Log before anything else: a failure to open the database must leave a
-  // trace inside the data folder (a packaged app has no console).
   log.init(path.join(dataDir, 'dentardv.log'));
   log.attachConsole();
   console.log('[boot] DentaRDV', app.getVersion(), '| electron', process.versions.electron);
@@ -141,14 +153,23 @@ function boot() {
   db.open(databaseFile);
   console.log('[db]', databaseFile);
 
+  license.init({
+    dataDir,
+    demo: DEMO,
+    onStatusChange: (status) => {
+      broadcastEvent({ type: 'license', payload: status });
+    },
+  });
+  license.startPeriodicCheck();
+
   if (DEMO) {
-    // Sample data + instant access: the dentist sees a working cabinet in
-    // 2 seconds, with nothing to configure.
     const { seedDemoData } = require('./db/demo-seed');
     seedDemoData();
     if (!auth.hasPassword()) auth.setup({ password: '1234', confirm: '1234' });
     auth.login('1234');
     console.log('[demo] demo mode active — data in', dataDir);
+  } else {
+    autostart.ensureDefaultInitialized({ isPackaged: app.isPackaged, execPath: process.execPath });
   }
 
   backup.init(dataDir, { restored: reloadWindows });
@@ -160,24 +181,48 @@ function boot() {
     onEvent: broadcastEvent,
   });
 
+  if (!DEMO) {
+    trayCtrl = createTrayController({
+      getLang: () => settings.get('language'),
+      onShowWindow: showMainWindow,
+      onStartBot: () => {
+        settings.set('bot_enabled', '1');
+        waService.start().catch((err) => console.error('[tray] start failed:', err.message));
+      },
+      onStopBot: () => {
+        settings.set('bot_enabled', '0');
+        waService.stop({ logout: false }).catch((err) => console.error('[tray] stop failed:', err.message));
+      },
+      onQuit: () => {
+        isQuitting = true;
+        app.quit();
+      },
+      getAutostartEnabled: () =>
+        autostart.getStatus({ isPackaged: app.isPackaged, execPath: process.execPath }).enabled,
+      setAutostartEnabled: (enabled) =>
+        autostart.setEnabled(enabled, { isPackaged: app.isPackaged, execPath: process.execPath }),
+    });
+    trayCtrl.init();
+  }
+
   registerIpc({
     version: app.getVersion(),
     dataDir,
     logFile: log.currentFile(),
     demo: DEMO,
     userData: app.getPath('userData'),
+    autostart: DEMO ? null : autostart,
     printReceipt: printDocument,
+    prescriptionHtml,
+    certificateHtml,
     onEvent: broadcastEvent,
-    // No WhatsApp pairing inside a demo build: the prospect must never link
-    // their own clinic phone to a throw-away installation.
     wa: DEMO ? null : waService,
   });
 
-  createWindow();
+  createWindow({ showImmediately: !START_HIDDEN });
   Menu.setApplicationMenu(null);
   startReminderScheduler();
 
-  // Reconnect the bot automatically if the clinic left it enabled.
   if (!DEMO && settings.getBool('bot_enabled')) {
     setTimeout(() => {
       waService.start().catch((error) => console.error('[wa] autostart failed:', error.message));
@@ -185,17 +230,12 @@ function boot() {
   }
 }
 
-// One clinic, one instance: two windows writing the same SQLite file would
-// duplicate queue numbers.
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-    }
+    showMainWindow();
   });
 
   app.whenReady().then(() => {
@@ -211,17 +251,22 @@ if (!gotLock) {
     }
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      showMainWindow();
     });
   });
 
   app.on('window-all-closed', () => {
-    app.quit();
+    if (!trayCtrl || !trayCtrl.isActive()) {
+      app.quit();
+    }
   });
 
   app.on('before-quit', () => {
+    isQuitting = true;
     if (reminderTimer) clearInterval(reminderTimer);
+    license.stopPeriodicCheck();
     backup.stopScheduler();
+    if (trayCtrl) trayCtrl.destroy();
     if (waService) waService.stop().catch(() => {});
     try {
       db.close();

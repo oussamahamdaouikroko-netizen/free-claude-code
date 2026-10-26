@@ -24,6 +24,13 @@ files:
   - "!**/README*"
   - "!**/.github/**"
   - "!**/test/**"
+  - "!tools/**"
+  - "!**/*keygen*"
+  - "!**/*Keygen*"
+  - "!**/*.pem"
+  - "!**/*.key"
+  - "!**/*private*key*"
+  - "!**/issued_licenses.csv"
 
 # The marker that switches the app into demo mode (see src/main/index.js).
 extraFiles:

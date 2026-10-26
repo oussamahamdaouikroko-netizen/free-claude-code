@@ -24,6 +24,35 @@ paiements, dépenses, rapports et réservation automatique par WhatsApp.
   technique (version, erreurs, WhatsApp) — il suffit de l'envoyer au support.
   Son chemin exact est affiché dans **Réglages → À propos**.
 
+### Nouveautés 2.0.0 — Édition Chirurgien-Dentiste Complète
+
+- **Ordonnances Dentaires (`Ordonnances` A4 / A5 + QR de vérification)** :
+  rédaction rapide avec dent/secteur FDI (`11–48`, arcades, dents de sagesse),
+  modes d'affichage *Marque + DCI*, *Marque seule* ou *DCI seule*, mention
+  *Non substituable*, conseils post-opératoires et radiographies dentaires
+  (*Panoramique OPT*, *CBCT 3D*, *Rétro-alvéolaire*).
+- **Catalogue Médicamenteux 100% Dédié aux Chirurgiens-Dentistes** :
+  plus de 620 spécialités et génériques bucco-dentaires algériens filtrés
+  exclusivement pour l'odonto-stomatologie (antibiotiques dentaires, antalgiques,
+  AINS & corticoïdes, bains de bouche & gels buccaux, antifongiques/antiviraux
+  buccaux, anesthésiques locaux & hémostatiques, gastroprotection IPP), avec
+  recherche bilingue FR/AR, équivalents génériques et 7 protocoles dentaires prêts.
+- **Sécurité Clinique & Calculateur Pédiatrique (`mg/kg/j`)** :
+  détection en temps réel des allergies croisées (Pénicillines, AINS…),
+  interactions médicamenteuses, doublons de molécule et calcul automatique des
+  suspensions pédiatriques (*Amoxicilline*, *Augmentin*, *Paracétamol*).
+- **Certificats Médicaux Dentaires** : *Arrêt de travail*, *Certificat
+  bucco-dentaire*, *Certificat scolaire* et *Certificat général* avec QR signé.
+- **WhatsApp Intelligent v2 (FR / AR / Darija)** :
+  distinction salutations vs nom complet, sessions persistantes, confirmation
+  en 2 étapes avant annulation + délai anti-abus de 30 min, confirmation de
+  présence (`CONFIRMER` / `تأكيد`), questionnaire pré-visite optionnel conforme
+  à la **Loi 18-07** (*Âge*, *Poids* et *motif dentaire*), reconnexion
+  automatique exponentielle et icône dans la barre des tâches Windows.
+- **Essai Gratuit 7 Jours & Activation Hors-Ligne** :
+  clé d'activation cryptographique Ed25519 liée au poste, 100% sans Internet,
+  avec passage en *Mode Lecture Seule* à l'expiration (aucune perte de données).
+
 ### Nouveautés 1.2.0
 
 - **Mini-chat intégré (`Messages & File`)** : fenêtre flottante dans le coin de

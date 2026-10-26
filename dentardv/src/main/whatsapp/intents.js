@@ -1,14 +1,99 @@
 'use strict';
 /**
- * Intent detection for incoming WhatsApp messages.
+ * Intent detection, greeting detection, and person-name validation for
+ * incoming WhatsApp messages (DentaRDV v2.0.0).
  *
- * Kept 100% pure (no DB, no network) so it can be unit-tested. Arabic is
- * normalized first: diacritics removed, letter variants unified, so "إلغاء",
- * "الغاء" and "لغاء" all match the same keyword list.
+ * Kept 100% pure (no DB, no network) so it can be unit-tested independently.
  */
 
-/** Arabic diacritics + tatweel. */
+const NAME_RULES = {
+  MIN_WORDS: 2,
+  MAX_WORDS: 5,
+  MIN_WORD_LENGTH: 2,
+  MAX_WORD_LENGTH: 20,
+  MAX_TOTAL_LENGTH: 60,
+  EXAMPLE_AR: 'أسامة حمداوي',
+  EXAMPLE_FR: 'Oussama Hamdaoui',
+};
+
+const GREETING_START_WORDS = new Set([
+  'السلام',
+  'سلام',
+  'مرحبا',
+  'اهلا',
+  'هلا',
+  'صباح',
+  'مساء',
+  'hello',
+  'hi',
+  'hey',
+  'salut',
+  'bonjour',
+  'bonsoir',
+  '/start',
+]);
+
+const GREETING_PHRASE_PREFIXES = [
+  'وعليكم السلام',
+  'عسلامه',
+  'يا مرحبا',
+  'يا هلا',
+  'يا اهلا',
+  'as salam',
+  'assalam alikoum',
+  'salam alikoum',
+  'salam aleykoum',
+];
+
+const GREETING_EXACT_SET = new Set([
+  ...GREETING_START_WORDS,
+  'اهلين',
+  'سهلا',
+  'اهلا وسهلا',
+  'مرحبا بك',
+  'مرحبا بكم',
+  'السلام عليكم',
+  'سلام عليكم',
+  'صباح الخير',
+  'صباح النور',
+  'مساء الخير',
+  'مساء النور',
+  'عسلامه',
+  'صحا',
+  'صحيت',
+  'ابدا',
+  'start',
+  'bjr',
+  'bj',
+  'bsr',
+  'slt',
+  'cc',
+  'coucou',
+  'salam',
+  'slm',
+  'saha',
+  'marhba',
+  'marhaba',
+  'ahlan',
+]);
+
+const NON_NAME_WORDS = new Set([
+  'نعم', 'لا', 'اوكي', 'اوك', 'شكرا', 'ابدا', 'تمام', 'حسنا', 'صافي',
+  'موعد', 'موعدي', 'مواعيد', 'حجز', 'احجز', 'نحجز', 'الغاء', 'الغي', 'تاكيد',
+  'عياده', 'طبيب', 'دكتور', 'ضرس', 'اسنان', 'خلع', 'استماره', 'معلومات', 'ملفي',
+  'اريد', 'بغيت', 'نحب', 'ممكن', 'هل', 'كيف', 'كيفاش', 'متي', 'وقتاش', 'وين', 'اين',
+  'بكم', 'شحال', 'سعر', 'اسمي', 'مساعده',
+  'ok', 'oui', 'non', 'si', 'yes', 'no', 'merci', 'thanks', 'daccord',
+  'start', 'help', 'aide', 'menu', 'info', 'information',
+  'rdv', 'rendez', 'reserver', 'reservation', 'annuler', 'annule', 'cancel', 'confirmer', 'confirm',
+  'svp', 'stp', 'docteur', 'dentiste', 'cabinet', 'clinique', 'combien', 'prix', 'tarif', 'quand', 'comment',
+]);
+
 const AR_DIACRITICS = /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g;
+
+const ALLOWED_LETTERS = 'A-Za-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u024F\\u0621-\\u063A\\u0641-\\u064A\\u0671-\\u06D3\\u06D5';
+const VALID_NAME_WORD_RE = new RegExp(`^[${ALLOWED_LETTERS}]+(?:[-'][${ALLOWED_LETTERS}]+)*$`);
+const URL_LIKE_RE = /(?:https?:\/\/|www\.|\b[a-z0-9-]+\.(?:com|net|org|dz|fr|io|me|co|ly|info|app)\b)/i;
 
 function normalize(text) {
   return String(text ?? '')
@@ -25,9 +110,71 @@ function normalize(text) {
     .trim();
 }
 
+function normalizeGreeting(text) {
+  return String(text ?? '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(AR_DIACRITICS, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/[^\p{L}\p{N}\s/]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isGreeting(rawText) {
+  const trimmed = String(rawText ?? '').trim();
+  if (!trimmed) return false;
+  if (/^\/start(?:\s|$|@)/i.test(trimmed)) return true;
+
+  const norm = normalizeGreeting(trimmed);
+  if (!norm) return false;
+  const collapsed = norm.replace(/(.)\1{2,}/gu, '$1');
+
+  if (GREETING_EXACT_SET.has(norm) || GREETING_EXACT_SET.has(collapsed)) return true;
+  if (GREETING_PHRASE_PREFIXES.some((p) => norm === p || norm.startsWith(`${p} `))) return true;
+
+  const firstWord = norm.split(' ')[0];
+  const firstCollapsed = collapsed.split(' ')[0];
+  if (GREETING_START_WORDS.has(firstWord) || GREETING_START_WORDS.has(firstCollapsed)) return true;
+
+  return false;
+}
+
+function cleanPersonName(rawText) {
+  return String(rawText ?? '')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(AR_DIACRITICS, '')
+    .replace(/[ \t\u00A0]+/g, ' ')
+    .trim();
+}
+
+function formatPersonName(cleanedName) {
+  return cleanedName
+    .split(' ')
+    .map((word) => {
+      if (!/[A-Za-z\u00C0-\u024F]/.test(word)) return word;
+      return word
+        .split(/([-'])/)
+        .map((seg) => {
+          if (seg === '-' || seg === "'") return seg;
+          if (!seg) return seg;
+          return seg.charAt(0).toUpperCase() + seg.slice(1).toLowerCase();
+        })
+        .join('');
+    })
+    .join(' ');
+}
+
 const CANCEL_WORDS = [
   'annuler', 'annule', 'annulation', 'annulez', 'cancel', 'supprimer', 'effacer',
   'الغاء', 'الغي', 'الغاء الموعد', 'الغاء الحجز', 'نلغي', 'لغي', 'لالغاء', 'الغي الموعد',
+];
+
+const CONFIRM_WORDS = [
+  'confirmer', 'confirme', 'confirmation', 'confirm',
+  'تاكيد', 'اكد', 'ماكد', 'مءكد', 'تاكيد الموعد',
 ];
 
 const MY_APPOINTMENT_WORDS = [
@@ -38,25 +185,71 @@ const MY_APPOINTMENT_WORDS = [
 ];
 
 const HELP_WORDS = [
-  'aide', 'help', 'menu', 'info', 'information', 'bonjour', 'salut', 'bjr', 'bj',
-  'bonsoir', 'cc', 'salam', 'salam alikoum', 'salam aleykoum', 'as salam alikoum',
-  'saha', 'marhba', 'مرحبا', 'اهلا', 'سلام', 'السلام عليكم', 'صباح الخير', 'مساء الخير',
+  'aide', 'help', 'menu', 'info', 'information', '/help', '/menu',
   'مساعدة', 'مساعده', 'كيفاش', 'كيف',
 ];
 
-/** Short acknowledgements must never be mistaken for a patient name. */
+const INTAKE_WORDS = [
+  'fiche', 'ma fiche', 'fiche dentaire', 'pre consultation', 'preconsultation', 'poids',
+  'معلومات', 'معلوماتي', 'وزن', 'الوزن', 'استماره', 'ملفي', 'ملف طبي',
+];
+
+const BOOK_WORDS = [
+  '/book', 'book', 'reserver', 'prendre rdv', 'prendre rendez vous', 'nouveau rdv',
+  'حجز', 'حجز موعد', 'حجز جديد', 'اريد حجز', 'اريد موعد', 'نحجز',
+];
+
 const STOP_WORDS = new Set([
   'ok', 'oui', 'non', 'si', 'merci', 'daccord', 'd accord', 'bon', 'bien', 'yes', 'no',
   'شكرا', 'نعم', 'لا', 'اوكي', 'اوك', 'حسنا', 'تمام', 'بارك الله فيك', 'صافي',
 ]);
 
-/**
- * @param {string} rawText
- * @param {{currentLanguage?: 'fr'|'ar'}} [options]
- * @returns {{intent:'cancel'|'my_appointment'|'help'|'name'|'unsupported',
- *            text:string, isArabic:boolean, language:'fr'|'ar', name?:string}}
- */
-function detect(rawText, options = {}) {
+function validatePersonName(rawText, ruleOverrides = {}) {
+  const rules = { ...NAME_RULES, ...ruleOverrides };
+  if (typeof rawText !== 'string') return { valid: false, reason: 'empty' };
+  if (/[\r\n\u2028\u2029]/.test(rawText)) return { valid: false, reason: 'multiline' };
+
+  const cleaned = cleanPersonName(rawText);
+  if (!cleaned) return { valid: false, reason: 'empty' };
+  if (cleaned.length > rules.MAX_TOTAL_LENGTH) return { valid: false, reason: 'too_long' };
+  if (URL_LIKE_RE.test(rawText) || URL_LIKE_RE.test(cleaned)) return { valid: false, reason: 'url' };
+  if (/\p{N}/u.test(cleaned)) return { valid: false, reason: 'digits' };
+  if (isGreeting(rawText)) return { valid: false, reason: 'greeting' };
+
+  const normPhrase = normalize(rawText);
+  if (
+    STOP_WORDS.has(normPhrase) ||
+    HELP_WORDS.includes(normPhrase) ||
+    CANCEL_WORDS.some((w) => normPhrase === w || normPhrase.startsWith(`${w} `)) ||
+    CONFIRM_WORDS.some((w) => normPhrase === w || normPhrase.startsWith(`${w} `)) ||
+    MY_APPOINTMENT_WORDS.some((w) => normPhrase === w || normPhrase.startsWith(`${w} `)) ||
+    INTAKE_WORDS.some((w) => normPhrase === w || normPhrase.startsWith(`${w} `))
+  ) {
+    return { valid: false, reason: 'common_word' };
+  }
+
+  const words = cleaned.split(' ');
+  if (words.length < rules.MIN_WORDS || words.length > rules.MAX_WORDS) {
+    return { valid: false, reason: 'word_count' };
+  }
+
+  for (const word of words) {
+    if (word.length < rules.MIN_WORD_LENGTH || word.length > rules.MAX_WORD_LENGTH) {
+      return { valid: false, reason: 'word_length' };
+    }
+    if (!VALID_NAME_WORD_RE.test(word)) {
+      return { valid: false, reason: 'invalid_chars' };
+    }
+    const wordNorm = normalizeGreeting(word);
+    if (NON_NAME_WORDS.has(wordNorm)) {
+      return { valid: false, reason: 'common_word' };
+    }
+  }
+
+  return { valid: true, name: formatPersonName(cleaned) };
+}
+
+function detect(rawText) {
   const original = String(rawText ?? '').trim();
   const normalized = normalize(original);
   const arabicChars = (original.match(/[\u0600-\u06FF]/g) || []).length;
@@ -64,41 +257,63 @@ function detect(rawText, options = {}) {
   const isArabic = arabicChars > latinChars;
   const language = isArabic ? 'ar' : 'fr';
 
+  if (isGreeting(original)) {
+    return { intent: 'help', isGreeting: true, text: original, isArabic, language };
+  }
   if (!normalized) return { intent: 'unsupported', text: original, isArabic, language };
 
   if (CANCEL_WORDS.some((word) => normalized === word || normalized.startsWith(`${word} `))) {
     return { intent: 'cancel', text: original, isArabic, language };
   }
+  if (CONFIRM_WORDS.some((word) => normalized === word || normalized.startsWith(`${word} `))) {
+    return { intent: 'confirm', text: original, isArabic, language };
+  }
   if (MY_APPOINTMENT_WORDS.some((word) => normalized === word || normalized.startsWith(`${word} `))) {
     return { intent: 'my_appointment', text: original, isArabic, language };
+  }
+  if (INTAKE_WORDS.some((word) => normalized === word || normalized.startsWith(`${word} `))) {
+    return { intent: 'intake', text: original, isArabic, language };
+  }
+  if (BOOK_WORDS.some((word) => normalized === word || normalized.startsWith(`${word} `))) {
+    return { intent: 'book', text: original, isArabic, language };
   }
   if (HELP_WORDS.some((word) => normalized === word)) {
     return { intent: 'help', text: original, isArabic, language };
   }
   if (STOP_WORDS.has(normalized)) {
-    return { intent: 'help', text: original, isArabic, language };
+    return { intent: 'help', isStopWord: true, text: original, isArabic, language };
   }
 
-  // Anything else that looks like a human name becomes a booking request.
-  const letters = (original.match(/\p{L}/gu) || []).length;
-  const hasDigits = /\d{4,}/.test(original);
-  if (letters >= 2 && letters <= 80 && !hasDigits) {
+  const nameCheck = validatePersonName(rawText);
+  if (nameCheck.valid) {
     return {
       intent: 'name',
       text: original,
       isArabic,
       language,
-      name: original.replace(/\s+/g, ' ').trim().slice(0, 80),
+      name: nameCheck.name,
     };
   }
   return { intent: 'unsupported', text: original, isArabic, language };
 }
 
 module.exports = {
+  NAME_RULES,
+  GREETING_START_WORDS,
+  GREETING_EXACT_SET,
+  NON_NAME_WORDS,
   normalize,
+  normalizeGreeting,
+  isGreeting,
+  cleanPersonName,
+  formatPersonName,
+  validatePersonName,
   detect,
   CANCEL_WORDS,
+  CONFIRM_WORDS,
   MY_APPOINTMENT_WORDS,
+  INTAKE_WORDS,
+  BOOK_WORDS,
   HELP_WORDS,
   STOP_WORDS,
 };

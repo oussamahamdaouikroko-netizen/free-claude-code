@@ -16,6 +16,8 @@ llama_cache
 # Developer-only licensing tools & private keys (never commit to repo)
 tools/license_keygen*
 medirdv/tools/
+dentardv/tools/
+*Keygen*.html
 *.pem
 *.key
 *private*key*

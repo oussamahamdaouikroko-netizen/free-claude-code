@@ -26,10 +26,30 @@
 
   async function invoke(method, payload) {
     try {
-      if (hasElectron) return await window.dentardv.invoke(method, payload);
+      if (hasElectron) {
+        if (typeof window.dentardv.invokeRaw === 'function') {
+          const result = await window.dentardv.invokeRaw(method, payload);
+          if (!result || result.ok !== true) {
+            const info = (result && result.error) || { code: 'INTERNAL_ERROR', message: 'Unknown error' };
+            const error = new Error(info.message || info.code);
+            error.code = info.code;
+            error.details = info.details;
+            if (info.code === 'LOCKED') window.dispatchEvent(new CustomEvent('session-locked'));
+            if (info.code === 'LICENSE_EXPIRED' || info.code === 'LICENSE_REQUIRED') {
+              window.dispatchEvent(new CustomEvent('license-expired'));
+            }
+            throw error;
+          }
+          return result.data;
+        }
+        return await window.dentardv.invoke(method, payload);
+      }
       return await httpInvoke(method, payload);
     } catch (error) {
       if (error.code === 'LOCKED') window.dispatchEvent(new CustomEvent('session-locked'));
+      if (error.code === 'LICENSE_EXPIRED' || error.code === 'LICENSE_REQUIRED') {
+        window.dispatchEvent(new CustomEvent('license-expired'));
+      }
       throw error;
     }
   }

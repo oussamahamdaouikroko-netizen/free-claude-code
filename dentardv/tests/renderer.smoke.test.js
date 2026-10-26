@@ -68,14 +68,14 @@ test('the full UI boots and every screen renders', async (t) => {
 
   // Demo mode auto-unlocks, so we land on the dashboard.
   await waitFor(() => $('.sidebar'), { label: 'application shell' });
-  assert.equal($$('.nav-item').length, 8, 'all navigation entries are rendered');
+  assert.equal($$('.nav-item').length, 9, 'all navigation entries are rendered');
   await waitFor(() => $('.kpi'), { label: 'dashboard KPIs' });
   assert.ok($$('.kpi').length >= 4);
   assert.match($('.page-title').textContent, /Bonjour|مرحبا/);
   assert.ok($('.appt'), 'seeded agenda is visible');
 
-  // Visit every screen and check that its header is set and no crash happened.
-  const screens = ['agenda', 'patients', 'treatments', 'expenses', 'reports', 'whatsapp', 'settings', 'dashboard'];
+  // Visit every screen (including the new Dental Prescriptions page) and check that its header is set and no crash happened.
+  const screens = ['agenda', 'patients', 'prescriptions', 'treatments', 'expenses', 'reports', 'whatsapp', 'settings', 'dashboard'];
   for (const screen of screens) {
     const button = $(`[data-page="${screen}"]`);
     assert.ok(button, `nav button for ${screen}`);
@@ -118,7 +118,7 @@ test('the full UI boots and every screen renders', async (t) => {
   });
 
   // Navigation uses real SVG icons, not emoji.
-  assert.equal($$('.nav-item svg').length, 8, 'one icon per navigation entry');
+  assert.equal($$('.nav-item svg').length, 9, 'one icon per navigation entry');
   assert.doesNotMatch($$('.nav-item .label').map((node) => node.textContent).join(''), /[\u{1F300}-\u{1FAFF}]/u);
 
   // Reports: daily then monthly, with the Google Sheets export card.

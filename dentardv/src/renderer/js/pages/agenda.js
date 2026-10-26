@@ -72,6 +72,24 @@
           'button',
           {
             class: 'btn icon sm',
+            title: t('rx.newPrescription'),
+            onClick: () => {
+              if (window.openPrescriptionComposer) {
+                window.openPrescriptionComposer({
+                  id: appointment.patient_id,
+                  full_name: appointment.full_name,
+                  allergies: appointment.allergies || '',
+                  chronic_conditions: appointment.chronic_conditions || '',
+                });
+              }
+            },
+          },
+          window.Icons ? window.Icons.el('prescription', { size: 15 }) : '℞',
+        ),
+        h(
+          'button',
+          {
+            class: 'btn icon sm',
             title: t('agenda.addPayment'),
             onClick: () =>
               window.Components.openPaymentModal({
@@ -101,6 +119,12 @@
     const badges = h(
       'div',
       { class: 'row wrap', style: { gap: '6px', justifyContent: 'flex-end' } },
+      appointment.confirmation_status === 'confirmed'
+        ? h('span', { class: 'badge ok' }, t('agenda.confirmedBadge'))
+        : null,
+      appointment.intake_id && (appointment.intake_status === 'pending' || appointment.intake_status === 'reviewed')
+        ? h('span', { class: 'badge warn' }, t('intake.pendingBadge'))
+        : null,
       window.Components.queueEtaBadge(appointment, appointment.day),
       statusBadge(appointment.status),
     );
