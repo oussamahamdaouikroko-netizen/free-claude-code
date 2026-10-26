@@ -39,7 +39,7 @@ function signTestCode({
   }
   const signedMessage = Buffer.concat([license.DOMAIN_PREFIX, payload]);
   const sig = crypto.sign(null, signedMessage, privateKey);
-  return license.formatLicenseGroups(license.encodeSafeBase32(Buffer.concat([payload, sig])));
+  return license.encodeSafeBase32(Buffer.concat([payload, sig]));
 }
 
 function createFakeRegRunner(initialRegValue = null) {
