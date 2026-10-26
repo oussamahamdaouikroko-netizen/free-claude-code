@@ -12,7 +12,14 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { useTempDb } = require('./helpers');
+const { useTempDb, safeRemove } = require('./helpers');
+
+async function waitForCount(list, expected, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs;
+  while (list.length < expected && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 15));
+  }
+}
 const nomenclature = require('../src/main/services/nomenclature');
 const prescriptions = require('../src/main/services/prescriptions');
 const patients = require('../src/main/services/patients');
@@ -52,7 +59,7 @@ test('v2.1.0 — WhatsApp queue-approaching alert & automatic removal + queue ad
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'medirdv-v21-wa-'));
   t.after(() => {
     ctx.cleanup();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    safeRemove(tmpDir);
   });
 
   const today = toISODate();
@@ -114,8 +121,8 @@ test('v2.1.0 — WhatsApp queue-approaching alert & automatic removal + queue ad
   assert.equal(completeRes.notifications[2].ahead_count, 2);
   assert.match(completeRes.notifications[2].body, /مريضان \(2\)/);
 
-  // Wait briefly for async notifyQueueAdvance
-  await new Promise((r) => setTimeout(r, 30));
+  // Wait deterministically for async notifyQueueAdvance (Windows timer tick is ~15.6ms)
+  await waitForCount(sentMessages, 3);
   assert.equal(sentMessages.length, 3, 'all 3 waiting patients received WhatsApp turn/approaching alerts');
 
   // 2. Now patient #3 (سليمة منصوري) sends "إلغاء" on WhatsApp -> receives confirmation prompt -> confirms "نعم"!
@@ -127,7 +134,7 @@ test('v2.1.0 — WhatsApp queue-approaching alert & automatic removal + queue ad
     messageTimestamp: Math.floor(Date.now() / 1000),
     message: { conversation: 'إلغاء' },
   });
-  await new Promise((r) => setTimeout(r, 30));
+  await waitForCount(sentMessages, 1);
   assert.equal(sentMessages.length, 1, 'confirmation prompt sent first without cancelling');
   assert.match(sentMessages[0].text, /هل أنت متأكد من إلغاء موعدك/);
 
@@ -139,7 +146,7 @@ test('v2.1.0 — WhatsApp queue-approaching alert & automatic removal + queue ad
     messageTimestamp: Math.floor(Date.now() / 1000),
     message: { conversation: 'نعم' },
   });
-  await new Promise((r) => setTimeout(r, 30));
+  await waitForCount(sentMessages, 2);
 
   // Verify instant appointment_changed event fired BEFORE message completion
   const instantIdx = events.findIndex((e) => e.type === 'appointment_changed' && e.payload?.action === 'cancelled');
