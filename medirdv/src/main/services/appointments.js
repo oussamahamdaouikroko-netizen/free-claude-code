@@ -530,11 +530,51 @@ function syncTreatmentName(treatmentId, nameFr) {
     .run(nameFr, treatmentId);
 }
 
-function setStatus(id, status) {
+function assertStatusTransitionAllowed(appointment, status, options = {}) {
+  const today = options.today || toISODate();
+  if (status === 'done' || status === 'no_show') {
+    if (diffDays(today, appointment.day) > 0) {
+      throw new AppError(
+        'APPOINTMENT_FUTURE_DAY',
+        'Cannot complete or mark absent a future appointment before its scheduled date',
+        { day: appointment.day, today },
+      );
+    }
+  }
+  if (status === 'done' && appointment.status !== 'done' && appointment.day === today) {
+    const dKey = deptKey(appointment.department_id);
+    const activeQueue = getDb()
+      .prepare(
+        `${AGENDA_SQL}
+         WHERE a.day = ? AND COALESCE(a.department_id, 0) = ? AND a.status = 'booked'
+         ORDER BY CASE WHEN a.priority = 'urgent' THEN 0 ELSE 1 END ASC,
+                  CASE WHEN a.slot_time <> '' THEN a.slot_time ELSE '99:99' END ASC,
+                  a.queue_number ASC`,
+      )
+      .all(today, dKey);
+    const firstBooked = activeQueue[0];
+    if (firstBooked && Number(firstBooked.id) !== Number(appointment.id)) {
+      throw new AppError(
+        'QUEUE_OUT_OF_TURN',
+        'Cannot complete an appointment ahead of earlier booked patients in today queue',
+        {
+          current_id: firstBooked.id,
+          current_name: firstBooked.full_name,
+          current_queue: firstBooked.queue_number,
+          requested_id: appointment.id,
+          requested_queue: appointment.queue_number,
+        },
+      );
+    }
+  }
+}
+
+function setStatus(id, status, options = {}) {
   if (!['booked', 'done', 'cancelled', 'no_show'].includes(status)) {
     throw new AppError('INVALID_STATUS');
   }
   const appointment = get(id);
+  assertStatusTransitionAllowed(appointment, status, options);
   getDb()
     .prepare('UPDATE appointments SET status = ?, updated_at = ? WHERE id = ?')
     .run(status, nowLocal(), appointment.id);
@@ -723,7 +763,7 @@ function queuePosition(appointment) {
  */
 function completeAndAdvance(id, options = {}) {
   const current = get(id);
-  const updated = setStatus(current.id, 'done');
+  const updated = setStatus(current.id, 'done', options);
   const today = options.today || toISODate();
   const avgMinutes = Math.max(5, settings.getInt('avg_session_minutes') || 15);
 
@@ -744,7 +784,9 @@ function completeAndAdvance(id, options = {}) {
     .prepare(
       `${AGENDA_SQL}
        WHERE a.day = ? AND COALESCE(a.department_id, 0) = ? AND a.status = 'booked'
-       ORDER BY a.queue_number ASC`,
+       ORDER BY CASE WHEN a.priority = 'urgent' THEN 0 ELSE 1 END ASC,
+                CASE WHEN a.slot_time <> '' THEN a.slot_time ELSE '99:99' END ASC,
+                a.queue_number ASC`,
     )
     .all(updated.day, dKey)
     .map(decorate);

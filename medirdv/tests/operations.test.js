@@ -110,8 +110,12 @@ test('Phase 8 — urgent priority, privacy-safe waiting-room board, WhatsApp CON
   assert.equal(waConfirm.action, 'confirmed');
   assert.equal(appointments.get(ap1.id).confirmation_status, 'confirmed');
 
-  // Mark ap3 as no_show and verify no-show statistics
-  appointments.setStatus(ap3.id, 'no_show');
+  // Before `day` arrives, marking no_show is blocked; once `day` arrives, no_show is recorded.
+  assert.throws(
+    () => appointments.setStatus(ap3.id, 'no_show'),
+    (e) => e.code === 'APPOINTMENT_FUTURE_DAY',
+  );
+  appointments.setStatus(ap3.id, 'no_show', { today: day });
   const stats = operations.noShowStats({ start: day, end: day });
   assert.equal(stats.total, 3);
   assert.equal(stats.no_show, 1);
@@ -148,7 +152,7 @@ test('Phase 8 — medical inventory alerts, auto-consumption per act, rooms/equi
   operations.setTreatmentConsumables(act.id, [{ item_id: syringes.id, qty_per_act: 2 }]);
 
   const pat = patients.create({ full_name: 'Farid Toumi', phone: '0559887766' });
-  const appt = appointments.create({ patient_id: pat.id, day: dates.addDays(today, 1), treatment_id: act.id });
+  const appt = appointments.create({ patient_id: pat.id, day: today, treatment_id: act.id });
   appointments.setStatus(appt.id, 'done');
 
   const alerts = operations.inventoryAlerts(today);

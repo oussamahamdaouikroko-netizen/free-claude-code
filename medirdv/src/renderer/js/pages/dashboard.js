@@ -24,15 +24,19 @@
     const actions = h('div', { class: 'row' });
 
     if (appointment.status === 'booked') {
+      const canCompleteNow = Boolean(appointment.is_current_turn);
       actions.append(
         h(
           'button',
           {
-            class: 'btn sm soft',
-            title: t('queue.finishAndCallNext'),
+            class: canCompleteNow ? 'btn sm soft' : 'btn sm ghost',
+            disabled: !canCompleteNow,
+            title: canCompleteNow ? t('queue.finishAndCallNext') : t('error.QUEUE_OUT_OF_TURN'),
             onClick: () => window.Components.completeAppointment(appointment, onChanged),
           },
-          '✓ ' + t('queue.finishTreatment'),
+          canCompleteNow
+            ? '✓ ' + t('queue.finishTreatment')
+            : '⏳ ' + t('patients.waitTurnBadge', { q: appointment.ahead_count || 1 }),
         ),
       );
     }

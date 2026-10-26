@@ -181,7 +181,8 @@ function createHandlers(context) {
     'dashboard:today': (payload) => dashboardToday(payload?.day, payload?.department_id),
 
     /* -------------------------------- patients ----------------------------- */
-    'patients:list': (payload) => patients.list(payload?.search, { limit: payload?.limit }),
+    'patients:list': (payload) => patients.list(payload?.search, { limit: payload?.limit, today: payload?.today }),
+    'patients:by-day': (payload) => patients.byDayGroups(payload || {}),
     'patients:get': (payload) => ({
       patient: patients.get(payload?.id),
       history: patients.history(payload?.id),

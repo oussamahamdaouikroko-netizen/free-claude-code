@@ -581,9 +581,45 @@
   };
 
   /* --------------------------- live clinic queue --------------------------- */
+  C.rescheduleDialog = function rescheduleDialog(appointment, onDone) {
+    const day = input({ type: 'date', value: appointment.day, min: todayISO() });
+    const error = h('div', { class: 'error-text' });
+    modal({
+      title: t('agenda.reschedule'),
+      body: h('div', { class: 'col' }, field(t('agenda.chooseDay'), day), error),
+      actions: [
+        { label: t('common.cancel'), kind: 'ghost' },
+        {
+          label: t('common.confirm'),
+          kind: 'primary',
+          onClick: async () => {
+            try {
+              await window.API.invoke('appointments:reschedule', { id: appointment.id, day: day.value });
+              toast(t('agenda.rescheduled'), 'ok');
+              if (onDone) onDone();
+            } catch (err) {
+              error.textContent = errorMessage(err);
+              return false;
+            }
+            return true;
+          },
+        },
+      ],
+    });
+  };
+
   C.completeAppointment = async function completeAppointment(appointment, onChanged) {
     try {
-      const isToday = appointment.day === todayISO();
+      const today = todayISO();
+      if (appointment.day > today) {
+        toast(t('error.APPOINTMENT_FUTURE_DAY'), 'error');
+        return;
+      }
+      const isToday = appointment.day === today;
+      if (isToday && appointment.is_current_turn === false) {
+        toast(t('error.QUEUE_OUT_OF_TURN'), 'error');
+        return;
+      }
       if (isToday) {
         const res = await window.API.invoke('appointments:complete', { id: appointment.id });
         if (window.MiniChat) window.MiniChat.refresh({ scrollBottom: true });
