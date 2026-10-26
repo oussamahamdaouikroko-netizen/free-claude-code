@@ -28,6 +28,7 @@ const subscribe = (channel, callback) => {
 
 contextBridge.exposeInMainWorld('medirdv', {
   invoke,
+  invokeRaw: (method, payload) => ipcRenderer.invoke('medirdv:invoke', method, payload),
   onWhatsAppStatus: (callback) => subscribe('medirdv:wa-status', callback),
   onEvent: (callback) => subscribe('medirdv:event', callback),
   platform: process.platform,

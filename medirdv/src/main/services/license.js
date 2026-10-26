@@ -68,8 +68,10 @@ const MESSAGES = {
   ar: {
     INVALID_CODE: 'كود التفعيل غير صالح. يرجى التأكد من صحة الكود.',
     MALFORMED_CODE: 'الكود المدخل تالف أو ناقص. يرجى نسخ الكود كاملاً وإعادة المحاولة.',
+    PASTED_MACHINE_ID:
+      'ما قمت بلصقه هو «بصمة الجهاز» وليس كود التفعيل! أرسل بصمة جهازك إلى أداة التوليد للحصول على كود التفعيل.',
     ALREADY_USED: 'تم استعمال هذا الكود مسبقاً.',
-    WRONG_MACHINE: 'هذا الكود لا يخص هذا الجهاز. يرجى إرسال بصمة هذا الجهاز للحصول على كود مطابق.',
+    WRONG_MACHINE: 'هذا الكود لا يخص هذا الجهاز. يرجى إصدار كود مطابق لبصمة هذا الجهاز الظاهرة أعلاه.',
     MACHINE_REQUIRED: 'هذا الكود غير مربوط ببصمة هذا الجهاز.',
     CODE_EXPIRED: 'انتهت صلاحية هذا الكود.',
     CLOCK_TAMPERED:
@@ -80,6 +82,8 @@ const MESSAGES = {
   fr: {
     INVALID_CODE: "Code d'activation invalide. Veuillez vérifier le code saisi.",
     MALFORMED_CODE: 'Le code saisi est incomplet ou endommagé. Veuillez coller le code complet.',
+    PASTED_MACHINE_ID:
+      "Vous avez collé l'empreinte de l'ordinateur au lieu du code d'activation.",
     ALREADY_USED: 'Ce code a déjà été utilisé.',
     WRONG_MACHINE: "Ce code n'appartient pas à cet ordinateur.",
     MACHINE_REQUIRED: "Ce code n'est pas lié à l'empreinte de cet ordinateur.",
@@ -100,10 +104,22 @@ function userMessage(code, lang = 'ar') {
 /*  Unambiguous Base Encoding (no 0/O/1/I/L) & Input Sanitization             */
 /* -------------------------------------------------------------------------- */
 
+const INVISIBLE_AND_WRAP_RE =
+  /[\u0000-\u001F\u007F-\u009F\u00AD\u061C\u200B-\u200F\u2028-\u202F\u205F-\u206F\uFEFF"'`*<>[\](){}]+/g;
+
 function cleanLicenseInput(raw) {
-  return String(raw ?? '')
-    .toUpperCase()
-    .replace(/[\s\-–—_]+/g, '');
+  const stripped = String(raw ?? '')
+    .replace(INVISIBLE_AND_WRAP_RE, ' ')
+    .toUpperCase();
+
+  // If the user pasted surrounding WhatsApp/chat/CLI text along with a grouped code
+  // (e.g. "كود التفعيل: DSHJV-227MJ-..."), extract the grouped Base32 token automatically.
+  const embeddedMatch = stripped.match(
+    /(?:[2-9A-HJ-KM-NP-Z]{5}[\s\-–—_]+){12,}[2-9A-HJ-KM-NP-Z]{1,5}/,
+  );
+  const target = embeddedMatch ? embeddedMatch[0] : stripped;
+
+  return target.replace(/[\s\-–—_]+/g, '');
 }
 
 function formatLicenseGroups(cleaned, groupSize = 5) {
@@ -262,6 +278,12 @@ function verifySignedLicenseCode(rawCode, { publicKeySpkiB64 = EMBEDDED_PUBLIC_K
   const cleaned = cleanLicenseInput(rawCode);
   if (!cleaned) {
     return { ok: false, errorCode: 'MALFORMED_CODE' };
+  }
+
+  // Helpful UX guard: if someone accidentally pasted their 16-hex-char Machine Fingerprint
+  // (`XXXX-XXXX-XXXX-XXXX`) into the Activation Code field, tell them explicitly!
+  if (/^[0-9A-F]{16}$/.test(cleaned)) {
+    return { ok: false, errorCode: 'PASTED_MACHINE_ID' };
   }
 
   const decoded = decodeSafeBase32(cleaned);

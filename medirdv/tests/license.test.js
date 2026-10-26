@@ -162,9 +162,12 @@ test('1 & 2 — Keypair generation (Node + Python CLI), 1M/6M/1Y code generation
           ],
           { encoding: 'utf8' },
         );
-        const codeMatch = out.match(/([2-9A-HJ-KM-NP-Z]{5}(?:-[2-9A-HJ-KM-NP-Z]{1,5}){10,})/);
+        const codeMatch = out.match(/((?:[2-9A-HJ-KM-NP-Z]{5}[\s-]+){12,}[2-9A-HJ-KM-NP-Z]{1,5})/);
         assert.ok(codeMatch, `Code generated for ${plan}`);
         generated[plan] = codeMatch[1];
+
+        // Even pasting the ENTIRE CLI output box (Arabic headers + borders + 3-line code) verifies cleanly!
+        assert.equal(license.verifySignedLicenseCode(out, { publicKeySpkiB64: pubB64 }).ok, true);
       }
 
       // Verify CSV ledger recorded all 3 issued licenses
@@ -257,8 +260,15 @@ test('3, 4 & 5 — Tampered/random codes rejected, short/empty/corrupt inputs ne
       );
     }
 
-    // Scenario 5: Valid code with lowercase, extra spaces, extra dashes, and newlines -> cleaned & accepted!
-    const messy = `  \n  ${code.toLowerCase().replace(/-/g, ' -- ')} \r\n `;
+    // Pasting the 16-char Machine Fingerprint by mistake gives a clear dedicated guidance message
+    assert.throws(
+      () => license.activate('A1B2-C3D4-E5F6-0718'),
+      (err) => err.code === 'PASTED_MACHINE_ID' && /بصمة الجهاز/.test(err.message),
+    );
+
+    // Scenario 5: Valid code with lowercase, extra spaces, RTL WhatsApp marks (\u200F, \u200E, \uFEFF),
+    // backticks, surrounding Arabic label, and newlines -> cleaned & accepted!
+    const messy = `\u200F\uFEFFتفضل كود التفعيل:\n \`${code.toLowerCase().replace(/-/g, ' -- ')}\`\u200E \r\n `;
     const res = license.activate(messy);
     assert.equal(res.valid, true);
     assert.equal(res.days_remaining, 30);

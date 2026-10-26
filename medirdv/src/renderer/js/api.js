@@ -26,6 +26,17 @@
 
   async function invoke(method, payload) {
     try {
+      if (hasElectron && typeof window.medirdv.invokeRaw === 'function') {
+        const result = await window.medirdv.invokeRaw(method, payload);
+        if (!result || result.ok !== true) {
+          const info = (result && result.error) || { code: 'INTERNAL_ERROR', message: 'Unknown error' };
+          const error = new Error(info.message || info.code);
+          error.code = info.code;
+          error.details = info.details;
+          throw error;
+        }
+        return result.data;
+      }
       if (hasElectron) return await window.medirdv.invoke(method, payload);
       return await httpInvoke(method, payload);
     } catch (error) {
