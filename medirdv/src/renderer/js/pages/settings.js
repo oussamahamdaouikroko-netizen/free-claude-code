@@ -245,6 +245,14 @@
         { value: 'fr', label: t('common.french') },
         { value: 'ar', label: t('common.arabic') },
       ], { value: settings.bot_language });
+      const chooseDayEnabled = input({ type: 'checkbox', checked: settings.bot_choose_day_enabled !== '0' });
+      const availableDaysCount = input({
+        type: 'number',
+        min: '3',
+        max: '14',
+        value: settings.bot_available_days_count || '7',
+        style: { maxWidth: '100px' },
+      });
       const reminderEnabled = input({ type: 'checkbox', checked: settings.reminder_enabled === '1' });
       const reminderHour = input({ type: 'number', min: '0', max: '23', value: settings.reminder_hour, style: { maxWidth: '100px' } });
       const minDelay = input({ type: 'number', min: '1500', max: '60000', step: '500', value: settings.send_min_delay_ms, style: { maxWidth: '140px' } });
@@ -278,6 +286,8 @@
             queue_notify_enabled: queueNotify.checked ? '1' : '0',
             working_days: [...working].sort().join(','),
             bot_language: botLanguage.value,
+            bot_choose_day_enabled: chooseDayEnabled.checked ? '1' : '0',
+            bot_available_days_count: availableDaysCount.value,
             reminder_enabled: reminderEnabled.checked ? '1' : '0',
             reminder_hour: reminderHour.value,
             send_min_delay_ms: minDelay.value,
@@ -631,6 +641,9 @@
           card(
             t('settings.whatsapp'),
             field(t('wa.botLanguage'), botLanguage),
+            switchRow(t('settings.chooseDayEnabled'), h('label', { class: 'switch' }, chooseDayEnabled, h('span', {}))),
+            h('div', { class: 'muted small' }, t('settings.chooseDayHint')),
+            field(t('settings.availableDaysCount'), availableDaysCount),
             switchRow(t('settings.reminderEnabled'), h('label', { class: 'switch' }, reminderEnabled, h('span', {}))),
             field(t('settings.reminderHour'), reminderHour),
             h('div', { class: 'muted small' }, t('settings.reminderNote')),

@@ -251,6 +251,9 @@ function createHandlers(context) {
     'appointments:agenda': (payload) => appointments.agenda(payload?.day, payload?.department_id),
     'appointments:day-info': (payload) => appointments.dayInfo(payload?.day, payload?.department_id),
     'appointments:next-free-day': (payload) => appointments.findNextFreeDay(payload || {}),
+    'appointments:available-days': (payload) => appointments.listAvailableDays(payload || {}),
+    'appointments:check-day': (payload) =>
+      appointments.checkDayAvailability(payload?.day, payload?.department_id, payload || {}),
     'appointments:range': (payload) => appointments.listRange(payload?.start, payload?.end),
     'appointments:create': (payload) => {
       const created = appointments.create(payload);

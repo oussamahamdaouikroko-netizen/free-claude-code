@@ -131,6 +131,167 @@ function findNextFreeDay(options = {}) {
   return null;
 }
 
+/** Optional holiday/closure row explaining why a specific day is closed. */
+function closureForDay(day, departmentId = null) {
+  try {
+    return operations.isClosedDay(day, departmentId || null);
+  } catch (_err) {
+    return null;
+  }
+}
+
+/**
+ * Compute real remaining places on `day` for `dept`, accounting for both
+ * `daily_capacity` and time-slot availability when `scheduling_mode === 'slots'`.
+ */
+function effectiveDayAvailability(day, dept = null) {
+  const dKey = dept ? dept.id : null;
+  const info = dayInfo(day, dKey);
+  if (!info.working) {
+    return { ...info, available: false, nextSlotTime: '' };
+  }
+  if (dept && dept.scheduling_mode === 'slots') {
+    const slotInfo = operations.availableSlots(day, dept.id);
+    const allSlots = Array.isArray(slotInfo?.slots) ? slotInfo.slots : [];
+    const freeSlots = allSlots.filter((s) => !s.booked);
+    const effectiveLeft = Math.min(info.left, freeSlots.length);
+    const effectiveCapacity =
+      allSlots.length > 0 ? Math.min(info.capacity, allSlots.length) : info.capacity;
+    return {
+      day,
+      department_id: dept.id,
+      capacity: effectiveCapacity,
+      used: info.used,
+      left: effectiveLeft,
+      working: true,
+      available: effectiveLeft > 0,
+      nextSlotTime: freeSlots[0]?.time || '',
+    };
+  }
+  return {
+    ...info,
+    available: info.left > 0,
+    nextSlotTime: '',
+  };
+}
+
+/**
+ * List bookable upcoming days dynamically from live SQLite appointments,
+ * working days, clinic closures/holidays, daily capacity, and time slots.
+ *
+ * @param {{departmentId?: number|null, fromDate?: string, allowSameDay?: boolean,
+ *          horizonDays?: number, offset?: number, limit?: number}} [options]
+ */
+function listAvailableDays(options = {}) {
+  const today = options.fromDate || toISODate();
+  const allowSameDay =
+    options.allowSameDay !== undefined
+      ? Boolean(options.allowSameDay)
+      : settings.getBool('allow_same_day_booking');
+  const horizon =
+    options.horizonDays !== undefined
+      ? Math.max(0, Number(options.horizonDays) || 0)
+      : settings.getInt('booking_horizon_days') || 45;
+  const dKey = deptKey(options.departmentId);
+  const dept = dKey ? departments.getOptional(dKey) : null;
+  const start = allowSameDay ? today : addDays(today, 1);
+
+  const allAvailable = [];
+  for (let d = 0; d <= horizon; d += 1) {
+    const candidate = addDays(start, d);
+    const avail = effectiveDayAvailability(candidate, dept);
+    if (!avail.available) continue;
+    allAvailable.push({
+      day: candidate,
+      department_id: dKey || null,
+      capacity: avail.capacity,
+      used: avail.used,
+      left: avail.left,
+      nextQueue: nextQueueNumber(candidate, dKey || null),
+      nextSlotTime: avail.nextSlotTime,
+    });
+  }
+
+  const defaultLimit = Math.max(1, settings.getInt('bot_available_days_count') || 7);
+  const pageLimit =
+    options.limit !== undefined && options.limit !== null
+      ? Math.max(1, Number(options.limit) || defaultLimit)
+      : defaultLimit;
+  const pageOffset = Math.max(0, Number(options.offset) || 0);
+  const days = allAvailable.slice(pageOffset, pageOffset + pageLimit);
+
+  return {
+    days,
+    totalAvailable: allAvailable.length,
+    offset: pageOffset,
+    limit: pageLimit,
+    hasMore: pageOffset + days.length < allAvailable.length,
+  };
+}
+
+/**
+ * Inspect whether a specific requested ISO date is bookable right now and, if
+ * not, return the exact reason ('past' | 'today_disabled' | 'beyond_horizon' |
+ * 'closed' | 'full' | 'invalid_date').
+ */
+function checkDayAvailability(day, departmentId = null, options = {}) {
+  if (!isValidISODate(day)) {
+    return { bookable: false, reason: 'invalid_date', day: String(day || '') };
+  }
+  const today = options.fromDate || toISODate();
+  const allowSameDay =
+    options.allowSameDay !== undefined
+      ? Boolean(options.allowSameDay)
+      : settings.getBool('allow_same_day_booking');
+  const horizon =
+    options.horizonDays !== undefined
+      ? Math.max(0, Number(options.horizonDays) || 0)
+      : settings.getInt('booking_horizon_days') || 45;
+
+  const delta = diffDays(today, day);
+  if (delta < 0) {
+    return { bookable: false, reason: 'past', day };
+  }
+  if (delta === 0 && !allowSameDay) {
+    return { bookable: false, reason: 'today_disabled', day };
+  }
+  const maxDelta = allowSameDay ? horizon : horizon + 1;
+  if (delta > maxDelta) {
+    return { bookable: false, reason: 'beyond_horizon', day, horizonDays: horizon };
+  }
+
+  const dKey = deptKey(departmentId);
+  const dept = dKey ? departments.getOptional(dKey) : null;
+  if (!departments.isWorkingDay(dKey || null, day)) {
+    const closure = closureForDay(day, dKey || null);
+    return { bookable: false, reason: 'closed', day, closure };
+  }
+
+  const avail = effectiveDayAvailability(day, dept);
+  if (!avail.available) {
+    return {
+      bookable: false,
+      reason: 'full',
+      day,
+      capacity: avail.capacity,
+      used: avail.used,
+      left: 0,
+    };
+  }
+
+  return {
+    bookable: true,
+    reason: 'ok',
+    day,
+    department_id: dKey || null,
+    capacity: avail.capacity,
+    used: avail.used,
+    left: avail.left,
+    nextQueue: nextQueueNumber(day, dKey || null),
+    nextSlotTime: avail.nextSlotTime,
+  };
+}
+
 function assertBookableDay(day, departmentId = null) {
   if (!isValidISODate(day)) throw new AppError('INVALID_DATE');
   const today = toISODate();
@@ -970,6 +1131,8 @@ module.exports = {
   usedCapacity,
   nextQueueNumber,
   findNextFreeDay,
+  listAvailableDays,
+  checkDayAvailability,
   create,
   get,
   reschedule,

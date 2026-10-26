@@ -6,7 +6,7 @@
  * (numbered department menu + department-specific doctor, room & instructions).
  */
 
-const { formatLong } = require('../utils/dates');
+const { formatLong, formatFR } = require('../utils/dates');
 
 const money = (value, currency = 'DZD') =>
   `${Number(value).toLocaleString('fr-DZ', { maximumFractionDigits: 2 })} ${currency}`;
@@ -57,6 +57,71 @@ function formatDepartmentList(departments = [], lang = 'fr', currency = 'DZD') {
     .join('\n');
 }
 
+function formatPlacesLeft(left, lang = 'fr') {
+  const n = Math.max(0, Math.round(Number(left) || 0));
+  if (lang === 'ar') {
+    if (n === 1) return 'مكان واحد متاح (1)';
+    if (n === 2) return 'مكانان متاحان (2)';
+    if (n >= 3 && n <= 10) return `${n} أماكن متاحة`;
+    return `${n} مكاناً متاحاً`;
+  }
+  return n === 1 ? '1 place disponible' : `${n} places disponibles`;
+}
+
+function formatAvailableDaysList(days = [], lang = 'fr') {
+  return days
+    .map((d, idx) => {
+      const slotPart = d.nextSlotTime ? ` · ⏰ ${d.nextSlotTime}` : '';
+      return (
+        `${idx + 1}. 📅 ${formatLong(d.day, lang)} (${formatFR(d.day)}) — ` +
+        `${formatPlacesLeft(d.left, lang)}${slotPart}`
+      );
+    })
+    .join('\n');
+}
+
+function formatUnavailableReason({ day, reason, closureLabel }, lang = 'fr') {
+  const dateText = day ? `${formatLong(day, lang)} (${formatFR(day)})` : '';
+  if (lang === 'ar') {
+    switch (reason) {
+      case 'full':
+        return `⚠️ عذراً، يوم ${dateText} ممتلئ بالكامل حسب الحجوزات الحالية.`;
+      case 'closed':
+        return (
+          `⚠️ عذراً، العيادة مغلقة يوم ${dateText}` +
+          (closureLabel ? ` (${closureLabel})` : ' (خارج أيام العمل)') +
+          `.`
+        );
+      case 'today_disabled':
+        return `⚠️ عذراً، الحجز لنفس اليوم مغلق حالياً. يرجى اختيار أحد الأيام القادمة المتاحة.`;
+      case 'past':
+        return `⚠️ عذراً، التاريخ المدخل (${dateText || day}) قد مضى.`;
+      case 'beyond_horizon':
+        return `⚠️ عذراً، التاريخ ${dateText} يقع خارج فترة الحجز المتاحة حالياً.`;
+      default:
+        return `⚠️ التاريخ المدخل غير صالح. يرجى اختيار رقم من القائمة أو كتابة التاريخ بصيغة يوم/شهر (مثلاً: 05/11).`;
+    }
+  }
+  switch (reason) {
+    case 'full':
+      return `⚠️ Désolé, la journée du ${dateText} est complète selon les réservations actuelles.`;
+    case 'closed':
+      return (
+        `⚠️ Désolé, le cabinet est fermé le ${dateText}` +
+        (closureLabel ? ` (${closureLabel})` : ' (hors jours ouvrables)') +
+        `.`
+      );
+    case 'today_disabled':
+      return `⚠️ Désolé, la réservation pour le jour même est fermée. Veuillez choisir l'une des prochaines dates disponibles.`;
+    case 'past':
+      return `⚠️ Désolé, la date saisie (${dateText || day}) est déjà passée.`;
+    case 'beyond_horizon':
+      return `⚠️ Désolé, la date du ${dateText} dépasse la période d'ouverture de l'agenda.`;
+    default:
+      return `⚠️ Date non valide. Veuillez envoyer un numéro de la liste ou saisir une date au format JJ/MM (ex : 05/11).`;
+  }
+}
+
 const t = {
   fr: {
     help: (s, { departments } = {}) =>
@@ -69,8 +134,9 @@ const t = {
           `Pour prendre un rendez-vous, envoyez votre nom complet (ou le numéro du service).\n\n`
         : `Pour prendre un rendez-vous, envoyez simplement votre nom complet (prénom et nom).\n\n`) +
       `Commandes :\n` +
-      `• ANNULER — annuler votre rendez-vous\n` +
-      `• MON RDV — consulter votre rendez-vous\n\n` +
+      `• JOURS DISPONIBLES — consulter les dates libres\n` +
+      `• MON RDV — consulter votre rendez-vous\n` +
+      `• ANNULER — annuler votre rendez-vous\n\n` +
       `Merci.`,
 
     askName: (s) =>
@@ -102,13 +168,45 @@ const t = {
       `Numéro de service invalide. Merci d'envoyer un numéro entre 1 et ${departments.length} :\n\n` +
       `${formatDepartmentList(departments, 'fr', s.currency)}`,
 
-    booked: (s, { name, day, queue, department, doctor, room, instructions }) =>
+    chooseDay: (_s, { name, department, days = [], hasMore = false }) =>
+      `📅 Bonjour${name ? ` ${name}` : ''}` +
+      (department ? ` (${department})` : '') +
+      `, veuillez choisir le jour et la date de votre rendez-vous parmi les disponibilités :\n\n` +
+      `${formatAvailableDaysList(days, 'fr')}\n\n` +
+      `👉 Répondez par le numéro du jour souhaité (1 à ${days.length}) ou écrivez une date (ex : ${days[0] ? formatFR(days[0].day).slice(0, 5) : '05/11'}).` +
+      (hasMore ? `\n🔄 Envoyez 0 ou PLUS pour afficher d'autres dates disponibles.` : ''),
+
+    dayUnavailable: (_s, { day, reason, closureLabel, department, days = [], hasMore = false }) =>
+      `${formatUnavailableReason({ day, reason, closureLabel }, 'fr')}\n\n` +
+      `📅 Dates disponibles${department ? ` (${department})` : ''} :\n` +
+      `${formatAvailableDaysList(days, 'fr')}\n\n` +
+      `👉 Répondez par un numéro entre 1 et ${days.length}` +
+      (hasMore ? ` (ou 0 pour plus de dates).` : `.`),
+
+    invalidDayChoice: (_s, { department, days = [], hasMore = false }) =>
+      `Choix non reconnu 🙏\n` +
+      `Merci d'envoyer un numéro entre 1 et ${days.length} (ou une date au format JJ/MM) pour choisir votre rendez-vous` +
+      (department ? ` (${department})` : '') +
+      ` :\n\n` +
+      `${formatAvailableDaysList(days, 'fr')}` +
+      (hasMore ? `\n\n🔄 Envoyez 0 ou PLUS pour voir les dates suivantes.` : ''),
+
+    availableDaysPreview: (s, { department, days = [], hasMore = false }) =>
+      `📅 Prochaines dates disponibles au ${s.clinic}` +
+      (department ? ` (${department})` : '') +
+      ` :\n\n` +
+      `${formatAvailableDaysList(days, 'fr')}` +
+      (hasMore ? `\n(et d'autres dates suivantes…)` : '') +
+      `\n\n✍️ Pour réserver l'une de ces dates, envoyez d'abord votre nom complet (exemple : Oussama Hamdaoui).`,
+
+    booked: (s, { name, day, queue, slotTime, department, doctor, room, instructions }) =>
       `✅ Rendez-vous confirmé\n\n` +
       `Patient : ${name}\n` +
       (department ? `Service : ${department}\n` : '') +
       (doctor ? `Médecin : ${doctor}\n` : '') +
       (room ? `Salle : ${room}\n` : '') +
       `Date : ${formatLong(day, 'fr')}\n` +
+      (slotTime ? `Horaire : ${slotTime}\n` : '') +
       `Numéro de passage : ${queue}\n` +
       (instructions ? `\n📌 Consignes : ${instructions}\n` : '') +
       `\n${s.clinic}` +
@@ -282,8 +380,9 @@ const t = {
           `لحجز موعد، أرسلوا اسمكم الكامل (أو رقم المصلحة المطلوبة).\n\n`
         : `لحجز موعد، أرسلوا اسمكم الكامل (الاسم واللقب).\n\n`) +
       `الأوامر:\n` +
-      `• إلغاء — لإلغاء الموعد\n` +
-      `• موعدي — لمعرفة موعدكم\n\n` +
+      `• الأيام المتاحة — لعرض الأيام والتواريخ الشاغرة\n` +
+      `• موعدي — لمعرفة موعدكم\n` +
+      `• إلغاء — لإلغاء الموعد\n\n` +
       `شكرا.`,
 
     askName: (s) =>
@@ -315,13 +414,45 @@ const t = {
       `رقم المصلحة غير صحيح. يرجى إرسال رقم بين 1 و ${departments.length}:\n\n` +
       `${formatDepartmentList(departments, 'ar', s.currency)}`,
 
-    booked: (s, { name, day, queue, department, doctor, room, instructions }) =>
+    chooseDay: (_s, { name, department, days = [], hasMore = false }) =>
+      `📅 مرحبا${name ? ` ${name}` : ''}` +
+      (department ? ` (${department})` : '') +
+      `، يرجى اختيار اليوم والتاريخ المناسب لحجز موعدكم من بين الأيام المتاحة:\n\n` +
+      `${formatAvailableDaysList(days, 'ar')}\n\n` +
+      `👉 أرسلوا رقم اليوم المطلوب (من 1 إلى ${days.length}) أو اكتبوا التاريخ (مثلاً: ${days[0] ? formatFR(days[0].day).slice(0, 5) : '05/11'}).` +
+      (hasMore ? `\n🔄 أرسلوا 0 أو المزيد لعرض أيام وتواريخ أخرى متاحة.` : ''),
+
+    dayUnavailable: (_s, { day, reason, closureLabel, department, days = [], hasMore = false }) =>
+      `${formatUnavailableReason({ day, reason, closureLabel }, 'ar')}\n\n` +
+      `📅 الأيام المتاحة حالياً${department ? ` (${department})` : ''}:\n` +
+      `${formatAvailableDaysList(days, 'ar')}\n\n` +
+      `👉 يرجى إرسال رقم بين 1 و ${days.length}` +
+      (hasMore ? ` (أو 0 لعرض المزيد من التواريخ).` : `.`),
+
+    invalidDayChoice: (_s, { department, days = [], hasMore = false }) =>
+      `عذراً، الاختيار غير معروف 🙏\n` +
+      `يرجى إرسال رقم بين 1 و ${days.length} (أو كتابة التاريخ بصيغة يوم/شهر) لاختيار موعدكم` +
+      (department ? ` (${department})` : '') +
+      `:\n\n` +
+      `${formatAvailableDaysList(days, 'ar')}` +
+      (hasMore ? `\n\n🔄 أرسلوا 0 أو المزيد لعرض التواريخ التالية.` : ''),
+
+    availableDaysPreview: (s, { department, days = [], hasMore = false }) =>
+      `📅 الأيام والتواريخ المتاحة حالياً في ${s.clinic}` +
+      (department ? ` (${department})` : '') +
+      `:\n\n` +
+      `${formatAvailableDaysList(days, 'ar')}` +
+      (hasMore ? `\n(وتوجد تواريخ أخرى تالية…)` : '') +
+      `\n\n✍️ لحجز أحد هذه الأيام، أرسلوا أولاً اسمكم الكامل (مثال: أسامة حمداوي).`,
+
+    booked: (s, { name, day, queue, slotTime, department, doctor, room, instructions }) =>
       `✅ تم تأكيد الموعد\n\n` +
       `المريض: ${name}\n` +
       (department ? `المصلحة: ${department}\n` : '') +
       (doctor ? `الطبيب: ${doctor}\n` : '') +
       (room ? `القاعة / الطابق: ${room}\n` : '') +
       `التاريخ: ${formatLong(day, 'ar')}\n` +
+      (slotTime ? `التوقيت: ${slotTime}\n` : '') +
       `رقم الدور: ${queue}\n` +
       (instructions ? `\n📌 ملاحظة: ${instructions}\n` : '') +
       `\n${s.clinic}` +
@@ -492,12 +623,20 @@ const DARIJA_TEMPLATES = {
         ? `المصالح الطبية المتوفرة:\n${formatDepartmentList(departments, 'ar', s.currency)}\n\n` +
           `باش تحجز موعد، ابعث الاسم واللقب تاعك (ولا رقم المصلحة).\n\n`
         : `باش تحجز موعد، ابعث برك الاسم واللقب تاعك كاملين.\n\n`) +
-      `الأوامر:\n• إلغاء — لإلغاء الموعد\n• موعدي — لمعرفة نهار ونيميرو الدور تاعك\n• تأكيد — لتأكيد الحضور`,
-    booked: (_s, { name, day, queue, department, room, instructions }) =>
+      `الأوامر:\n• الأيام المتاحة — باش تشوف النهارات الفارغة\n• إلغاء — لإلغاء الموعد\n• موعدي — لمعرفة نهار ونيميرو الدور تاعك\n• تأكيد — لتأكيد الحضور`,
+    chooseDay: (_s, { name, department, days = [], hasMore = false }) =>
+      `📅 مرحبا${name ? ` ${name}` : ''}` +
+      (department ? ` (${department})` : '') +
+      `، خيّر النهار والتاريخ اللي يساعدك من القائمة:\n\n` +
+      `${formatAvailableDaysList(days, 'ar')}\n\n` +
+      `👉 ابعث نيميرو النهار (من 1 إلى ${days.length}) ولا اكتب التاريخ (مثلا: ${days[0] ? formatFR(days[0].day).slice(0, 5) : '05/11'}).` +
+      (hasMore ? `\n🔄 ابعث 0 ولا المزيد باش تشوف نهارات خرين.` : ''),
+    booked: (_s, { name, day, queue, slotTime, department, room, instructions }) =>
       `✅ تم تسجيل الموعد تاعك بالصحة والعافية\n\n` +
       `المريض(ة): ${name}\n` +
       (department ? `المصلحة: ${department}${room ? ` (${room})` : ''}\n` : '') +
       `النهار: ${formatLong(day, 'ar')}\n` +
+      (slotTime ? `الوقت: ${slotTime}\n` : '') +
       `نيميرو الدور: ${queue}\n` +
       (instructions ? `📌 ملاحظة: ${instructions}\n` : '') +
       `\nلتسهيل الفحص على الطبيب (القانون 18-07): ابعث نعم ولا ابعث العمر تاعك مباشرة (مثلا: 32) باش تسجل العمر والوزن.`,
@@ -535,4 +674,12 @@ function message(lang, key, settings, vars = {}) {
   return builder(settings, vars);
 }
 
-module.exports = { message, templates: t, formatDuration, formatPatientsAhead, formatDepartmentList };
+module.exports = {
+  message,
+  templates: t,
+  formatDuration,
+  formatPatientsAhead,
+  formatDepartmentList,
+  formatAvailableDaysList,
+  formatPlacesLeft,
+};

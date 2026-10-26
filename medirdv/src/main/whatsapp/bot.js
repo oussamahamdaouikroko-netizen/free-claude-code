@@ -179,6 +179,24 @@ function hasRegisteredName(patient) {
   return Boolean(patient && String(patient.full_name || '').trim().length > 0);
 }
 
+function isChooseDayEnabled() {
+  return settings.getBool('bot_choose_day_enabled');
+}
+
+function buildDayButtons(days = [], hasMore = false, nextOffset = 0, lang = 'fr') {
+  const buttons = days.slice(0, 3).map((d, idx) => ({
+    id: `day_select:${d.day}`,
+    text: `${idx + 1}. ${d.day}`,
+  }));
+  if (hasMore) {
+    buttons.push({
+      id: `day_more:${nextOffset}`,
+      text: lang === 'ar' ? '🔄 المزيد من الأيام' : '🔄 Plus de dates',
+    });
+  }
+  return buttons;
+}
+
 /**
  * Match a WhatsApp reply ("1", "٢", "Cardiologie", "طب العيون") against active departments.
  * Returns `{ dept }` on match, `{ outOfRange: true }` on invalid number, or `null`.
@@ -211,7 +229,150 @@ function matchDepartmentInput(rawText, activeDepts) {
   return null;
 }
 
-function finalizeBooking({ phone, patientObj, name, department, lang, delivery, nowMs }) {
+function promptDaySelection({
+  phone,
+  patientObj,
+  name,
+  department,
+  lang,
+  offset = 0,
+  unavailableNotice = null,
+  invalidChoice = false,
+  nowMs,
+}) {
+  const cooldownGuard = checkCooldownReply({ patient: patientObj, phone, lang, nowMs });
+  if (cooldownGuard) return cooldownGuard;
+
+  const deptId = department ? department.id : null;
+  const deptLabel = department ? departments.labelFor(department, lang) : '';
+  const effectiveExisting = hasRegisteredName(patientObj) ? patientObj : null;
+
+  if (effectiveExisting) {
+    const existingUpcoming = appointments.upcomingForPatient(effectiveExisting.id, toISODate(), deptId);
+    if (existingUpcoming && existingUpcoming.status === 'booked') {
+      clearPending(phone);
+      return {
+        reply: reply(lang, 'alreadyBooked', {
+          day: existingUpcoming.day,
+          queue: existingUpcoming.queue_number,
+          department: deptLabel,
+        }),
+        lang,
+        action: 'already_booked',
+        appointment: existingUpcoming,
+      };
+    }
+  }
+
+  let avail = appointments.listAvailableDays({ departmentId: deptId, offset });
+  if (offset > 0 && avail.days.length === 0 && avail.totalAvailable > 0) {
+    avail = appointments.listAvailableDays({ departmentId: deptId, offset: 0 });
+  }
+
+  const effectiveName = (effectiveExisting ? effectiveExisting.full_name : '') || name || '';
+
+  if (avail.totalAvailable === 0) {
+    clearPending(phone);
+    const person = effectiveExisting
+      ? { patient: effectiveExisting }
+      : patients.upsertFromWhatsApp({ name: effectiveName, phone });
+    appointments.addToWaitingList({
+      full_name: person.patient.full_name || effectiveName,
+      phone,
+      enforceCooldown: true,
+      nowMs,
+      note: department
+        ? `Planning complet (WhatsApp — ${department.name_fr})`
+        : 'Planning complet (WhatsApp)',
+    });
+    return {
+      reply: reply(lang, 'full', { department: deptLabel }),
+      lang,
+      action: 'waiting_list',
+    };
+  }
+
+  setPending(phone, {
+    step: 'await_day',
+    name: effectiveName,
+    departmentId: deptId,
+    offset: avail.offset,
+    dayChoices: avail.days.map((d) => d.day),
+    hasMore: avail.hasMore,
+    lang,
+  });
+
+  const nextOffset = avail.hasMore ? avail.offset + avail.days.length : 0;
+  const buttons = buildDayButtons(avail.days, avail.hasMore, nextOffset, lang);
+
+  if (unavailableNotice) {
+    return {
+      reply: reply(lang, 'dayUnavailable', {
+        ...unavailableNotice,
+        department: deptLabel,
+        days: avail.days,
+        hasMore: avail.hasMore,
+      }),
+      lang,
+      action: 'day_unavailable',
+      availableDays: avail.days,
+      hasMoreDays: avail.hasMore,
+      department: department || undefined,
+      buttons,
+      callbackAnswered: true,
+    };
+  }
+
+  if (invalidChoice) {
+    return {
+      reply: reply(lang, 'invalidDayChoice', {
+        department: deptLabel,
+        days: avail.days,
+        hasMore: avail.hasMore,
+      }),
+      lang,
+      action: 'invalid_day',
+      availableDays: avail.days,
+      hasMoreDays: avail.hasMore,
+      department: department || undefined,
+      buttons,
+      callbackAnswered: true,
+    };
+  }
+
+  return {
+    reply: reply(lang, 'chooseDay', {
+      name: effectiveName,
+      department: deptLabel,
+      days: avail.days,
+      hasMore: avail.hasMore,
+    }),
+    lang,
+    action: 'choose_day',
+    availableDays: avail.days,
+    hasMoreDays: avail.hasMore,
+    department: department || undefined,
+    buttons,
+    callbackAnswered: true,
+  };
+}
+
+function startOrFinalizeBooking({ phone, patientObj, name, department, lang, delivery, nowMs }) {
+  if (isChooseDayEnabled()) {
+    return promptDaySelection({
+      phone,
+      patientObj,
+      name,
+      department,
+      lang,
+      offset: 0,
+      nowMs,
+    });
+  }
+  return finalizeBooking({ phone, patientObj, name, department, lang, delivery, nowMs });
+}
+
+function finalizeBooking({ phone, patientObj, name, department, chosenDay = null, lang, delivery, nowMs }) {
   const cooldownGuard = checkCooldownReply({ patient: patientObj, phone, lang, nowMs });
   if (cooldownGuard) return cooldownGuard;
 
@@ -245,6 +406,7 @@ function finalizeBooking({ phone, patientObj, name, department, lang, delivery, 
     appointment = appointments.create({
       patient_id: person.patient.id,
       department_id: deptId,
+      ...(chosenDay ? { day: chosenDay } : {}),
       source: 'whatsapp',
       nowMs,
       notes: department
@@ -263,6 +425,25 @@ function finalizeBooking({ phone, patientObj, name, department, lang, delivery, 
         lang,
         action: 'cooldown_blocked',
       };
+    }
+    if (
+      chosenDay &&
+      error instanceof AppError &&
+      (error.code === 'DAY_FULL' || error.code === 'NOT_WORKING_DAY' || error.code === 'SLOT_TAKEN')
+    ) {
+      return promptDaySelection({
+        phone,
+        patientObj: person.patient,
+        name: person.patient.full_name,
+        department,
+        lang,
+        offset: 0,
+        unavailableNotice: {
+          day: chosenDay,
+          reason: error.code === 'NOT_WORKING_DAY' ? 'closed' : 'full',
+        },
+        nowMs,
+      });
     }
     if (error instanceof AppError && error.code === 'HORIZON_REACHED') {
       appointments.addToWaitingList({
@@ -301,6 +482,7 @@ function finalizeBooking({ phone, patientObj, name, department, lang, delivery, 
     name: person.patient.full_name,
     day: appointment.day,
     queue: appointment.queue_number,
+    slotTime: appointment.slot_time || '',
     department: deptLabel,
     doctor: doctorName,
     room: department?.room || '',
@@ -529,6 +711,10 @@ function buildCancelButtons(appointmentId, lang) {
 function parseCallbackToken(raw) {
   const s = String(raw ?? '').trim();
   if (/^book_start$/i.test(s)) return { kind: 'book_start', id: 0 };
+  const daySel = s.match(/^day_select:(\d{4}-\d{2}-\d{2})$/i);
+  if (daySel) return { kind: 'day_select', day: daySel[1] };
+  const dayMore = s.match(/^day_more:(\d+)$/i);
+  if (dayMore) return { kind: 'day_more', offset: Number.parseInt(dayMore[1], 10) };
   const m = s.match(/^(cancel_ask|cancel_yes|cancel_no|sec_paid|pay_confirm|dept_select):(\d+)$/i);
   if (!m) return null;
   return { kind: m[1].toLowerCase(), id: Number.parseInt(m[2], 10) };
@@ -725,6 +911,65 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
           callbackAnswered: true,
         };
       }
+      if (cbToken.kind === 'day_more' || cbToken.kind === 'day_select') {
+        const pendingDay = getPending(phone);
+        const effName = (registered ? patient.full_name : '') || pendingDay?.name || '';
+        if (!effName) {
+          keepAwaitingName(phone, pendingDay, lang);
+          return {
+            reply: reply(lang, 'welcomeAskName'),
+            lang,
+            action: 'help',
+            callbackAnswered: true,
+          };
+        }
+        const dept = pendingDay?.departmentId
+          ? activeDepts.find((d) => d.id === pendingDay.departmentId) ||
+            departments.getOptional(pendingDay.departmentId)
+          : activeDepts.length === 1
+            ? activeDepts[0]
+            : null;
+        if (cbToken.kind === 'day_more') {
+          return promptDaySelection({
+            phone,
+            patientObj: patient,
+            name: effName,
+            department: dept,
+            lang,
+            offset: cbToken.offset,
+            nowMs,
+          });
+        }
+        const check = appointments.checkDayAvailability(cbToken.day, dept ? dept.id : null);
+        if (!check.bookable) {
+          const closureLabel = check.closure
+            ? lang === 'ar'
+              ? check.closure.label_ar || check.closure.label_fr
+              : check.closure.label_fr || check.closure.label_ar
+            : '';
+          return promptDaySelection({
+            phone,
+            patientObj: patient,
+            name: effName,
+            department: dept,
+            lang,
+            offset: 0,
+            unavailableNotice: { day: cbToken.day, reason: check.reason, closureLabel },
+            nowMs,
+          });
+        }
+        clearPending(phone);
+        return finalizeBooking({
+          phone,
+          patientObj: patient,
+          name: effName,
+          department: dept,
+          chosenDay: cbToken.day,
+          lang,
+          delivery,
+          nowMs,
+        });
+      }
       if (cbToken.kind === 'book_start' || cbToken.kind === 'dept_select') {
         const cd = checkCooldownReply({ patient, phone, lang, nowMs });
         if (cd) return cd;
@@ -755,7 +1000,7 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
         if (cbToken.kind === 'dept_select') {
           const dept = activeDepts.find((d) => d.id === cbToken.id) || activeDepts[0] || null;
           clearPending(phone);
-          return finalizeBooking({
+          return startOrFinalizeBooking({
             phone,
             patientObj: patient,
             name: patient.full_name,
@@ -778,7 +1023,7 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
           };
         }
         const singleDept = activeDepts.length === 1 ? activeDepts[0] : null;
-        return finalizeBooking({
+        return startOrFinalizeBooking({
           phone,
           patientObj: patient,
           name: patient.full_name,
@@ -1005,6 +1250,206 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
     const licGuard = checkLicenseReply({ lang, nowMs });
     if (licGuard) return licGuard;
 
+    // 1d. Active day-selection step (`await_day`): works identically for new & registered patients.
+    const pendingDaySession = getPending(phone);
+    if (pendingDaySession?.step === 'await_day') {
+      const cd = checkCooldownReply({ patient, phone, lang, nowMs });
+      if (cd) {
+        clearPending(phone);
+        return cd;
+      }
+      const dept = pendingDaySession.departmentId
+        ? activeDepts.find((d) => d.id === pendingDaySession.departmentId) ||
+          departments.getOptional(pendingDaySession.departmentId)
+        : activeDepts.length === 1
+          ? activeDepts[0]
+          : null;
+      const effName = (registered ? patient.full_name : '') || pendingDaySession.name || '';
+
+      if (detection.intent === 'help' && !detection.isStopWord && !detection.isGreeting) {
+        clearPending(phone);
+        return {
+          reply: reply(lang, 'help', { departments: activeDepts }),
+          lang,
+          action: 'help',
+        };
+      }
+
+      if (detection.intent === 'dates' || detection.isGreeting) {
+        return promptDaySelection({
+          phone,
+          patientObj: patient,
+          name: effName,
+          department: dept,
+          lang,
+          offset: 0,
+          nowMs,
+        });
+      }
+
+      const choices = Array.isArray(pendingDaySession.dayChoices) ? pendingDaySession.dayChoices : [];
+      const parsedDay = intents.parseDaySelection(text, choices.length, {
+        allowSameDay: settings.getBool('allow_same_day_booking'),
+      });
+
+      if (parsedDay.type === 'more') {
+        const nextOffset = pendingDaySession.hasMore
+          ? (Number(pendingDaySession.offset) || 0) + (choices.length || 7)
+          : 0;
+        return promptDaySelection({
+          phone,
+          patientObj: patient,
+          name: effName,
+          department: dept,
+          lang,
+          offset: nextOffset,
+          nowMs,
+        });
+      }
+
+      if (parsedDay.type === 'index' || parsedDay.type === 'date') {
+        const requestedDay =
+          parsedDay.type === 'index' ? choices[parsedDay.index] : parsedDay.day;
+        const check = appointments.checkDayAvailability(requestedDay, dept ? dept.id : null);
+        if (!check.bookable) {
+          const closureLabel = check.closure
+            ? lang === 'ar'
+              ? check.closure.label_ar || check.closure.label_fr
+              : check.closure.label_fr || check.closure.label_ar
+            : '';
+          return promptDaySelection({
+            phone,
+            patientObj: patient,
+            name: effName,
+            department: dept,
+            lang,
+            offset: parsedDay.type === 'index' ? 0 : Number(pendingDaySession.offset) || 0,
+            unavailableNotice: { day: requestedDay, reason: check.reason, closureLabel },
+            nowMs,
+          });
+        }
+        clearPending(phone);
+        return finalizeBooking({
+          phone,
+          patientObj: patient,
+          name: effName,
+          department: dept,
+          chosenDay: requestedDay,
+          lang,
+          delivery,
+          nowMs,
+        });
+      }
+
+      if (parsedDay.type === 'invalid_date') {
+        return promptDaySelection({
+          phone,
+          patientObj: patient,
+          name: effName,
+          department: dept,
+          lang,
+          offset: Number(pendingDaySession.offset) || 0,
+          unavailableNotice: { day: '', reason: 'invalid_date' },
+          nowMs,
+        });
+      }
+
+      // If an unregistered caller typed a corrected valid full name while on the day menu,
+      // update the session name and keep showing the available days cleanly.
+      if (!registered && detection.intent === 'name' && detection.name) {
+        return promptDaySelection({
+          phone,
+          patientObj: patient,
+          name: detection.name,
+          department: dept,
+          lang,
+          offset: Number(pendingDaySession.offset) || 0,
+          nowMs,
+        });
+      }
+
+      return promptDaySelection({
+        phone,
+        patientObj: patient,
+        name: effName,
+        department: dept,
+        lang,
+        offset: Number(pendingDaySession.offset) || 0,
+        invalidChoice: true,
+        nowMs,
+      });
+    }
+
+    // 1e. Direct inquiry for available dates ("الأيام المتاحة" / "JOURS DISPONIBLES").
+    if (detection.intent === 'dates') {
+      const cd = checkCooldownReply({ patient, phone, lang, nowMs });
+      if (cd) return cd;
+
+      if (registered) {
+        if (isMultiDept) {
+          setPending(phone, { step: 'await_department', name: patient.full_name, lang });
+          return {
+            reply: reply(lang, 'chooseDepartment', {
+              name: patient.full_name,
+              departments: activeDepts,
+            }),
+            lang,
+            action: 'choose_department',
+          };
+        }
+        const singleDept = activeDepts.length === 1 ? activeDepts[0] : null;
+        return promptDaySelection({
+          phone,
+          patientObj: patient,
+          name: patient.full_name,
+          department: singleDept,
+          lang,
+          offset: 0,
+          nowMs,
+        });
+      }
+
+      // Unregistered caller asking for available dates
+      const curPending = getPending(phone);
+      const previewDept =
+        curPending?.step === 'await_name' && curPending.departmentId
+          ? activeDepts.find((d) => d.id === curPending.departmentId) || null
+          : !isMultiDept && activeDepts.length === 1
+            ? activeDepts[0]
+            : null;
+      if (isMultiDept && !previewDept) {
+        keepAwaitingName(phone, curPending, lang);
+        return {
+          reply: reply(lang, 'help', { departments: activeDepts }),
+          lang,
+          action: 'help',
+        };
+      }
+      const avail = appointments.listAvailableDays({
+        departmentId: previewDept ? previewDept.id : null,
+        offset: 0,
+      });
+      const deptLabel = previewDept ? departments.labelFor(previewDept, lang) : '';
+      if (avail.totalAvailable === 0) {
+        return {
+          reply: reply(lang, 'full', { department: deptLabel }),
+          lang,
+          action: 'full_preview',
+        };
+      }
+      keepAwaitingName(phone, curPending, lang);
+      return {
+        reply: reply(lang, 'availableDaysPreview', {
+          department: deptLabel,
+          days: avail.days,
+          hasMore: avail.hasMore,
+        }),
+        lang,
+        action: 'available_days_preview',
+        availableDays: avail.days,
+      };
+    }
+
     // 2. Caller has NO registered name yet: enforce greeting vs. valid full-name gate.
     if (!registered) {
       const pending = getPending(phone);
@@ -1025,7 +1470,7 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
         if (pending?.step === 'await_department' && pending.name) {
           if (deptMatch?.dept) {
             clearPending(phone);
-            return finalizeBooking({
+            return startOrFinalizeBooking({
               phone,
               patientObj: patient,
               name: pending.name,
@@ -1090,7 +1535,7 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
             const chosenDept =
               activeDepts.find((d) => d.id === pending.departmentId) || activeDepts[0];
             clearPending(phone);
-            return finalizeBooking({
+            return startOrFinalizeBooking({
               phone,
               patientObj: patient,
               name: detection.name,
@@ -1113,7 +1558,7 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
 
         clearPending(phone);
         const singleDept = activeDepts.length === 1 ? activeDepts[0] : null;
-        return finalizeBooking({
+        return startOrFinalizeBooking({
           phone,
           patientObj: patient,
           name: detection.name,
@@ -1155,7 +1600,7 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
       if (pending?.step === 'await_department') {
         if (deptMatch?.dept) {
           clearPending(phone);
-          return finalizeBooking({
+          return startOrFinalizeBooking({
             phone,
             patientObj: patient,
             name: patient.full_name,
@@ -1176,7 +1621,7 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
 
       if (deptMatch?.dept) {
         clearPending(phone);
-        return finalizeBooking({
+        return startOrFinalizeBooking({
           phone,
           patientObj: patient,
           name: patient.full_name,
@@ -1211,7 +1656,7 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
       const cd = checkCooldownReply({ patient, phone, lang, nowMs });
       if (cd) return cd;
       const singleDept = activeDepts.length === 1 ? activeDepts[0] : null;
-      return finalizeBooking({
+      return startOrFinalizeBooking({
         phone,
         patientObj: patient,
         name: patient.full_name,

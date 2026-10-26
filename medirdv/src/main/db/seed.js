@@ -53,6 +53,8 @@ const DEFAULT_SETTINGS = {
   // WhatsApp
   bot_enabled: '0',
   bot_language: 'fr', // language used when the patient's intent is unclear
+  bot_choose_day_enabled: '1', // let patients pick an available day/date from real clinic bookings
+  bot_available_days_count: '7', // number of available days listed per WhatsApp message (3–14)
   reminder_enabled: '1',
   reminder_hour: '17', // sent the day before at 17:00 local time
   // Anti-ban guard rails (incoming replies only, never bulk).

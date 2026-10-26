@@ -128,7 +128,13 @@
       { class: 'card' },
       h('h2', { class: 'card-title' }, t('wa.reservation')),
       h('p', { class: 'muted small' }, t('wa.reservationDesc')),
-      h('div', { class: 'tag-list mt-s' }, h('span', { class: 'tag' }, t('wa.commandCancel')), h('span', { class: 'tag' }, t('wa.commandMine'))),
+      h(
+        'div',
+        { class: 'tag-list mt-s' },
+        h('span', { class: 'tag' }, t('wa.commandDates')),
+        h('span', { class: 'tag' }, t('wa.commandCancel')),
+        h('span', { class: 'tag' }, t('wa.commandMine')),
+      ),
       h('h2', { class: 'card-title mt' }, t('wa.antiban')),
       h('p', { class: 'muted small' }, t('wa.antibanDesc')),
     );

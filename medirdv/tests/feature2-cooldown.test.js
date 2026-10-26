@@ -56,13 +56,17 @@ test('Feature 2 — 30-min post-cancel cooldown across all booking paths, surviv
     // Book in Dept 1 (Cardio) AND Dept 2 (Ophta) so patient also has another active appointment to view while blocked
     const step1 = bot.handle({ phone: phoneBlocked, text: 'أسامة حمداوي', delivery: 'local', nowMs: t0 });
     assert.equal(step1.action, 'choose_department');
+    const chooseDay1 = bot.handle({ phone: phoneBlocked, text: '1', delivery: 'local', nowMs: t0 });
+    assert.equal(chooseDay1.action, 'choose_day');
     const booked1 = bot.handle({ phone: phoneBlocked, text: '1', delivery: 'local', nowMs: t0 });
     assert.equal(booked1.action, 'booked');
     const apptCardio = booked1.appointment;
 
     // Clear intake prompt and also book Ophta manually/via bot so patient has a second appointment
     bot.clearPending(phoneBlocked);
-    const booked2 = bot.handle({ phone: phoneBlocked, text: '2', delivery: 'local', nowMs: t0 });
+    const chooseDay2 = bot.handle({ phone: phoneBlocked, text: '2', delivery: 'local', nowMs: t0 });
+    assert.equal(chooseDay2.action, 'choose_day');
+    const booked2 = bot.handle({ phone: phoneBlocked, text: '1', delivery: 'local', nowMs: t0 });
     assert.equal(booked2.action, 'booked');
     const apptOphta = booked2.appointment;
 
@@ -153,12 +157,16 @@ test('Feature 2 — 30-min post-cancel cooldown across all booking paths, surviv
     // 6. Another patient who did NOT cancel is completely unaffected!
     const otherStep1 = bot.handle({ phone: phoneOther, text: 'ياسين بلقاسم', delivery: 'local', nowMs: tPlus1 });
     assert.equal(otherStep1.action, 'choose_department');
+    const otherChooseDay = bot.handle({ phone: phoneOther, text: '1', delivery: 'local', nowMs: tPlus1 });
+    assert.equal(otherChooseDay.action, 'choose_day');
     const otherBooked = bot.handle({ phone: phoneOther, text: '1', delivery: 'local', nowMs: tPlus1 });
     assert.equal(otherBooked.action, 'booked');
 
     // 7. After 31 minutes (t0 + 31 min) -> ALLOWED! And cancelling a second time gives a fresh 30 min (NOT 60 min)!
     const tPlus31 = t0 + 31 * 60 * 1000;
     assert.equal(appointments.can_user_book(pBlocked.id, tPlus31).allowed, true);
+    const rebookChooseDay = bot.handle({ phone: phoneBlocked, text: '1', delivery: 'local', nowMs: tPlus31 });
+    assert.equal(rebookChooseDay.action, 'choose_day');
     const rebookOk = bot.handle({ phone: phoneBlocked, text: '1', delivery: 'local', nowMs: tPlus31 });
     assert.equal(rebookOk.action, 'booked');
 

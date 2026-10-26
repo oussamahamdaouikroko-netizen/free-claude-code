@@ -328,9 +328,15 @@ test('Issue 1 — Legacy invalid-name migration script supports dry-run first, t
 
     // Cancel old appointment so we can book or test name update on next booking
     appointments.cancel(appt.id);
-    const updateAndBook = bot.handle({
+    const chooseDayStep = bot.handle({
       phone: '213554000001',
       text: 'محمد أمين بوزيد',
+      delivery: 'local',
+    });
+    assert.equal(chooseDayStep.action, 'choose_day');
+    const updateAndBook = bot.handle({
+      phone: '213554000001',
+      text: '1',
       delivery: 'local',
     });
     assert.equal(updateAndBook.action, 'booked');

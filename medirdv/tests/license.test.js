@@ -486,7 +486,9 @@ test('11, 12 & 13 — 7-day once-per-day warning, zero-data-loss read-only mode 
     assert.ok(newAppt.id > appt.id, 'New appointment created immediately without restarting');
 
     const botStep1 = bot.handle({ phone: '213661998877', text: 'سفيان حداد', delivery: 'local' });
-    assert.equal(botStep1.action, 'booked');
+    assert.equal(botStep1.action, 'choose_day');
+    const botStep2 = bot.handle({ phone: '213661998877', text: '1', delivery: 'local' });
+    assert.equal(botStep2.action, 'booked');
   } finally {
     env.cleanup();
   }

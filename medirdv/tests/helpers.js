@@ -121,6 +121,10 @@ function useTempDb(options = {}) {
   const file = path.join(base, 'medirdv.sqlite');
   db.open(file);
 
+  if (!options.chooseDay && !options.keepDefaultSettings) {
+    require('../src/main/services/settings').set('bot_choose_day_enabled', '0');
+  }
+
   const fakeReg = activateTestLicense(base, options);
 
   return {

@@ -6,6 +6,8 @@
  * Kept 100% pure (no DB, no network) so it can be unit-tested independently.
  */
 
+const { isValidISODate, addDays, weekday, diffDays, toISODate } = require('../utils/dates');
+
 /* -------------------------------------------------------------------------- */
 /*  Configurable Person-Name & Greeting Constants (edit here as needed)       */
 /* -------------------------------------------------------------------------- */
@@ -91,9 +93,11 @@ const NON_NAME_WORDS = new Set([
   'عياده', 'طبيب', 'دكتور', 'فحص', 'استماره', 'معلومات', 'ملفي',
   'اريد', 'بغيت', 'نحب', 'ممكن', 'هل', 'كيف', 'كيفاش', 'متي', 'وقتاش', 'وين', 'اين',
   'بكم', 'شحال', 'سعر', 'اسمي', 'مساعده',
+  'متاحه', 'متوفره', 'شاغره', 'تواريخ', 'ايام',
   'ok', 'oui', 'non', 'si', 'yes', 'no', 'merci', 'thanks', 'daccord',
   'start', 'help', 'aide', 'menu', 'info', 'information',
   'rdv', 'rendez', 'reserver', 'reservation', 'annuler', 'annule', 'cancel', 'confirmer', 'confirm',
+  'disponible', 'disponibles', 'disponibilite', 'disponibilites', 'creneau', 'creneaux',
   'svp', 'stp', 'docteur', 'cabinet', 'clinique', 'combien', 'prix', 'tarif', 'quand', 'comment',
 ]);
 
@@ -224,6 +228,156 @@ const BOOK_WORDS = [
   'حجز', 'حجز موعد', 'حجز جديد', 'اريد حجز', 'اريد موعد', 'نحجز',
 ];
 
+const DATES_WORDS = [
+  'jours disponibles', 'dates disponibles', 'disponibilites', 'disponibilite',
+  'creneaux disponibles', 'creneaux', 'prochains jours', 'quelles dates', 'quels jours',
+  'الايام المتاحه', 'المواعيد المتاحه', 'التواريخ المتاحه',
+  'الايام المتوفره', 'المواعيد المتوفره', 'التواريخ المتوفره',
+  'الايام الشاغره', 'المواعيد الشاغره', 'الايام الفارغه',
+  'ايام الحجز', 'تواريخ الحجز', 'وشمن نهار', 'واش من نهار', 'وقتاش كاين موعد',
+];
+
+const MORE_DAYS_WORDS = new Set([
+  '0', 'المزيد', 'مزيد', 'ايام اخري', 'ايام اخرى', 'تواريخ اخري', 'تواريخ اخرى',
+  'مواعيد اخري', 'مواعيد اخرى', 'التالي', 'plus', 'autres', 'autres jours',
+  'autres dates', 'suivant', 'more',
+]);
+
+const WEEKDAY_SYNONYMS = [
+  { wd: 0, words: ['الاحد', 'احد', 'لحد', 'يوم الاحد', 'نهار الاحد', 'نهار لحد', 'dimanche'] },
+  { wd: 1, words: ['الاثنين', 'اثنين', 'الاتنين', 'لتنين', 'يوم الاثنين', 'نهار الاثنين', 'نهار لتنين', 'lundi'] },
+  { wd: 2, words: ['الثلاثاء', 'ثلاثاء', 'التلاتاء', 'لتلات', 'الثلاثا', 'يوم الثلاثاء', 'نهار الثلاثاء', 'نهار لتلات', 'mardi'] },
+  { wd: 3, words: ['الاربعاء', 'اربعاء', 'الاربعا', 'لاربع', 'لاربعا', 'يوم الاربعاء', 'نهار الاربعاء', 'نهار لاربع', 'mercredi'] },
+  { wd: 4, words: ['الخميس', 'خميس', 'لخميس', 'يوم الخميس', 'نهار الخميس', 'نهار لخميس', 'jeudi'] },
+  { wd: 5, words: ['الجمعه', 'جمعه', 'لجمعه', 'يوم الجمعه', 'نهار الجمعه', 'vendredi'] },
+  { wd: 6, words: ['السبت', 'سبت', 'لسبت', 'يوم السبت', 'نهار السبت', 'samedi'] },
+];
+
+/** Convert Eastern Arabic / Persian digits to ASCII 0-9. */
+function normalizeDigits(text) {
+  return String(text ?? '')
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)));
+}
+
+/**
+ * Parse a patient's reply while choosing an available booking day.
+ * Supports:
+ *  - '0' / 'المزيد' / 'plus' -> { type: 'more' }
+ *  - '1'..'N' (or Arabic digits '١'..'٩', 'رقم 2', 'choix 2') -> { type: 'index', index: n - 1 }
+ *  - 'YYYY-MM-DD', 'DD/MM/YYYY', 'DD-MM-YYYY', 'DD/MM', 'DD-MM' -> { type: 'date', day }
+ *  - 'اليوم'/'aujourd\'hui', 'غدا'/'غدوة'/'demain', 'بعد غد'/'après-demain', or weekday name -> { type: 'date', day }
+ */
+function parseDaySelection(rawText, choicesLength = 0, options = {}) {
+  const today = options.fromDate || toISODate();
+  const allowSameDay = options.allowSameDay !== false;
+  const ascii = normalizeDigits(rawText).trim();
+  if (!ascii) return { type: 'unknown' };
+
+  const norm = normalize(ascii);
+  if (MORE_DAYS_WORDS.has(norm)) {
+    return { type: 'more' };
+  }
+
+  // 1. Explicit ISO date: YYYY-MM-DD or YYYY/MM/DD
+  const isoMatch = ascii.match(/^(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})$/);
+  if (isoMatch) {
+    const day = `${isoMatch[1]}-${isoMatch[2].padStart(2, '0')}-${isoMatch[3].padStart(2, '0')}`;
+    return isValidISODate(day) ? { type: 'date', day } : { type: 'invalid_date' };
+  }
+
+  // 2. Explicit DD/MM/YYYY or DD-MM-YYYY (4-digit or 2-digit year)
+  const dmyMatch = ascii.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2}|\d{4})$/);
+  if (dmyMatch) {
+    const yearStr = dmyMatch[3].length === 2 ? `20${dmyMatch[3]}` : dmyMatch[3];
+    const day = `${yearStr}-${dmyMatch[2].padStart(2, '0')}-${dmyMatch[1].padStart(2, '0')}`;
+    return isValidISODate(day) ? { type: 'date', day } : { type: 'invalid_date' };
+  }
+
+  // 3. Short DD/MM or DD-MM (resolves to current year, or next year near year-end)
+  const dmMatch = ascii.match(/^(\d{1,2})[/-](\d{1,2})$/);
+  if (dmMatch) {
+    const todayYear = Number.parseInt(today.slice(0, 4), 10);
+    const mm = dmMatch[2].padStart(2, '0');
+    const dd = dmMatch[1].padStart(2, '0');
+    let candidate = `${todayYear}-${mm}-${dd}`;
+    if (!isValidISODate(candidate)) {
+      candidate = `${todayYear + 1}-${mm}-${dd}`;
+      if (!isValidISODate(candidate)) return { type: 'invalid_date' };
+    } else if (diffDays(today, candidate) < -30) {
+      const nextYearCandidate = `${todayYear + 1}-${mm}-${dd}`;
+      if (isValidISODate(nextYearCandidate)) candidate = nextYearCandidate;
+    }
+    return { type: 'date', day: candidate };
+  }
+
+  // 4. Numbered menu choice (1..N, including "2.", "1️⃣", "رقم 2", "choix 2")
+  const cleanedChoice = ascii
+    .replace(/[\uFE0F\u20E3]/g, '')
+    .replace(/^[#•*-\s]+|[.):\s]+$/g, '')
+    .trim();
+  const numMatch =
+    cleanedChoice.match(/^(\d{1,2})$/) ||
+    norm.match(/^(?:رقم|الرقم|خيار|اختيار|يوم رقم|choix|option|numero|n)\s*(\d{1,2})$/);
+  if (numMatch) {
+    const n = Number.parseInt(numMatch[1], 10);
+    if (n === 0) return { type: 'more' };
+    if (choicesLength > 0 && n >= 1 && n <= choicesLength) {
+      return { type: 'index', index: n - 1 };
+    }
+    if (choicesLength > 0 && n > choicesLength) {
+      return { type: 'out_of_range', number: n };
+    }
+  }
+
+  // 5. Relative day expressions (Arabic / Darija / French)
+  if (
+    norm === 'بعد غد' ||
+    norm === 'بعد غدا' ||
+    norm === 'غير غدوه' ||
+    norm === 'بعدد غدوه' ||
+    norm === 'apres demain' ||
+    norm === 'apres-demain'
+  ) {
+    return { type: 'date', day: addDays(today, 2) };
+  }
+  if (
+    norm === 'غدا' ||
+    norm === 'غد' ||
+    norm === 'غدوه' ||
+    norm === 'بكره' ||
+    norm === 'اليوم الموالي' ||
+    norm === 'demain' ||
+    norm === 'ghodwa' ||
+    norm === 'ghedwa'
+  ) {
+    return { type: 'date', day: addDays(today, 1) };
+  }
+  if (
+    norm === 'اليوم' ||
+    norm === 'نهار اليوم' ||
+    norm === 'هاد النهار' ||
+    norm === 'هذا اليوم' ||
+    norm === 'aujourd hui' ||
+    norm === "aujourd'hui" ||
+    norm === 'aujourdhui' ||
+    norm === 'ce jour'
+  ) {
+    return { type: 'date', day: today };
+  }
+
+  // 6. Weekday name -> nearest upcoming date matching that weekday
+  for (const entry of WEEKDAY_SYNONYMS) {
+    if (entry.words.includes(norm)) {
+      let delta = (entry.wd - weekday(today) + 7) % 7;
+      if (delta === 0 && !allowSameDay) delta = 7;
+      return { type: 'date', day: addDays(today, delta) };
+    }
+  }
+
+  return { type: 'unknown' };
+}
+
 /** Short acknowledgements must never be mistaken for a patient name. */
 const STOP_WORDS = new Set([
   'ok', 'oui', 'non', 'si', 'merci', 'daccord', 'd accord', 'bon', 'bien', 'yes', 'no',
@@ -255,7 +409,8 @@ function validatePersonName(rawText, ruleOverrides = {}) {
     CANCEL_WORDS.some((w) => normPhrase === w || normPhrase.startsWith(`${w} `)) ||
     CONFIRM_WORDS.some((w) => normPhrase === w || normPhrase.startsWith(`${w} `)) ||
     MY_APPOINTMENT_WORDS.some((w) => normPhrase === w || normPhrase.startsWith(`${w} `)) ||
-    INTAKE_WORDS.some((w) => normPhrase === w || normPhrase.startsWith(`${w} `))
+    INTAKE_WORDS.some((w) => normPhrase === w || normPhrase.startsWith(`${w} `)) ||
+    DATES_WORDS.some((w) => normPhrase === w || normPhrase.startsWith(`${w} `))
   ) {
     return { valid: false, reason: 'common_word' };
   }
@@ -313,6 +468,9 @@ function detect(rawText, options = {}) {
   if (INTAKE_WORDS.some((word) => normalized === word || normalized.startsWith(`${word} `))) {
     return { intent: 'intake', text: original, isArabic, language };
   }
+  if (DATES_WORDS.some((word) => normalized === word || normalized.startsWith(`${word} `))) {
+    return { intent: 'dates', text: original, isArabic, language };
+  }
   if (BOOK_WORDS.some((word) => normalized === word || normalized.startsWith(`${word} `))) {
     return { intent: 'book', text: original, isArabic, language };
   }
@@ -342,16 +500,19 @@ module.exports = {
   GREETING_EXACT_SET,
   NON_NAME_WORDS,
   normalize,
+  normalizeDigits,
   normalizeGreeting,
   isGreeting,
   cleanPersonName,
   formatPersonName,
   validatePersonName,
+  parseDaySelection,
   detect,
   CANCEL_WORDS,
   MY_APPOINTMENT_WORDS,
   INTAKE_WORDS,
   BOOK_WORDS,
+  DATES_WORDS,
   HELP_WORDS,
   STOP_WORDS,
 };

@@ -1,4 +1,15 @@
-# MediRDV v2.1.1 — Suite Clinique Complète Hors-Ligne pour Cabinets & Polycliniques (Algérie)
+# MediRDV v2.4.0 — Suite Clinique Complète Hors-Ligne pour Cabinets & Polycliniques (Algérie)
+
+## Nouveautés de la version 2.4.0 (تحديثات الإصدار 2.4.0 — 2026-10-26)
+
+1. **Sélection dynamique du jour et de la date disponibles sur WhatsApp (`اختيار اليوم والتاريخ المتاح عبر واتساب`)** :
+   - Lors de la prise de rendez-vous WhatsApp (cabinet individuel ou polyclinique multi-services, mode file d'attente ou créneaux horaires), le bot affiche automatiquement une **liste numérotée des prochains jours ouvrables disponibles** avec le **nombre exact de places restantes** calculé en temps réel depuis la base SQLite locale (en excluant automatiquement les jours complets, les week-ends non ouvrés et les jours fériés / congés enregistrés).
+   - Le patient choisit simplement par **numéro** (`1`, `2`, `٢`…), demande les dates suivantes (`0`, `المزيد`, `PLUS`), ou écrit directement une **date** (`JJ/MM`, `JJ/MM/AAAA`, `AAAA-MM-JJ`, `غدا`, `demain`, nom du jour).
+   - **Protection anti-collision en temps réel** : si la dernière place d'une date vient d'être prise au secrétariat, le bot en informe poliment le patient et rafraîchit instantanément les dates libres restantes.
+   - **Commande directe & réglage flexible** : nouvelle commande `الأيام المتاحة` / `JOURS DISPONIBLES` et option dans **Paramètres → WhatsApp** pour activer/désactiver le choix de la date et ajuster le nombre de jours affichés par message (`3–14`).
+   - **Compatibilité totale des licences existantes (`MRDV-LIC-V1:`)** : aucune réactivation requise lors de la mise à jour sur un poste déjà activé.
+
+---
 
 ## Nouveautés de la version 2.1.1 (تحديثات الإصدار 2.1.1 — 2026-10-25)
 

@@ -75,6 +75,8 @@ const VALIDATORS = {
   queue_notify_enabled: (v) => String(asFlag(v)),
   bot_enabled: (v) => String(asFlag(v)),
   bot_language: (v) => (v === 'ar' ? 'ar' : 'fr'),
+  bot_choose_day_enabled: (v) => String(asFlag(v)),
+  bot_available_days_count: (v) => String(clampInt(v, 3, 14, 7)),
   reminder_enabled: (v) => String(asFlag(v)),
   reminder_hour: (v) => String(clampInt(v, 0, 23, 17)),
   send_min_delay_ms: (v) => String(clampInt(v, 1500, 60000, 4000)),
