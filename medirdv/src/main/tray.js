@@ -14,6 +14,7 @@ const {
   APP_NAME,
   TRAY_TOOLTIP,
   TRAY_MENU_OPEN,
+  TRAY_MENU_LICENSE,
   TRAY_MENU_AUTOSTART_ON,
   TRAY_MENU_AUTOSTART_OFF,
   TRAY_MENU_QUIT,
@@ -66,6 +67,7 @@ class TrayController {
     this.closeDb = deps.closeDb || (() => {});
     this.closeLog = deps.closeLog || (() => {});
     this.quitApp = deps.quitApp || (() => this.electron?.app?.quit?.());
+    this.onOpenLicense = deps.onOpenLicense || (() => {});
     this.iconPath = deps.iconPath || null;
 
     this.tray = null;
@@ -117,6 +119,11 @@ class TrayController {
         id: 'open',
         label: TRAY_MENU_OPEN,
         click: () => this.openWindow(),
+      },
+      {
+        id: 'license',
+        label: TRAY_MENU_LICENSE,
+        click: () => this.openLicense(),
       },
       {
         id: 'autostart',
@@ -188,6 +195,43 @@ class TrayController {
       win.focus();
     }
     return win;
+  }
+
+  openLicense() {
+    const win = this.openWindow();
+    try {
+      this.onOpenLicense(win);
+    } catch (_err) {
+      /* ignore */
+    }
+    return win;
+  }
+
+  notifyAlert(content, iconType = 'warning') {
+    if (!content) return false;
+    try {
+      if (this.tray && typeof this.tray.displayBalloon === 'function') {
+        this.tray.displayBalloon({
+          iconType,
+          title: APP_NAME,
+          content: String(content),
+        });
+        return true;
+      }
+      const NotificationCtor = this.electron?.Notification;
+      if (NotificationCtor && (!NotificationCtor.isSupported || NotificationCtor.isSupported())) {
+        const note = new NotificationCtor({
+          title: APP_NAME,
+          body: String(content),
+          silent: false,
+        });
+        if (typeof note.show === 'function') note.show();
+        return true;
+      }
+    } catch (_err) {
+      /* ignore */
+    }
+    return false;
   }
 
   /**

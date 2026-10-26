@@ -1039,7 +1039,22 @@
               info.logFile
                 ? h('div', { class: 'info-line' }, h('span', { class: 'k' }, t('settings.logFile')), h('span', { class: 'small', style: { wordBreak: 'break-all' } }, info.logFile))
                 : null,
-              h('button', { class: 'btn ghost sm', onClick: () => window.API.invoke('app:open-data-folder') }, '📂 ', t('settings.openFolder')),
+              h(
+                'div',
+                { class: 'row wrap', style: { gap: '8px' } },
+                h('button', { class: 'btn ghost sm', onClick: () => window.API.invoke('app:open-data-folder') }, '📂 ', t('settings.openFolder')),
+                !window.App.demo
+                  ? h(
+                      'button',
+                      {
+                        class: 'btn soft sm',
+                        onClick: () => window.Components?.openLicenseModal?.(),
+                      },
+                      '🔑 ',
+                      t('license.openModalBtn'),
+                    )
+                  : null,
+              ),
               h('div', { class: 'muted small mt-s' }, 'MediRDV — ' + t('app.tagline')),
             ),
           ),

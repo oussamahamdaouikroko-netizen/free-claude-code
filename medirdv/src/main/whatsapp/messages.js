@@ -158,6 +158,9 @@ const t = {
     bookingCooldown: (_s, { minutes, time }) =>
       `⏳ Vous ne pouvez pas réserver un nouveau rendez-vous maintenant. Vous pourrez réessayer dans ${minutes} minute${minutes > 1 ? 's' : ''} (à ${time}).`,
 
+    serviceSuspended: () =>
+      `Le service de réservation est temporairement suspendu, veuillez contacter le cabinet.`,
+
     cancelled: (s, { day, rebookTime, cooldownMinutes }) =>
       `✅ Votre rendez-vous du ${formatLong(day, 'fr')} a bien été annulé.\n` +
       (rebookTime
@@ -368,6 +371,9 @@ const t = {
 
     bookingCooldown: (_s, { minutes, time }) =>
       `⏳ لا يمكنك حجز موعد جديد الآن. يمكنك المحاولة بعد ${minutes} دقيقة (الساعة ${time}).`,
+
+    serviceSuspended: () =>
+      `الخدمة متوقفة مؤقتاً، يرجى التواصل مع العيادة.`,
 
     cancelled: (s, { day, rebookTime, cooldownMinutes }) =>
       `✅ تم إلغاء موعدكم يوم ${formatLong(day, 'ar')}.\n` +

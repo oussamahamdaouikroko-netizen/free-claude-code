@@ -14,6 +14,7 @@
 
 const { getDb } = require('../db');
 const { CANCEL_COOLDOWN_MINUTES, formatAlgeriaTime } = require('../config');
+const license = require('./license');
 const settings = require('./settings');
 const departments = require('./departments');
 const operations = require('./operations');
@@ -155,6 +156,9 @@ function get(id) {
  *          treatment_id?:number|null, price?:number, notes?:string, source?:string}} input
  */
 function create(input = {}) {
+  license.requireValidLicense(
+    input.nowMs !== undefined ? { nowMs: input.nowMs } : undefined,
+  );
   const patientId = requireId(input.patient_id, 'patient_id');
   const patient = getDb().prepare('SELECT id FROM patients WHERE id = ?').get(patientId);
   if (!patient) throw new AppError('PATIENT_NOT_FOUND');
@@ -263,6 +267,9 @@ function create(input = {}) {
 
 /** Change the day (or department) of an appointment, re-assigning the queue. */
 function reschedule(input = {}) {
+  license.requireValidLicense(
+    input.nowMs !== undefined ? { nowMs: input.nowMs } : undefined,
+  );
   const appointment = get(input.id);
   const day = input.day;
   if (!day) throw new AppError('INVALID_DATE');
@@ -928,9 +935,11 @@ function dayStats(day = toISODate(), departmentId = null) {
 
 /* ------------------------------ waiting list ----------------------------- */
 
-function addToWaitingList({ full_name, phone, note, enforceCooldown = false, nowMs = Date.now() }) {
+function addToWaitingList({ full_name, phone, note, enforceCooldown = false, nowMs }) {
+  license.requireValidLicense(nowMs !== undefined ? { nowMs } : undefined);
+  const effectiveNowMs = nowMs !== undefined ? nowMs : Date.now();
   if (enforceCooldown && phone) {
-    const check = canUserBook({ phone }, nowMs);
+    const check = canUserBook({ phone }, effectiveNowMs);
     if (!check.allowed) {
       throw new AppError('BOOKING_COOLDOWN', 'Patient is temporarily blocked after cancellation', check);
     }

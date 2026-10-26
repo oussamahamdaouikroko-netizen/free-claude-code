@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { useTempDb } = require('./helpers');
+const { useTempDb, activateTestLicense } = require('./helpers');
 
 const dbMod = require('../src/main/db');
 const intents = require('../src/main/whatsapp/intents');
@@ -191,6 +191,7 @@ test('Issue 1 — Non-text media messages during awaiting-name ask for text with
   const dbPath = path.join(dir, 'persist.sqlite');
   try {
     dbMod.open(dbPath);
+    activateTestLicense(dir);
     settings.set('bot_language', 'ar');
     settings.set('send_min_delay_ms', 0);
     settings.set('send_max_delay_ms', 1);
@@ -272,6 +273,7 @@ test('Issue 1 — Legacy invalid-name migration script supports dry-run first, t
   const dbPath = path.join(dir, 'legacy.sqlite');
   try {
     dbMod.open(dbPath);
+    activateTestLicense(dir);
     const pGreetingAr = patients.create({ full_name: 'السلام عليكم', phone: '213554000001' });
     const pGreetingFr = patients.create({ full_name: 'Bonjour', phone: '213554000002' });
     const pDigits = patients.create({ full_name: 'اسامة123', phone: '213554000003' });

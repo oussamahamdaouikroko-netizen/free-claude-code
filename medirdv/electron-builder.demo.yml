@@ -16,6 +16,11 @@ files:
   - "!**/README*"
   - "!**/.github/**"
   - "!**/test/**"
+  - "!tools/**"
+  - "!**/*keygen*"
+  - "!**/*.pem"
+  - "!**/*.key"
+  - "!**/issued_licenses.csv"
 
 extraFiles:
   - from: assets/demo.mode

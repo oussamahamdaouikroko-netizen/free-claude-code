@@ -29,6 +29,7 @@ const bot = require('./whatsapp/bot');
 const sheets = require('./export/sheets');
 const auth = require('./services/auth');
 const security = require('./services/security');
+const license = require('./services/license');
 const autostart = require('./autostart');
 const operations = require('./services/operations');
 const documents = require('./services/documents');
@@ -49,6 +50,9 @@ const PUBLIC = new Set([
   'app:bootstrap',
   'app:info',
   'app:demo',
+  'app:copy-text',
+  'license:status',
+  'license:activate',
   'auth:status',
   'auth:setup',
   'auth:login',
@@ -110,11 +114,22 @@ function createHandlers(context) {
       language: settings.get('language'),
       currency: settings.get('currency'),
       auth: auth.status(),
+      license: license.getStatus(),
     }),
     'app:info': () => ({ version, dataDir, logFile: logFile || null, demo }),
     'app:open-data-folder': () => {
       if (dialogs.openPath) dialogs.openPath(dataDir);
       return { ok: true };
+    },
+    'app:copy-text': (payload) => {
+      if (dialogs.copyText) dialogs.copyText(String(payload?.text ?? ''));
+      return { ok: true };
+    },
+    'license:status': () => license.getStatus(),
+    'license:activate': (payload) => {
+      const status = license.activate(payload?.code);
+      emit({ type: 'license_changed', payload: status });
+      return status;
     },
     'app:autostart-get': () => autostart.getAutostartStatus(autostartOptions),
     'app:autostart-set': (payload) => {

@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const dbMod = require('../src/main/db');
+const { activateTestLicense } = require('./helpers');
 const { CANCEL_COOLDOWN_MINUTES } = require('../src/main/config');
 const bot = require('../src/main/whatsapp/bot');
 const patients = require('../src/main/services/patients');
@@ -19,6 +20,10 @@ test('Feature 2 — 30-min post-cancel cooldown across all booking paths, surviv
   const dbPath = path.join(dir, 'cooldown.sqlite');
   try {
     dbMod.open(dbPath);
+    activateTestLicense(dir, {
+      clock: () => Date.parse('2026-10-25T08:00:00.000Z'),
+      dbActivityProvider: () => ({ utcExactMs: 0, localNaiveMs: 0 }),
+    });
     settings.setMany({
       bot_language: 'ar',
       working_days: '0,1,2,3,4,5,6',

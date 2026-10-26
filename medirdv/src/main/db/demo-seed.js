@@ -14,6 +14,7 @@ const expenses = require('../services/expenses');
 const intake = require('../services/intake');
 const settings = require('../services/settings');
 const chat = require('../services/chat');
+const license = require('../services/license');
 const { message } = require('../whatsapp/messages');
 const { toISODate, addDays } = require('../utils/dates');
 
@@ -31,6 +32,9 @@ const SAMPLE_PATIENTS = [
 const isSeeded = () => patients.list('', { limit: 1 }).length > 0;
 
 function seedDemoData(options = {}) {
+  if (!license.isLicenseValid()) {
+    license.configure({ demoMode: true });
+  }
   const clinicName = options.clinicName || 'Polyclinique Médicale El-Chifa';
   if (isSeeded()) return false;
 

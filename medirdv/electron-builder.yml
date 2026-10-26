@@ -17,6 +17,11 @@ files:
   - "!**/README*"
   - "!**/.github/**"
   - "!**/test/**"
+  - "!tools/**"
+  - "!**/*keygen*"
+  - "!**/*.pem"
+  - "!**/*.key"
+  - "!**/issued_licenses.csv"
 
 asar: true
 

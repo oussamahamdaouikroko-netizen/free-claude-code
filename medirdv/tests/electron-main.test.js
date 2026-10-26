@@ -129,6 +129,11 @@ test('the Electron main process boots and wires everything', async (t) => {
     } catch (error) {
       /* logging was never initialised */
     }
+    try {
+      require('../src/main/services/license').stopPeriodicCheck();
+    } catch (_err) {
+      /* ignore */
+    }
     for (const window of stub.windows) window.destroyed = true;
     safeRemove(state.userData);
   });
@@ -171,6 +176,24 @@ test('the Electron main process boots and wires everything', async (t) => {
 
   const created = await invoke('patients:create', { full_name: 'Test Patient', phone: '0555111999' });
   assert.equal(created.ok, true);
+
+  // Before activation, booking is gated cleanly in read-only mode
+  const blockedAgenda = await invoke('appointments:create', { patient_id: created.data.id });
+  assert.equal(blockedAgenda.ok, false);
+  assert.equal(blockedAgenda.error.code, 'LICENSE_REQUIRED');
+
+  // Activate a valid Ed25519 license via IPC -> booking succeeds immediately without restart
+  const licenseSvc = require('../src/main/services/license');
+  const { TEST_PUBLIC_B64, signTestCode } = require('./helpers');
+  licenseSvc.configure({
+    storageDir: path.join(state.userData, 'data'),
+    publicKeySpkiB64: TEST_PUBLIC_B64,
+    useRegistry: false,
+  });
+  const code = signTestCode({ plan: '1Y', machineId: licenseSvc.getMachineId() });
+  const activated = await invoke('license:activate', { code });
+  assert.equal(activated.ok, true);
+
   const agenda = await invoke('appointments:create', { patient_id: created.data.id });
   assert.equal(agenda.ok, true);
   assert.equal(agenda.data.queue_number, 1);

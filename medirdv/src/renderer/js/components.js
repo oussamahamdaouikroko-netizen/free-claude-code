@@ -1228,6 +1228,139 @@
     return btn;
   };
 
+  /* --------------------------- license activation -------------------------- */
+  C.openLicenseModal = async function openLicenseModal({ initialStatus = null, onActivated } = {}) {
+    if (document.querySelector('.license-modal-root')) return;
+
+    let status = initialStatus;
+    try {
+      if (!status) status = await window.API.invoke('license:status');
+    } catch (_err) {
+      status = { status: 'unlicensed', valid: false, machine_id: '—' };
+    }
+
+    const statusBadge = h('div', { class: 'badge' });
+    const renderStatusBadge = (st) => {
+      if (!st) return;
+      if (st.valid) {
+        statusBadge.className = 'badge ok';
+        statusBadge.textContent =
+          '✅ ' +
+          t('license.statusActive', {
+            date: st.expires_date_dz || '—',
+            days: st.days_remaining ?? 0,
+          });
+      } else if (st.status === 'clock_tampered') {
+        statusBadge.className = 'badge err';
+        statusBadge.textContent = '⏰ ' + t('license.statusClock');
+      } else if (st.status === 'expired') {
+        statusBadge.className = 'badge err';
+        statusBadge.textContent =
+          '⛔ ' + t('license.statusExpired', { date: st.expires_date_dz || '—' });
+      } else {
+        statusBadge.className = 'badge warn';
+        statusBadge.textContent = '🔒 ' + t('license.statusUnlicensed');
+      }
+    };
+    renderStatusBadge(status);
+
+    const machineBox = input({
+      value: status?.machine_id || '—',
+      readonly: true,
+      dir: 'ltr',
+      style: { fontFamily: 'monospace', fontWeight: '700', letterSpacing: '1px' },
+    });
+
+    const copyBtn = h(
+      'button',
+      {
+        type: 'button',
+        class: 'btn soft sm',
+        onClick: async () => {
+          const val = status?.machine_id || machineBox.value || '';
+          if (!val || val === '—') return;
+          try {
+            await window.API.invoke('app:copy-text', { text: val });
+          } catch (_err) {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              await navigator.clipboard.writeText(val).catch(() => {});
+            }
+          }
+          toast(t('license.copiedToast'), 'ok');
+        },
+      },
+      '📋 ' + t('license.copyMachine'),
+    );
+
+    const codeArea = textarea({
+      rows: 3,
+      dir: 'ltr',
+      placeholder: t('license.codePlaceholder'),
+      style: { fontFamily: 'monospace', letterSpacing: '0.5px' },
+    });
+
+    const error = inlineError();
+    let busyActivating = false;
+
+    modal({
+      title: '🔑 ' + t('license.title'),
+      body: h(
+        'div',
+        { class: 'col license-modal-root' },
+        field(t('license.statusLabel'), statusBadge),
+        field(
+          t('license.machineId'),
+          h('div', { class: 'row', style: { gap: '8px' } }, machineBox, copyBtn),
+          t('license.machineHint'),
+        ),
+        field(t('license.codeLabel'), codeArea, t('license.renewNote')),
+        error,
+      ),
+      actions: [
+        { label: t('common.close'), kind: 'ghost' },
+        {
+          label: '✅ ' + t('license.activateBtn'),
+          kind: 'primary',
+          onClick: async () => {
+            if (busyActivating) return false;
+            error.textContent = '';
+            const raw = String(codeArea.value || '').trim();
+            if (!raw) {
+              error.textContent = t('error.MALFORMED_CODE');
+              return false;
+            }
+            busyActivating = true;
+            try {
+              const nextStatus = await window.API.invoke('license:activate', { code: raw });
+              status = nextStatus;
+              renderStatusBadge(nextStatus);
+              if (window.App) {
+                window.App.license = nextStatus;
+                if (typeof window.App.updateLicenseBanner === 'function') {
+                  window.App.updateLicenseBanner(nextStatus);
+                }
+                if (window.App.bootInfo?.auth?.unlocked) {
+                  window.App.renderPage();
+                }
+              }
+              toast(
+                t('license.activatedToast', { date: nextStatus.expires_date_dz || '' }),
+                'ok',
+              );
+              if (onActivated) onActivated(nextStatus);
+              return true;
+            } catch (err) {
+              error.textContent = errorMessage(err);
+              return false;
+            } finally {
+              busyActivating = false;
+            }
+          },
+        },
+      ],
+    });
+  };
+
   C.methodOptions = methodOptions;
   C.currency = currency;
   C.fillSelect = fillSelect;

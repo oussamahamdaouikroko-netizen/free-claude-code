@@ -25,7 +25,7 @@ const ENC_MAGIC = Buffer.from('MRDVENC1', 'ascii');
 const ROLE_PERMISSIONS = {
   admin: ['*'],
   doctor: [
-    'app:*', 'auth:*', 'dashboard:*', 'patients:*', 'intake:*', 'appointments:*',
+    'app:*', 'license:*', 'auth:*', 'dashboard:*', 'patients:*', 'intake:*', 'appointments:*',
     'departments:list', 'treatments:list', 'medications:*', 'nomenclature:summary',
     'prescriptions:*', 'icd10:*', 'diagnoses:*', 'safety:*', 'certificates:*',
     'emr:*', 'print:*', 'chat:*', 'wa:status', 'privacy:export', 'privacy:consents', 'privacy:consent-record',
@@ -33,7 +33,7 @@ const ROLE_PERMISSIONS = {
     'docs:*',
   ],
   secretary: [
-    'app:*', 'auth:*', 'dashboard:*', 'patients:list', 'patients:get', 'patients:create', 'patients:update',
+    'app:*', 'license:*', 'auth:*', 'dashboard:*', 'patients:list', 'patients:get', 'patients:create', 'patients:update',
     'intake:create', 'intake:update', 'intake:for-patient', 'intake:latest', 'intake:pending', 'intake:for-appointment',
     'appointments:*', 'departments:list', 'treatments:list',
     'payments:*', 'secretary:confirm-payment', 'billing:preview', 'billing:invoice-create', 'billing:invoice-get', 'billing:invoices', 'billing:invoice-html', 'billing:z-report',
@@ -43,7 +43,7 @@ const ROLE_PERMISSIONS = {
     'docs:list', 'docs:html',
   ],
   nurse: [
-    'app:*', 'auth:*', 'dashboard:*', 'patients:list', 'patients:get',
+    'app:*', 'license:*', 'auth:*', 'dashboard:*', 'patients:list', 'patients:get',
     'intake:*', 'appointments:agenda', 'appointments:day-info', 'departments:list',
     'emr:consultations', 'emr:consultation-create', 'emr:labs', 'emr:lab-result',
     'emr:imaging', 'emr:vaccinations', 'emr:vaccination-record', 'emr:pregnancy',
@@ -51,7 +51,7 @@ const ROLE_PERMISSIONS = {
     'ops:waiting-room', 'ops:inventory', 'ops:inventory-move', 'ops:inventory-alerts',
   ],
   accountant: [
-    'app:*', 'auth:*', 'dashboard:*', 'patients:debtors',
+    'app:*', 'license:*', 'auth:*', 'dashboard:*', 'patients:debtors',
     'treatments:list', 'payments:*', 'expenses:*', 'reports:*',
     'billing:*', 'export:*', 'print:receipt', 'print:daily-report', 'print:invoice',
     'ops:staff', 'ops:payroll', 'ops:payroll-run', 'ops:noshow-stats',

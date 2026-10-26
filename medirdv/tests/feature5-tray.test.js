@@ -13,6 +13,7 @@ const path = require('node:path');
 const {
   TRAY_TOOLTIP,
   TRAY_MENU_OPEN,
+  TRAY_MENU_LICENSE,
   TRAY_MENU_AUTOSTART_ON,
   TRAY_MENU_AUTOSTART_OFF,
   TRAY_MENU_QUIT,
@@ -152,7 +153,7 @@ test('Feature 5 — Tray icon, tooltip, context menu, close-to-tray & once-per-s
 
   // Verify context menu items
   const labels = tray.menu.filter((i) => i.label).map((i) => i.label);
-  assert.deepEqual(labels, [TRAY_MENU_OPEN, TRAY_MENU_AUTOSTART_ON, TRAY_MENU_QUIT]);
+  assert.deepEqual(labels, [TRAY_MENU_OPEN, TRAY_MENU_LICENSE, TRAY_MENU_AUTOSTART_ON, TRAY_MENU_QUIT]);
 
   // Toggle autostart from Tray menu -> label updates cleanly
   const autostartItem = tray.menu.find((i) => i.id === 'autostart');

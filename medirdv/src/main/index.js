@@ -19,6 +19,7 @@ const { TrayController, resolveIconPath } = require('./tray');
 const db = require('./db');
 const log = require('./log');
 const auth = require('./services/auth');
+const license = require('./services/license');
 const settings = require('./services/settings');
 const backup = require('./services/backup');
 const { registerIpc, reloadWindows } = require('./ipc');
@@ -167,6 +168,32 @@ function boot() {
   db.open(databaseFile);
   console.log('[db]', databaseFile);
 
+  license.configure({
+    storageDir: dataDir,
+    demoMode: DEMO,
+    onChange: (status) => {
+      broadcastEvent({ type: 'license_changed', payload: status });
+    },
+    onWarning: (status) => {
+      if (trayController) {
+        trayController.notifyAlert(
+          `تنبيه الترخيص: متبقي ${status.days_remaining} يوم على انتهاء الصلاحية (${status.expires_date_dz}).`,
+          'warning',
+        );
+      }
+      broadcastEvent({ type: 'license_warning', payload: status });
+    },
+    onExpired: (status) => {
+      if (trayController) {
+        trayController.notifyAlert(
+          'انتهت صلاحية ترخيص البرنامج — توقف استقبال الحجوزات الجديدة مؤقتاً.',
+          'warning',
+        );
+      }
+      broadcastEvent({ type: 'license_changed', payload: status });
+    },
+  });
+
   if (DEMO) {
     const { seedDemoData } = require('./db/demo-seed');
     seedDemoData();
@@ -193,9 +220,13 @@ function boot() {
       createMainWindow: () => createWindow({ startHidden: false }),
       getAutostartEnabled: () => autostart.getAutostartStatus(autostartOptions).enabled,
       setAutostartEnabled: (enabled) => autostart.setAutostartEnabled(enabled, autostartOptions),
+      onOpenLicense: () => {
+        broadcastEvent({ type: 'open_license_modal', payload: license.getStatus() });
+      },
       stopSchedulers: () => {
         stopReminderScheduler();
         backup.stopScheduler();
+        license.stopPeriodicCheck();
       },
       stopBot: async () => {
         if (waService) await waService.stop();
@@ -236,6 +267,17 @@ function boot() {
   createWindow({ startHidden: autostartLaunch && !DEMO });
   Menu.setApplicationMenu(null);
   startReminderScheduler();
+
+  if (!DEMO) {
+    const initialLic = license.checkPeriodic();
+    license.startPeriodicCheck();
+    if (autostartLaunch && !initialLic.status.valid && trayController) {
+      trayController.notifyAlert(
+        'الترخيص غير مفعّل أو منتهي — انقر على أيقونة الساعة لفتح نافذة الترخيص.',
+        'warning',
+      );
+    }
+  }
 
   if (!DEMO && settings.getBool('bot_enabled')) {
     const startupDelayMs = autostartLaunch ? STARTUP_DELAY_SECONDS * 1000 : 2500;

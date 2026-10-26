@@ -15,6 +15,7 @@
 
 const dbMod = require('../db');
 const { CANCEL_COOLDOWN_MINUTES } = require('../config');
+const license = require('../services/license');
 const intents = require('./intents');
 const { message } = require('./messages');
 const patients = require('../services/patients');
@@ -210,7 +211,7 @@ function matchDepartmentInput(rawText, activeDepts) {
   return null;
 }
 
-function finalizeBooking({ phone, patientObj, name, department, lang, delivery, nowMs = Date.now() }) {
+function finalizeBooking({ phone, patientObj, name, department, lang, delivery, nowMs }) {
   const cooldownGuard = checkCooldownReply({ patient: patientObj, phone, lang, nowMs });
   if (cooldownGuard) return cooldownGuard;
 
@@ -533,8 +534,22 @@ function parseCallbackToken(raw) {
   return { kind: m[1].toLowerCase(), id: Number.parseInt(m[2], 10) };
 }
 
+function checkLicenseReply({ lang, nowMs }) {
+  const valid = license.is_license_valid(nowMs !== undefined ? { nowMs } : undefined);
+  if (valid) return null;
+  return {
+    reply: reply(lang, 'serviceSuspended'),
+    lang,
+    action: 'license_expired',
+    callbackAnswered: true,
+  };
+}
+
 function checkCooldownReply({ patient, phone, lang, nowMs }) {
-  const check = appointments.canUserBook({ patientId: patient?.id, phone }, nowMs);
+  const lic = checkLicenseReply({ lang, nowMs });
+  if (lic) return lic;
+  const effectiveNow = nowMs !== undefined ? nowMs : Date.now();
+  const check = appointments.canUserBook({ patientId: patient?.id, phone }, effectiveNow);
   if (check.allowed) return null;
   return {
     reply: reply(lang, 'bookingCooldown', {
@@ -670,13 +685,15 @@ function executeConfirmedCancel({ phone, patient, appointmentId, lang, delivery,
  * @param {{phone: string, text: string, callbackData?: string, delivery?: 'local'|'queued'|'sent', isMedia?: boolean, nowMs?: number}} incoming
  * @returns {{reply: string, lang: 'fr'|'ar', action: string, appointment?: object, chatEvent?: object, buttons?: Array, callbackAnswered?: boolean}}
  */
-function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = false, nowMs = Date.now() }) {
+function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = false, nowMs }) {
   const patient = patients.findByPhone(phone);
   const registered = hasRegisteredName(patient);
 
   if (isMedia) {
     const lang = resolveLanguage(phone, settings.get('bot_language'), false);
     rememberLanguage(phone, lang);
+    const licMedia = checkLicenseReply({ lang, nowMs });
+    if (licMedia) return licMedia;
     if (!registered) {
       keepAwaitingName(phone, getPending(phone), lang);
       return { reply: reply(lang, 'nonTextAskName'), lang, action: 'unsupported' };
@@ -982,6 +999,11 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
         action: 'intake_invite',
       };
     }
+
+    // When license is unlicensed/expired/clock-tampered, politely suspend new bookings
+    // while keeping existing-appointment read/cancel commands above working cleanly.
+    const licGuard = checkLicenseReply({ lang, nowMs });
+    if (licGuard) return licGuard;
 
     // 2. Caller has NO registered name yet: enforce greeting vs. valid full-name gate.
     if (!registered) {
