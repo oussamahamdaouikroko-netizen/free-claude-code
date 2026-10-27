@@ -122,14 +122,18 @@ test('Patients UI groups scheduled patients into distinct date cards and locks f
   const today = dates.toISODate();
   const dayAfter = dates.addDays(today, 2);
 
-  await fetch(`${demo.url}/api/invoke`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      method: 'settings:set',
-      payload: { working_days: '0,1,2,3,4,5,6' },
-    }),
-  });
+  const sRes = await (
+    await fetch(`${demo.url}/api/invoke`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        method: 'settings:set',
+        payload: { working_days: '0,1,2,3,4,5,6' },
+      }),
+    })
+  ).json();
+  assert.equal(sRes.ok, true, `settings:set failed: ${JSON.stringify(sRes)}`);
+
   const pCreated = await (
     await fetch(`${demo.url}/api/invoke`, {
       method: 'POST',
@@ -140,15 +144,19 @@ test('Patients UI groups scheduled patients into distinct date cards and locks f
       }),
     })
   ).json();
+  assert.equal(pCreated.ok, true, `patients:create failed: ${JSON.stringify(pCreated)}`);
 
-  await fetch(`${demo.url}/api/invoke`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      method: 'appointments:create',
-      payload: { patient_id: pCreated.data.id, day: dayAfter },
-    }),
-  });
+  const aCreated = await (
+    await fetch(`${demo.url}/api/invoke`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        method: 'appointments:create',
+        payload: { patient_id: pCreated.data.id, day: dayAfter },
+      }),
+    })
+  ).json();
+  assert.equal(aCreated.ok, true, `appointments:create failed: ${JSON.stringify(aCreated)}`);
 
   const virtualConsole = new VirtualConsole();
   const dom = await JSDOM.fromURL(demo.url, {
@@ -189,12 +197,14 @@ test('Patients UI groups scheduled patients into distinct date cards and locks f
     safeRemove(dataDir);
   });
 
-  await waitFor(() => window.document.querySelector('[data-page="patients"]'));
+  // Wait for initial dashboard render (.kpi) to settle so its async render never overwrites Patients
+  await waitFor(() => window.document.querySelector('.kpi'), 10000);
   window.document.querySelector('[data-page="patients"]').click();
   await waitFor(
     () =>
       window.document.querySelector('[data-ready-mode="by_day"]') &&
       window.document.querySelectorAll('.content .card').length >= 2,
+    10000,
   );
 
   const cards = [...window.document.querySelectorAll('.content .card')];
