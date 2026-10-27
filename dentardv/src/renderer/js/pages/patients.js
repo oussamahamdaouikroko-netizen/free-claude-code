@@ -443,6 +443,8 @@
                 b.classList.toggle('active', k === mode);
               });
               dateFilterWrap.style.display = mode === 'by_day' ? 'flex' : 'none';
+              clear(tableHost);
+              delete tableHost.dataset.readyMode;
               load();
             },
           },
@@ -476,6 +478,7 @@
             });
             if (seq !== loadSeq) return;
             clear(tableHost);
+            tableHost.dataset.readyMode = mode;
 
             const groups = Array.isArray(data?.groups) ? data.groups : [];
             const unscheduled =
@@ -520,6 +523,7 @@
                 });
           if (seq !== loadSeq) return;
           clear(tableHost);
+          tableHost.dataset.readyMode = mode;
 
           if (rows.length === 0) {
             tableHost.append(

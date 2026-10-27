@@ -102,22 +102,27 @@ test('the full UI boots and every screen renders', async (t) => {
 
   // Patients page: 4 filter tabs ('Par jours & dates', 'Patients d’aujourd’hui', 'Tous', 'Débiteurs').
   $('[data-page="patients"]').click();
-  await waitFor(() => $('.content .tabs'), { label: 'patients filters' });
+  await waitFor(() => $('[data-ready-mode="by_day"]') && $$('table.list tbody tr').length > 0, {
+    label: 'initial patients by_day view',
+  });
   const filters = $$('.content .tabs button');
   assert.equal(filters.length, 4, 'four patient filters (by_day, today, all, debtors)');
   filters[3].click();
-  await waitFor(() => $$('table.list tbody tr').length > 0, { label: 'debtor rows' });
+  await waitFor(() => $('[data-ready-mode="debtors"]') && $$('table.list tbody tr').length > 0, {
+    label: 'debtor rows',
+  });
   const debtorRows = $$('table.list tbody tr');
   assert.ok(debtorRows.length >= 1, 'the demo data has patients with debts');
   for (const row of debtorRows) {
     assert.ok(row.querySelector('.badge.danger'), 'a listed patient must still owe money');
   }
   filters[2].click();
-  await waitFor(() => $$('table.list tbody tr').length > debtorRows.length, {
-    label: 'full list restored',
-  });
+  await waitFor(
+    () => $('[data-ready-mode="all"]') && $$('table.list tbody tr').length > debtorRows.length,
+    { label: 'full list restored' },
+  );
   filters[0].click();
-  await waitFor(() => $$('table.list tbody tr').length > 0, {
+  await waitFor(() => $('[data-ready-mode="by_day"]') && $$('table.list tbody tr').length > 0, {
     label: 'grouped by-day view restored',
   });
 
