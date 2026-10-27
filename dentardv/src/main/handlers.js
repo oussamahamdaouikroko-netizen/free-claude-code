@@ -199,7 +199,8 @@ function createHandlers(context) {
     'dashboard:today': (payload) => dashboardToday(payload?.day),
 
     /* -------------------------------- patients ----------------------------- */
-    'patients:list': (payload) => patients.list(payload?.search, { limit: payload?.limit }),
+    'patients:list': (payload) => patients.list(payload?.search, { limit: payload?.limit, today: payload?.today }),
+    'patients:by-day': (payload) => patients.byDayGroups(payload || {}),
     'patients:get': (payload) => {
       const pid = payload?.id;
       return {
@@ -221,6 +222,8 @@ function createHandlers(context) {
     'appointments:agenda': (payload) => appointments.agenda(payload?.day),
     'appointments:day-info': (payload) => appointments.dayInfo(payload?.day),
     'appointments:next-free-day': (payload) => appointments.findNextFreeDay(payload || {}),
+    'appointments:available-days': (payload) => appointments.listAvailableDays(payload || {}),
+    'appointments:check-day': (payload) => appointments.checkDayAvailability(payload?.day, payload || {}),
     'appointments:range': (payload) => appointments.listRange(payload?.start, payload?.end),
     'appointments:create': (payload) => {
       const created = appointments.create(payload);
@@ -234,15 +237,30 @@ function createHandlers(context) {
     'appointments:reschedule': (payload) => appointments.reschedule(payload),
     'appointments:confirm': (payload) => appointments.confirmAppointment(payload?.id),
     'appointments:status': (payload) => {
+      const prev = payload?.id ? appointments.get(payload.id) : null;
+      const waConnected = Boolean(wa && wa.publicStatus()?.connected);
       if (payload?.status === 'cancelled') {
         const cancelled = appointments.cancel(payload?.id);
         chat.recordCancelled(cancelled, { delivery: 'local' });
         emit({ type: 'chat', payload: { kind: 'cancelled', appointment_id: cancelled.id } });
-        notifyRemovalAdvance(cancelled);
+        if (prev?.status === 'booked') notifyRemovalAdvance(cancelled);
         return cancelled;
       }
+      if (payload?.status === 'done' && prev?.status === 'booked') {
+        const result = appointments.completeAndAdvance(payload?.id, {
+          waConnected,
+          resolveLanguage: (phone, fullName) => bot.preferredLanguage(phone, fullName),
+        });
+        if (waConnected && result.notifications.length > 0 && typeof wa.notifyQueueAdvance === 'function') {
+          wa.notifyQueueAdvance(result.notifications).catch((error) => {
+            console.error('[wa] queue notification failed:', error.message);
+          });
+        }
+        emit({ type: 'chat', payload: { kind: 'turn_now', count: result.notifications.length } });
+        return result.appointment;
+      }
       const updated = appointments.setStatus(payload?.id, payload?.status);
-      if (payload?.status === 'no_show') notifyRemovalAdvance(updated);
+      if (payload?.status === 'no_show' && prev?.status === 'booked') notifyRemovalAdvance(updated);
       return updated;
     },
     'appointments:cancel': (payload) => {

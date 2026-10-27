@@ -124,6 +124,7 @@
         { value: 'ar', label: t('common.arabic') },
       ], { value: settings.bot_language });
       const botDarija = input({ type: 'checkbox', checked: settings.bot_darija_mode === '1' });
+      const botChooseDay = input({ type: 'checkbox', checked: settings.bot_choose_day_enabled !== '0' });
       const intakeEnabled = input({ type: 'checkbox', checked: settings.intake_enabled !== '0' });
       const autostartEnabled = input({ type: 'checkbox', checked: settings.autostart_enabled !== '0' });
       const reminderEnabled = input({ type: 'checkbox', checked: settings.reminder_enabled === '1' });
@@ -155,6 +156,7 @@
             working_days: [...working].sort().join(','),
             bot_language: botLanguage.value,
             bot_darija_mode: botDarija.checked ? '1' : '0',
+            bot_choose_day_enabled: botChooseDay.checked ? '1' : '0',
             intake_enabled: intakeEnabled.checked ? '1' : '0',
             autostart_enabled: autostartEnabled.checked ? '1' : '0',
             reminder_enabled: reminderEnabled.checked ? '1' : '0',
@@ -342,6 +344,7 @@
           card(
             t('settings.whatsapp'),
             field(t('wa.botLanguage'), botLanguage),
+            switchRow(t('settings.botChooseDay'), h('label', { class: 'switch' }, botChooseDay, h('span', {}))),
             switchRow(t('settings.botDarija'), h('label', { class: 'switch' }, botDarija, h('span', {}))),
             switchRow(t('settings.intakeEnabled'), h('label', { class: 'switch' }, intakeEnabled, h('span', {}))),
             switchRow(t('settings.autostart'), h('label', { class: 'switch' }, autostartEnabled, h('span', {}))),

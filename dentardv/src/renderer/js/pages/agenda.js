@@ -12,35 +12,16 @@
   }
 
   function rescheduleDialog(appointment, onDone) {
-    const day = input({ type: 'date', value: appointment.day, min: todayISO() });
-    const error = h('div', { class: 'error-text' });
-    modal({
-      title: t('agenda.reschedule'),
-      body: h('div', { class: 'col' }, field(t('agenda.chooseDay'), day), error),
-      actions: [
-        { label: t('common.cancel'), kind: 'ghost' },
-        {
-          label: t('common.confirm'),
-          kind: 'primary',
-          onClick: async () => {
-            try {
-              await window.API.invoke('appointments:reschedule', { id: appointment.id, day: day.value });
-              toast(t('agenda.rescheduled'), 'ok');
-              onDone();
-            } catch (err) {
-              error.textContent = errorMessage(err);
-              return false;
-            }
-            return true;
-          },
-        },
-      ],
-    });
+    return window.Components.rescheduleDialog(appointment, onDone);
   }
 
   function row(appointment, ctx) {
     const currency = window.App.settings.currency;
     const due = Math.max(0, appointment.price - appointment.paid);
+    const today = todayISO();
+    const isFutureDay = appointment.day > today;
+    const isTodayDay = appointment.day === today;
+
     const action = async (status, message) => {
       try {
         await window.API.invoke('appointments:status', { id: appointment.id, status });
@@ -53,18 +34,40 @@
 
     const buttons = h('div', { class: 'row' });
     if (appointment.status === 'booked') {
-      buttons.append(
-        h(
-          'button',
-          {
-            class: 'btn icon sm soft',
-            title: t('queue.finishAndCallNext'),
-            onClick: () => window.Components.completeAppointment(appointment, ctx.refresh),
-          },
-          '✓',
-        ),
-        h('button', { class: 'btn icon sm', title: t('agenda.noShow'), onClick: () => action('no_show', t('agenda.noShow')) }, '🚫'),
-      );
+      if (isFutureDay) {
+        buttons.append(
+          h(
+            'span',
+            { class: 'badge warn', title: t('patients.futureLockedHint') },
+            '🔒 ' + t('patients.futureLockedBadge'),
+          ),
+        );
+      } else {
+        const canCompleteNow = !isTodayDay || Boolean(appointment.is_current_turn);
+        buttons.append(
+          h(
+            'button',
+            {
+              class: 'btn icon sm soft',
+              disabled: !canCompleteNow,
+              title: canCompleteNow
+                ? t('queue.finishAndCallNext')
+                : t('error.QUEUE_OUT_OF_TURN'),
+              onClick: () => window.Components.completeAppointment(appointment, ctx.refresh),
+            },
+            '✓',
+          ),
+          h(
+            'button',
+            {
+              class: 'btn icon sm',
+              title: t('agenda.noShow'),
+              onClick: () => action('no_show', t('agenda.noShow')),
+            },
+            '🚫',
+          ),
+        );
+      }
     }
     if (appointment.status !== 'cancelled') {
       buttons.append(

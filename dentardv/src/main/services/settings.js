@@ -58,6 +58,8 @@ const VALIDATORS = {
   bot_enabled: (v) => String(asFlag(v)),
   bot_language: (v) => (v === 'ar' ? 'ar' : 'fr'),
   bot_darija_mode: (v) => String(asFlag(v)),
+  bot_choose_day_enabled: (v) => String(asFlag(v)),
+  bot_max_day_choices: (v) => String(clampInt(v, 3, 14, 5)),
   intake_enabled: (v) => String(asFlag(v)),
   reminder_enabled: (v) => String(asFlag(v)),
   reminder_hour: (v) => String(clampInt(v, 0, 23, 17)),

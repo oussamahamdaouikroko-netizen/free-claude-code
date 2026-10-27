@@ -3,7 +3,7 @@
  * French / Arabic / Darija reply templates for the DentaRDV WhatsApp bot.
  */
 
-const { formatLong } = require('../utils/dates');
+const { formatLong, formatFR } = require('../utils/dates');
 
 const money = (value, currency = 'DZD') =>
   `${Number(value).toLocaleString('fr-DZ', { maximumFractionDigits: 2 })} ${currency}`;
@@ -39,6 +39,60 @@ function formatPatientsAhead(ahead, lang = 'fr') {
   return n === 1 ? '1 patient' : `${n} patients`;
 }
 
+function formatPlacesLeft(left, lang = 'fr') {
+  const n = Math.max(0, Math.round(Number(left) || 0));
+  if (lang === 'ar') {
+    if (n === 1) return 'مكان واحد متاح (1)';
+    if (n === 2) return 'مكانان متاحان (2)';
+    if (n >= 3 && n <= 10) return `${n} أماكن متاحة`;
+    return `${n} مكاناً متاحاً`;
+  }
+  return n === 1 ? '1 place disponible' : `${n} places disponibles`;
+}
+
+function formatAvailableDaysList(days = [], lang = 'fr') {
+  return days
+    .map(
+      (d, idx) =>
+        `${idx + 1}. 📅 ${formatLong(d.day, lang)} (${formatFR(d.day)}) — ${formatPlacesLeft(d.left, lang)}`,
+    )
+    .join('\n');
+}
+
+function formatUnavailableReason({ day, reason }, lang = 'fr') {
+  const dateText = day ? `${formatLong(day, lang)} (${formatFR(day)})` : '';
+  if (lang === 'ar') {
+    switch (reason) {
+      case 'full':
+        return `⚠️ عذراً، يوم ${dateText} ممتلئ بالكامل حسب الحجوزات الحالية.`;
+      case 'closed':
+        return `⚠️ عذراً، العيادة مغلقة يوم ${dateText} (خارج أيام العمل).`;
+      case 'today_disabled':
+        return `⚠️ عذراً، الحجز لنفس اليوم مغلق حالياً. يرجى اختيار أحد الأيام القادمة المتاحة.`;
+      case 'past':
+        return `⚠️ عذراً، التاريخ المدخل (${dateText || day}) قد مضى.`;
+      case 'beyond_horizon':
+        return `⚠️ عذراً، التاريخ ${dateText} يقع خارج فترة الحجز المتاحة حالياً.`;
+      default:
+        return `⚠️ التاريخ المدخل غير صالح. يرجى اختيار رقم من القائمة أو كتابة التاريخ بصيغة يوم/شهر (مثلاً: 05/11).`;
+    }
+  }
+  switch (reason) {
+    case 'full':
+      return `⚠️ Désolé, la journée du ${dateText} est complète selon les réservations actuelles.`;
+    case 'closed':
+      return `⚠️ Désolé, le cabinet est fermé le ${dateText} (hors jours ouvrables).`;
+    case 'today_disabled':
+      return `⚠️ Désolé, la réservation pour le jour même est fermée. Veuillez choisir l'une des prochaines dates disponibles.`;
+    case 'past':
+      return `⚠️ Désolé, la date saisie (${dateText || day}) est déjà passée.`;
+    case 'beyond_horizon':
+      return `⚠️ Désolé, la date du ${dateText} dépasse la période d'ouverture de l'agenda.`;
+    default:
+      return `⚠️ Date non valide. Veuillez envoyer un numéro de la liste ou saisir une date au format JJ/MM (ex : 05/11).`;
+  }
+}
+
 const t = {
   fr: {
     help: (s) =>
@@ -47,10 +101,35 @@ const t = {
       (s.address ? `📍 ${s.address}\n` : '') +
       `\nPour prendre un rendez-vous dentaire, envoyez simplement votre nom complet (prénom et nom).\n\n` +
       `Commandes :\n` +
+      `• JOURS DISPONIBLES — consulter les dates libres\n` +
       `• MON RDV — consulter votre rendez-vous\n` +
       `• CONFIRMER — confirmer votre présence\n` +
       `• ANNULER — annuler votre rendez-vous\n\n` +
       `Merci.`,
+
+    chooseDay: (_s, { name, days = [], hasMore = false }) =>
+      `📅 Bonjour${name ? ` ${name}` : ''}, veuillez choisir le jour et la date de votre rendez-vous dentaire parmi les disponibilités :\n\n` +
+      `${formatAvailableDaysList(days, 'fr')}\n\n` +
+      `👉 Répondez par le numéro du jour souhaité (1 à ${days.length}) ou écrivez une date (ex : ${days[0] ? formatFR(days[0].day).slice(0, 5) : '05/11'}).` +
+      (hasMore ? `\n🔄 Envoyez 0 ou PLUS pour afficher d'autres dates disponibles.` : ''),
+
+    dayUnavailable: (_s, { day, reason, days = [], hasMore = false }) =>
+      `${formatUnavailableReason({ day, reason }, 'fr')}\n\n` +
+      `📅 Dates disponibles :\n` +
+      `${formatAvailableDaysList(days, 'fr')}\n\n` +
+      `👉 Répondez par un numéro entre 1 et ${days.length}` +
+      (hasMore ? ` (ou 0 pour plus de dates).` : `.`),
+
+    invalidDayChoice: (_s, { days = [], hasMore = false }) =>
+      `Choix non reconnu 🙏\n` +
+      `Merci d'envoyer un numéro entre 1 et ${days.length} (ou une date au format JJ/MM) pour choisir votre rendez-vous :\n\n` +
+      `${formatAvailableDaysList(days, 'fr')}` +
+      (hasMore ? `\n\n🔄 Envoyez 0 ou PLUS pour voir les dates suivantes.` : ''),
+
+    availableDaysPreview: (s, { days = [] }) =>
+      `📅 Prochaines dates disponibles au ${s.clinic} :\n\n` +
+      `${formatAvailableDaysList(days, 'fr')}\n\n` +
+      `✍️ Pour réserver, envoyez d'abord votre nom complet (exemple : Oussama Hamdaoui).`,
 
     askName: (s) =>
       `Bienvenue au ${s.clinic}. 🙏\nEnvoyez votre nom complet (prénom + nom, ex : Oussama Hamdaoui) ` +
@@ -230,10 +309,35 @@ const t = {
       (s.address ? `📍 ${s.address}\n` : '') +
       `\nلحجز موعد لطب الأسنان، أرسلوا اسمكم الكامل (الاسم واللقب).\n\n` +
       `الأوامر:\n` +
+      `• الأيام المتاحة — لعرض التواريخ المتوفرة للحجز\n` +
       `• موعدي — لمعرفة موعدكم\n` +
       `• تأكيد — لتأكيد الحضور\n` +
       `• إلغاء — لإلغاء الموعد\n\n` +
       `شكرا.`,
+
+    chooseDay: (_s, { name, days = [], hasMore = false }) =>
+      `📅 مرحبا${name ? ` ${name}` : ''}، يرجى اختيار اليوم والتاريخ المناسب لحجز موعدكم من بين الأيام المتاحة:\n\n` +
+      `${formatAvailableDaysList(days, 'ar')}\n\n` +
+      `👉 أرسلوا رقم اليوم المطلوب (من 1 إلى ${days.length}) أو اكتبوا التاريخ (مثلاً: ${days[0] ? formatFR(days[0].day).slice(0, 5) : '05/11'}).` +
+      (hasMore ? `\n🔄 أرسلوا 0 أو المزيد لعرض أيام وتواريخ أخرى متاحة.` : ''),
+
+    dayUnavailable: (_s, { day, reason, days = [], hasMore = false }) =>
+      `${formatUnavailableReason({ day, reason }, 'ar')}\n\n` +
+      `📅 الأيام المتاحة حالياً:\n` +
+      `${formatAvailableDaysList(days, 'ar')}\n\n` +
+      `👉 يرجى إرسال رقم بين 1 و ${days.length}` +
+      (hasMore ? ` (أو 0 لعرض المزيد من التواريخ).` : `.`),
+
+    invalidDayChoice: (_s, { days = [], hasMore = false }) =>
+      `عذراً، الاختيار غير معروف 🙏\n` +
+      `يرجى إرسال رقم بين 1 و ${days.length} (أو كتابة التاريخ بصيغة يوم/شهر) لاختيار موعدكم:\n\n` +
+      `${formatAvailableDaysList(days, 'ar')}` +
+      (hasMore ? `\n\n🔄 أرسلوا 0 أو المزيد لعرض التواريخ التالية.` : ''),
+
+    availableDaysPreview: (s, { days = [] }) =>
+      `📅 الأيام والتواريخ المتاحة حالياً في ${s.clinic}:\n\n` +
+      `${formatAvailableDaysList(days, 'ar')}\n\n` +
+      `✍️ للحجز، أرسلوا أولاً اسمكم الكامل (مثال: أسامة حمداوي).`,
 
     askName: (s) =>
       `مرحبا بكم في ${s.clinic}. 🙏\nأرسلوا اسمكم الكامل (الاسم واللقب، مثال: أسامة حمداوي) ` +
@@ -411,7 +515,12 @@ const DARIJA_TEMPLATES = {
       (s.doctor ? `${s.doctor}${s.specialty ? ` — ${s.specialty}` : ''}\n` : '') +
       (s.address ? `📍 ${s.address}\n` : '') +
       `\nباش تحجز موعد عند طبيب الأسنان، ابعث برك الاسم واللقب تاعك كاملين.\n\n` +
-      `الأوامر:\n• موعدي — لمعرفة نهار ونيميرو الدور تاعك\n• تأكيد — لتأكيد الحضور\n• إلغاء — لإلغاء الموعد`,
+      `الأوامر:\n• الأيام المتاحة — باش تشوف النهارات الفارغة\n• موعدي — لمعرفة نهار ونيميرو الدور تاعك\n• تأكيد — لتأكيد الحضور\n• إلغاء — لإلغاء الموعد`,
+    chooseDay: (_s, { name, days = [], hasMore = false }) =>
+      `📅 مرحبا${name ? ` ${name}` : ''}، خيّر النهار والتاريخ اللي يساعدك من القائمة:\n\n` +
+      `${formatAvailableDaysList(days, 'ar')}\n\n` +
+      `👉 ابعث نيميرو النهار (من 1 إلى ${days.length}) ولا اكتب التاريخ (مثلا: ${days[0] ? formatFR(days[0].day).slice(0, 5) : '05/11'}).` +
+      (hasMore ? `\n🔄 ابعث 0 ولا المزيد باش تشوف نهارات خرين.` : ''),
     booked: (_s, { name, day, queue }) =>
       `✅ تم تأكيد الموعد تاعك بالصحة والعافية\n\n` +
       `المريض(ة): ${name}\n` +

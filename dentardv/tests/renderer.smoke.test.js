@@ -100,21 +100,25 @@ test('the full UI boots and every screen renders', async (t) => {
   $('.modal-foot .btn').click();
   await waitFor(() => !$('.modal'), { label: 'modal closed' });
 
-  // Debtors filter: only the patients who still owe money are listed.
+  // Patients page: 4 filter tabs ('Par jours & dates', 'Patients d’aujourd’hui', 'Tous', 'Débiteurs').
   $('[data-page="patients"]').click();
   await waitFor(() => $('.content .tabs'), { label: 'patients filters' });
   const filters = $$('.content .tabs button');
-  assert.equal(filters.length, 2, 'two patient filters');
-  filters[1].click();
+  assert.equal(filters.length, 4, 'four patient filters (by_day, today, all, debtors)');
+  filters[3].click();
   await waitFor(() => $$('table.list tbody tr').length > 0, { label: 'debtor rows' });
   const debtorRows = $$('table.list tbody tr');
   assert.ok(debtorRows.length >= 1, 'the demo data has patients with debts');
   for (const row of debtorRows) {
     assert.ok(row.querySelector('.badge.danger'), 'a listed patient must still owe money');
   }
-  filters[0].click();
+  filters[2].click();
   await waitFor(() => $$('table.list tbody tr').length > debtorRows.length, {
     label: 'full list restored',
+  });
+  filters[0].click();
+  await waitFor(() => $$('table.list tbody tr').length > 0, {
+    label: 'grouped by-day view restored',
   });
 
   // Navigation uses real SVG icons, not emoji.

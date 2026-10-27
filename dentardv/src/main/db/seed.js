@@ -45,6 +45,8 @@ const DEFAULT_SETTINGS = {
   bot_enabled: '0',
   bot_language: 'fr',
   bot_darija_mode: '0',
+  bot_choose_day_enabled: '1',
+  bot_max_day_choices: '5',
   intake_enabled: '1',
   reminder_enabled: '1',
   reminder_hour: '17',

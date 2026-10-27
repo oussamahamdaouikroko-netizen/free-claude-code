@@ -22,6 +22,8 @@ function useTempDb() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `dentardv-test-${process.pid}-`));
   const file = path.join(dir, 'dentardv.sqlite');
   db.open(file);
+  // Keep legacy 1-message unit tests deterministic; whatsapp-date-picker.test.js tests the production default ('1').
+  db.getDb().prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('bot_choose_day_enabled', '0')").run();
   license.init({ dataDir: dir, demo: true });
   return {
     file,

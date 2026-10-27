@@ -24,6 +24,31 @@ paiements, dépenses, rapports et réservation automatique par WhatsApp.
   technique (version, erreurs, WhatsApp) — il suffit de l'envoyer au support.
   Son chemin exact est affiché dans **Réglages → À propos**.
 
+### Nouveautés 2.1.0 — Choix du Jour & de la Date sur WhatsApp + File par Date & Verrouillage Strict du Tour
+
+- **Choix dynamique du jour et de la date sur WhatsApp (FR / AR / Darija)** :
+  le robot WhatsApp propose désormais automatiquement la liste numérotée (`1..5`)
+  des jours et dates réellement disponibles en temps réel selon les réservations
+  du cabinet (`daily_capacity`, `working_days`, `allow_same_day_booking`,
+  `booking_horizon_days`), avec le nombre exact de places restantes par jour,
+  pagination (`0` / `المزيد` / `PLUS`), saisie directe de date (`JJ/MM`,
+  `JJ/MM/AAAA`, `AAAA-MM-JJ`), commande `JOURS DISPONIBLES` / `الأيام المتاحة`,
+  et re-proposition automatique si la dernière place est prise au bureau entre-temps.
+- **Onglet Patients (`خانة المرضى`) organisé par Jours & Dates** :
+  séparation claire des patients en cartes chronologiques distinctes par jour et
+  date (`Aujourd'hui`, `Demain`, `Après-demain`, dates futures, dates passées et
+  dossiers sans RDV programmé), avec filtre rapide par date et 4 vues dédiées
+  (`Par jours & dates`, `Patients d'aujourd'hui`, `Tous`, `Débiteurs`).
+- **Verrouillage strict des dates futures et de l'ordre de passage (`#1` avant `#2`)** :
+  impossibilité absolue pour le secrétariat (côté interface et côté serveur) de
+  marquer un patient réservé à une date future (ex. demain ou après-demain) comme
+  examiné/terminé ou absent avant le jour de son rendez-vous (avec bouton direct
+  pour déplacer le RDV à aujourd'hui si le patient se présente tôt), et blocage du
+  passage hors tour dans la file d'aujourd'hui tant qu'un patient précédent non
+  urgent est encore en attente (`#1` avant `#2`).
+- **Compatibilité totale des licences existantes** :
+  les postes déjà activés sous `DentaRDV` restent 100% activés sans nouvelle clé.
+
 ### Nouveautés 2.0.0 — Édition Chirurgien-Dentiste Complète
 
 - **Ordonnances Dentaires (`Ordonnances` A4 / A5 + QR de vérification)** :

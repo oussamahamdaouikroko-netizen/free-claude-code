@@ -131,6 +131,7 @@
       h(
         'div',
         { class: 'tag-list mt-s' },
+        h('span', { class: 'tag' }, t('wa.commandDates')),
         h('span', { class: 'tag' }, t('wa.commandConfirm')),
         h('span', { class: 'tag' }, t('wa.commandCancel')),
         h('span', { class: 'tag' }, t('wa.commandMine')),

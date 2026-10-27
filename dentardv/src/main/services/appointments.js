@@ -98,7 +98,7 @@ function findNextFreeDay(options = {}) {
     options.allowSameDay !== undefined
       ? Boolean(options.allowSameDay)
       : settings.getBool('allow_same_day_booking');
-  const horizon = options.horizonDays || settings.getInt('booking_horizon_days');
+  const horizon = options.horizonDays || settings.getInt('booking_horizon_days') || 45;
   const start = allowSameDay ? today : addDays(today, 1);
 
   for (let offset = 0; offset <= horizon; offset += 1) {
@@ -107,6 +107,101 @@ function findNextFreeDay(options = {}) {
     if (usedCapacity(day) < settings.getInt('daily_capacity')) return day;
   }
   return null;
+}
+
+/**
+ * List bookable upcoming days dynamically from live SQLite appointments,
+ * working days, daily capacity, same-day rule, and booking horizon.
+ *
+ * @param {{fromDate?: string, allowSameDay?: boolean, horizonDays?: number, offset?: number, limit?: number}} [options]
+ */
+function listAvailableDays(options = {}) {
+  const today = options.fromDate || toISODate();
+  const allowSameDay =
+    options.allowSameDay !== undefined
+      ? Boolean(options.allowSameDay)
+      : settings.getBool('allow_same_day_booking');
+  const horizon =
+    options.horizonDays !== undefined
+      ? Math.max(0, Number(options.horizonDays) || 0)
+      : settings.getInt('booking_horizon_days') || 45;
+  const start = allowSameDay ? today : addDays(today, 1);
+
+  const allAvailable = [];
+  for (let d = 0; d <= horizon; d += 1) {
+    const candidate = addDays(start, d);
+    const info = dayInfo(candidate);
+    if (!info.working || info.left <= 0) continue;
+    allAvailable.push({
+      day: candidate,
+      left: info.left,
+      capacity: info.capacity,
+      used: info.used,
+    });
+  }
+
+  const defaultLimit = Math.max(1, settings.getInt('bot_max_day_choices') || 5);
+  const pageLimit =
+    options.limit !== undefined && options.limit !== null
+      ? Math.max(1, Number(options.limit) || defaultLimit)
+      : defaultLimit;
+  const pageOffset = Math.max(0, Number(options.offset) || 0);
+  const days = allAvailable.slice(pageOffset, pageOffset + pageLimit);
+
+  return {
+    days,
+    totalAvailable: allAvailable.length,
+    offset: pageOffset,
+    limit: pageLimit,
+    hasMore: pageOffset + days.length < allAvailable.length,
+  };
+}
+
+/**
+ * Inspect whether a specific requested ISO date is bookable right now and, if
+ * not, return the exact reason ('past' | 'today_disabled' | 'beyond_horizon' |
+ * 'closed' | 'full' | 'invalid_date').
+ */
+function checkDayAvailability(day, options = {}) {
+  if (!isValidISODate(day)) {
+    return { bookable: false, reason: 'invalid_date', day: String(day || '') };
+  }
+  const today = options.fromDate || toISODate();
+  const allowSameDay =
+    options.allowSameDay !== undefined
+      ? Boolean(options.allowSameDay)
+      : settings.getBool('allow_same_day_booking');
+  const horizon =
+    options.horizonDays !== undefined
+      ? Math.max(0, Number(options.horizonDays) || 0)
+      : settings.getInt('booking_horizon_days') || 45;
+
+  const delta = diffDays(today, day);
+  if (delta < 0) {
+    return { bookable: false, reason: 'past', day };
+  }
+  if (delta === 0 && !allowSameDay) {
+    return { bookable: false, reason: 'today_disabled', day };
+  }
+  const maxOffset = allowSameDay ? horizon : horizon + 1;
+  if (delta > maxOffset) {
+    return { bookable: false, reason: 'beyond_horizon', day };
+  }
+  const info = dayInfo(day);
+  if (!info.working) {
+    return { bookable: false, reason: 'closed', day };
+  }
+  if (info.left <= 0) {
+    return { bookable: false, reason: 'full', day, capacity: info.capacity, used: info.used, left: 0 };
+  }
+  return {
+    bookable: true,
+    reason: null,
+    day,
+    left: info.left,
+    capacity: info.capacity,
+    used: info.used,
+  };
 }
 
 function assertBookableDay(day) {
@@ -332,11 +427,50 @@ function syncTreatmentName(treatmentId, nameFr) {
     .run(nameFr, treatmentId);
 }
 
-function setStatus(id, status) {
+function assertStatusTransitionAllowed(appointment, status, options = {}) {
+  const today = options.today || toISODate();
+  if (status === 'done' || status === 'no_show') {
+    if (diffDays(today, appointment.day) > 0) {
+      throw new AppError(
+        'APPOINTMENT_FUTURE_DAY',
+        'Cannot complete or mark absent a future appointment before its scheduled date',
+        { day: appointment.day, today },
+      );
+    }
+  }
+  if (status === 'done' && appointment.status !== 'done' && appointment.day === today) {
+    const activeQueue = getDb()
+      .prepare(
+        `${AGENDA_SQL}
+         WHERE a.day = ? AND a.status = 'booked'
+         ORDER BY CASE WHEN a.priority = 'urgent' THEN 0 ELSE 1 END ASC,
+                  CASE WHEN a.slot_time <> '' THEN a.slot_time ELSE '99:99' END ASC,
+                  a.queue_number ASC`,
+      )
+      .all(today);
+    const firstBooked = activeQueue[0];
+    if (firstBooked && Number(firstBooked.id) !== Number(appointment.id)) {
+      throw new AppError(
+        'QUEUE_OUT_OF_TURN',
+        'Cannot complete an appointment ahead of earlier booked patients in today queue',
+        {
+          current_id: firstBooked.id,
+          current_name: firstBooked.full_name,
+          current_queue: firstBooked.queue_number,
+          requested_id: appointment.id,
+          requested_queue: appointment.queue_number,
+        },
+      );
+    }
+  }
+}
+
+function setStatus(id, status, options = {}) {
   if (!['booked', 'done', 'cancelled', 'no_show'].includes(status)) {
     throw new AppError('INVALID_STATUS');
   }
   const appointment = get(id);
+  assertStatusTransitionAllowed(appointment, status, options);
   getDb()
     .prepare('UPDATE appointments SET status = ?, updated_at = ? WHERE id = ?')
     .run(status, nowLocal(), appointment.id);
@@ -459,7 +593,7 @@ function queuePosition(appointment) {
  */
 function completeAndAdvance(id, options = {}) {
   const current = get(id);
-  const updated = setStatus(current.id, 'done');
+  const updated = setStatus(current.id, 'done', options);
   const today = options.today || toISODate();
   const avgMinutes = Math.max(5, settings.getInt('avg_session_minutes') || 20);
 
@@ -478,7 +612,9 @@ function completeAndAdvance(id, options = {}) {
     .prepare(
       `${AGENDA_SQL}
        WHERE a.day = ? AND a.status = 'booked'
-       ORDER BY a.queue_number ASC`,
+       ORDER BY CASE WHEN a.priority = 'urgent' THEN 0 ELSE 1 END ASC,
+                CASE WHEN a.slot_time <> '' THEN a.slot_time ELSE '99:99' END ASC,
+                a.queue_number ASC`,
     )
     .all(updated.day)
     .map(decorate);
@@ -642,7 +778,7 @@ function advanceNotificationsAfterRemoval(removedAppointment, options = {}) {
   return notifications;
 }
 
-/** Agenda of one day, ordered by queue number (cancelled rows excluded). */
+/** Agenda of one day, ordered by urgent priority, slot time, then queue number (cancelled rows excluded). */
 function agenda(day = toISODate()) {
   if (!isValidISODate(day)) throw new AppError('INVALID_DATE');
   const avgMinutes = Math.max(5, settings.getInt('avg_session_minutes') || 20);
@@ -650,7 +786,9 @@ function agenda(day = toISODate()) {
     .prepare(
       `${AGENDA_SQL}
        WHERE a.day = ? AND a.status <> 'cancelled'
-       ORDER BY a.queue_number ASC`,
+       ORDER BY CASE WHEN a.status = 'booked' AND a.priority = 'urgent' THEN 0 ELSE 1 END ASC,
+                CASE WHEN a.slot_time <> '' THEN a.slot_time ELSE '99:99' END ASC,
+                a.queue_number ASC`,
     )
     .all(day)
     .map(decorate);
@@ -767,6 +905,8 @@ module.exports = {
   usedCapacity,
   nextQueueNumber,
   findNextFreeDay,
+  listAvailableDays,
+  checkDayAvailability,
   canUserBook,
   create,
   get,

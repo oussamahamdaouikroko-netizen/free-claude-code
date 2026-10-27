@@ -232,11 +232,24 @@ test('handlers expose appointments:complete and enforce DEMO_ONLY on chat:simula
     assert.equal(appointments.agenda(toISODate()).filter((r) => r.status === 'booked').length, 0);
   }
 
-  // Completing an appointment on another day marks done without sending "come now" alerts.
+  // Completing a future-day appointment is strictly blocked (`APPOINTMENT_FUTURE_DAY`),
+  // whereas completing a past-day historical appointment marks done without sending "come now" alerts.
   const tomorrow = addDays(toISODate(), 1);
   const futureP = patients.create({ full_name: 'مريض الغد', phone: '0555400001' });
   const futureAppt = prodHandlers['appointments:create']({ patient_id: futureP.id, day: tomorrow });
-  const futureDone = prodHandlers['appointments:complete']({ id: futureAppt.id });
-  assert.equal(futureDone.appointment.status, 'done');
-  assert.equal(futureDone.notifications.length, 0);
+  assert.throws(
+    () => prodHandlers['appointments:complete']({ id: futureAppt.id }),
+    (err) => err && err.code === 'APPOINTMENT_FUTURE_DAY',
+  );
+
+  const yesterday = addDays(toISODate(), -1);
+  const pastP = patients.create({ full_name: 'مريض الأمس', phone: '0555400002' });
+  const pastAppt = prodHandlers['appointments:create']({
+    patient_id: pastP.id,
+    day: yesterday,
+    historical: true,
+  });
+  const pastDone = prodHandlers['appointments:complete']({ id: pastAppt.id });
+  assert.equal(pastDone.appointment.status, 'done');
+  assert.equal(pastDone.notifications.length, 0);
 });
