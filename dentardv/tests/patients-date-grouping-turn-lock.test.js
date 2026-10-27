@@ -191,7 +191,11 @@ test('Patients UI groups scheduled patients into distinct date cards and locks f
 
   await waitFor(() => window.document.querySelector('[data-page="patients"]'));
   window.document.querySelector('[data-page="patients"]').click();
-  await waitFor(() => window.document.querySelectorAll('.content .card').length >= 2);
+  await waitFor(
+    () =>
+      window.document.querySelector('[data-ready-mode="by_day"]') &&
+      window.document.querySelectorAll('.content .card').length >= 2,
+  );
 
   const cards = [...window.document.querySelectorAll('.content .card')];
   const futureCard = cards.find((c) => c.textContent.includes('Ami Après-Demain'));
