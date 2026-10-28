@@ -1,0 +1,6 @@
+# regenerable render intermediates (see README.md for the exact commands)
+frames/
+_keyed_tmp/
+
+# large intra/alpha masters: regenerate from frames/ with make_video.py
+output/*.mov
