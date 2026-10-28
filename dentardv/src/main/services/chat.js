@@ -20,6 +20,7 @@ const VALID_KINDS = new Set(['booked', 'cancelled', 'turn_now', 'queue_ahead', '
 const VALID_DELIVERY = new Set(['local', 'queued', 'sent', 'failed']);
 
 function clinicSettings() {
+  const sched = settings.getWorkSchedule();
   return {
     clinic: settings.get('clinic_name'),
     phone: settings.get('clinic_phone'),
@@ -28,9 +29,16 @@ function clinicSettings() {
     specialty: settings.get('doctor_specialty'),
     currency: settings.get('currency'),
     darija: settings.getBool('bot_darija_mode'),
-    is24h: settings.is24hClinic(),
-    openHour: settings.get('work_start_hour') || '08:00',
-    closeHour: settings.get('work_end_hour') || '17:00',
+    is24h: sched.is24h,
+    openHour: sched.shift1Start,
+    closeHour: sched.shift1End,
+    twoShifts: sched.twoShifts,
+    shift2OpenHour: sched.shift2Start,
+    shift2CloseHour: sched.shift2End,
+    breakEnabled: sched.breakEnabled,
+    breakStart: sched.breakStart,
+    breakEnd: sched.breakEnd,
+    netHours: sched.netHours,
     holidayCtx: holidays.getWhatsAppHolidayContext(toISODate()),
   };
 }

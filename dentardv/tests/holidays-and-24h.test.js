@@ -248,6 +248,41 @@ test('24/24 non-stop clinic mode supports high daily capacities, same-day 7/7 sc
   assert.equal(settings.get('work_start_hour'), '08:30');
   assert.equal(settings.get('work_end_hour'), '18:00');
   assert.equal(settings.formatScheduleSummary('fr'), '08:30 – 18:00');
+
+  // Two-shift system (08:00–17:00 + 21:00–00:00 midnight) + Doctor break (12:30–13:30) => 11h net!
+  settings.setMany({
+    clinic_24h_enabled: '0',
+    work_start_hour: '08:00',
+    work_end_hour: '17:00',
+    two_shifts_enabled: '1',
+    shift2_start_hour: '21:00',
+    shift2_end_hour: '00:00',
+    break_enabled: '1',
+    break_start_hour: '12:30',
+    break_end_hour: '13:30',
+  });
+  const sched = settings.getWorkSchedule();
+  assert.equal(sched.shift1Minutes, 540, '08:00–17:00 = 9h');
+  assert.equal(sched.shift2Minutes, 180, '21:00–00:00 midnight = 3h');
+  assert.equal(sched.grossMinutes, 720, 'gross = 12h');
+  assert.equal(sched.deductedBreakMinutes, 60, '1h break deducted');
+  assert.equal(sched.netMinutes, 660, 'net = 11h');
+  assert.equal(sched.netHours, 11);
+  assert.equal(settings.isTimeWithinWorkSchedule('09:30'), true);
+  assert.equal(settings.isTimeInBreak('12:45'), true);
+  assert.equal(settings.isTimeWithinWorkSchedule('12:45'), false);
+  assert.equal(settings.isTimeWithinWorkSchedule('19:00'), false);
+  assert.equal(settings.isTimeWithinWorkSchedule('22:15'), true);
+
+  const twoShiftHelpAr = bot.handle({
+    phone: '0554321999',
+    text: 'مساعدة',
+    nowMs: Date.now() + 90_000,
+  });
+  assert.equal(twoShiftHelpAr.action, 'help');
+  assert.match(twoShiftHelpAr.reply, /08:00 – 17:00/);
+  assert.match(twoShiftHelpAr.reply, /21:00 – 00:00/);
+  assert.match(twoShiftHelpAr.reply, /12:30 – 13:30/);
 });
 
 test('Renderer UI (JSDOM) supports 24/24 clinic toggle, doctor holiday management in Settings, and holiday badges on Agenda/Dashboard', async (t) => {
@@ -382,4 +417,43 @@ test('Renderer UI (JSDOM) supports 24/24 clinic toggle, doctor holiday managemen
     b.textContent.includes(window.I18N.t('agenda.newAppointment')),
   );
   assert.ok(newApptBtn && newApptBtn.disabled, 'New appointment button is disabled on doctor off-day');
+
+  // Switch from 24/24 to Two-Shifts (08:00–17:00 + 21:00–00:00) + Break (12:30–13:30) and verify UI badges & 11h net summary
+  const setTwoShiftsRes = await (
+    await fetch(`${demo.url}/api/invoke`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        method: 'settings:set',
+        payload: {
+          clinic_24h_enabled: '0',
+          work_start_hour: '08:00',
+          work_end_hour: '17:00',
+          two_shifts_enabled: '1',
+          shift2_start_hour: '21:00',
+          shift2_end_hour: '00:00',
+          break_enabled: '1',
+          break_start_hour: '12:30',
+          break_end_hour: '13:30',
+        },
+      }),
+    })
+  ).json();
+  assert.equal(setTwoShiftsRes.ok, true);
+  window.App.settings = setTwoShiftsRes.data;
+
+  window.document.querySelector('[data-page="settings"]').click();
+  await waitFor(() =>
+    window.document.querySelector('[data-role="net-hours-summary"]')?.textContent.includes('11'),
+  );
+  const netBadgeTxt = window.document.querySelector('[data-role="net-hours-summary"]').textContent;
+  assert.ok(netBadgeTxt.includes('11') && netBadgeTxt.includes('60'), `Expected 11h net & 60m break, got: ${netBadgeTxt}`);
+
+  window.document.querySelector('[data-page="agenda"]').click();
+  await waitFor(() =>
+    window.document.querySelector('.content')?.textContent.includes('21:00–00:00'),
+  );
+  const twoShiftAgendaTxt = window.document.querySelector('.content').textContent;
+  assert.ok(twoShiftAgendaTxt.includes('08:00–17:00') && twoShiftAgendaTxt.includes('21:00–00:00'));
+  assert.ok(twoShiftAgendaTxt.includes('12:30–13:30'));
 });

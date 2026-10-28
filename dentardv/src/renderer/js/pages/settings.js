@@ -104,15 +104,215 @@
       const clinic24h = input({ type: 'checkbox', checked: settings.clinic_24h_enabled === '1' });
       const workStartHour = input({ type: 'time', value: settings.work_start_hour || '08:00' });
       const workEndHour = input({ type: 'time', value: settings.work_end_hour || '17:00' });
+      const twoShiftsToggle = input({ type: 'checkbox', checked: settings.two_shifts_enabled === '1' });
+      const shift2StartHour = input({ type: 'time', value: settings.shift2_start_hour || '21:00' });
+      const shift2EndHour = input({ type: 'time', value: settings.shift2_end_hour || '00:00' });
+      const breakToggle = input({ type: 'checkbox', checked: settings.break_enabled === '1' });
+      const breakStartHour = input({ type: 'time', value: settings.break_start_hour || '12:30' });
+      const breakEndHour = input({ type: 'time', value: settings.break_end_hour || '13:30' });
+
+      const parseMins = (hhmm, fb = 0) => {
+        const m = String(hhmm || '').match(/^(\d{1,2}):(\d{2})$/);
+        if (!m) return fb;
+        return Number.parseInt(m[1], 10) * 60 + Number.parseInt(m[2], 10);
+      };
+      const calcSpanMins = (sVal, eVal) => {
+        const s = parseMins(sVal, 480);
+        const eRaw = parseMins(eVal, 1020);
+        const e = eRaw <= s ? eRaw + 1440 : eRaw;
+        return Math.max(0, e - s);
+      };
+      const addMinsHHMM = (sVal, deltaMins) => {
+        const tot = (((parseMins(sVal, 480) + Math.round(Number(deltaMins) || 0)) % 1440) + 1440) % 1440;
+        return `${String(Math.floor(tot / 60)).padStart(2, '0')}:${String(tot % 60).padStart(2, '0')}`;
+      };
+      const calcOverlapMins = (aS, aE, bS, bE) => {
+        const as = parseMins(aS, 0);
+        const aeRaw = parseMins(aE, 0);
+        const ae = aeRaw <= as ? aeRaw + 1440 : aeRaw;
+        const bs0 = parseMins(bS, 0);
+        const be0Raw = parseMins(bE, 0);
+        const be0 = be0Raw <= bs0 ? be0Raw + 1440 : be0Raw;
+        let tot = 0;
+        for (const off of [0, 1440]) {
+          const lo = Math.max(as, bs0 + off);
+          const hi = Math.min(ae, be0 + off);
+          if (hi > lo) tot += hi - lo;
+        }
+        return tot;
+      };
+      const fmtHours = (mins) => String(Math.round((mins / 60) * 100) / 100);
+
+      const shift1HoursInput = input({
+        type: 'number',
+        min: '0.5',
+        max: '24',
+        step: '0.5',
+        value: fmtHours(calcSpanMins(workStartHour.value, workEndHour.value)),
+      });
+      const shift2HoursInput = input({
+        type: 'number',
+        min: '0.5',
+        max: '24',
+        step: '0.5',
+        value: fmtHours(calcSpanMins(shift2StartHour.value, shift2EndHour.value)),
+      });
+
+      const netHoursBadge = h(
+        'div',
+        {
+          dataset: { role: 'net-hours-summary' },
+          class: 'small',
+          style: {
+            padding: '8px 10px',
+            borderRadius: '8px',
+            background: 'rgba(14, 165, 233, 0.1)',
+            color: '#0369a1',
+            fontWeight: '700',
+          },
+        },
+        '',
+      );
+
+      const refreshScheduleCalculations = () => {
+        const s1 = calcSpanMins(workStartHour.value, workEndHour.value);
+        const s2 = twoShiftsToggle.checked ? calcSpanMins(shift2StartHour.value, shift2EndHour.value) : 0;
+        const gross = s1 + s2;
+        const deducted = breakToggle.checked
+          ? calcOverlapMins(workStartHour.value, workEndHour.value, breakStartHour.value, breakEndHour.value) +
+            (twoShiftsToggle.checked
+              ? calcOverlapMins(shift2StartHour.value, shift2EndHour.value, breakStartHour.value, breakEndHour.value)
+              : 0)
+          : 0;
+        const net = Math.max(0, gross - deducted);
+        netHoursBadge.textContent =
+          '⏱️ ' +
+          (breakToggle.checked
+            ? t('settings.netHoursSummary', { net: fmtHours(net), gross: fmtHours(gross), brk: deducted })
+            : t('settings.netHoursSummaryNoBreak', { net: fmtHours(net) }));
+      };
+
+      workStartHour.addEventListener('change', () => {
+        shift1HoursInput.value = fmtHours(calcSpanMins(workStartHour.value, workEndHour.value));
+        refreshScheduleCalculations();
+      });
+      workEndHour.addEventListener('change', () => {
+        shift1HoursInput.value = fmtHours(calcSpanMins(workStartHour.value, workEndHour.value));
+        refreshScheduleCalculations();
+      });
+      shift1HoursInput.addEventListener('input', () => {
+        const hrs = Number.parseFloat(shift1HoursInput.value);
+        if (Number.isFinite(hrs) && hrs > 0 && hrs <= 24) {
+          workEndHour.value = addMinsHHMM(workStartHour.value || '08:00', hrs * 60);
+          refreshScheduleCalculations();
+        }
+      });
+
+      shift2StartHour.addEventListener('change', () => {
+        shift2HoursInput.value = fmtHours(calcSpanMins(shift2StartHour.value, shift2EndHour.value));
+        refreshScheduleCalculations();
+      });
+      shift2EndHour.addEventListener('change', () => {
+        shift2HoursInput.value = fmtHours(calcSpanMins(shift2StartHour.value, shift2EndHour.value));
+        refreshScheduleCalculations();
+      });
+      shift2HoursInput.addEventListener('input', () => {
+        const hrs = Number.parseFloat(shift2HoursInput.value);
+        if (Number.isFinite(hrs) && hrs > 0 && hrs <= 24) {
+          shift2EndHour.value = addMinsHHMM(shift2StartHour.value || '21:00', hrs * 60);
+          refreshScheduleCalculations();
+        }
+      });
+
+      breakStartHour.addEventListener('change', refreshScheduleCalculations);
+      breakEndHour.addEventListener('change', refreshScheduleCalculations);
+
+      const shift2Box = h(
+        'div',
+        {
+          class: 'col',
+          style: {
+            display: twoShiftsToggle.checked ? 'flex' : 'none',
+            gap: '8px',
+            padding: '10px',
+            borderRadius: '8px',
+            border: '1px dashed var(--border, #cbd5e1)',
+          },
+        },
+        h(
+          'div',
+          { class: 'row between wrap' },
+          h('strong', { class: 'small' }, '🌙 ' + t('settings.shift2Title')),
+          h(
+            'button',
+            {
+              type: 'button',
+              class: 'btn sm soft',
+              onClick: () => {
+                workStartHour.value = '08:00';
+                workEndHour.value = '17:00';
+                shift1HoursInput.value = '9';
+                twoShiftsToggle.checked = true;
+                shift2StartHour.value = '21:00';
+                shift2EndHour.value = '00:00';
+                shift2HoursInput.value = '3';
+                shift2Box.style.display = 'flex';
+                refreshScheduleCalculations();
+              },
+            },
+            '⚡ ' + t('settings.shift2PresetBtn'),
+          ),
+        ),
+        h(
+          'div',
+          { class: 'grid', style: { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '8px' } },
+          field(t('settings.openAt'), shift2StartHour),
+          field(t('settings.closeAt'), shift2EndHour),
+          field(t('settings.hoursDuration'), shift2HoursInput),
+        ),
+      );
+
+      twoShiftsToggle.addEventListener('change', () => {
+        shift2Box.style.display = twoShiftsToggle.checked ? 'flex' : 'none';
+        refreshScheduleCalculations();
+      });
+
+      const breakBox = h(
+        'div',
+        {
+          class: 'grid two',
+          style: { display: breakToggle.checked ? 'grid' : 'none' },
+        },
+        field(t('settings.breakFrom'), breakStartHour),
+        field(t('settings.breakTo'), breakEndHour),
+      );
+      breakToggle.addEventListener('change', () => {
+        breakBox.style.display = breakToggle.checked ? 'grid' : 'none';
+        refreshScheduleCalculations();
+      });
+
+      refreshScheduleCalculations();
 
       const hoursBox = h(
         'div',
         {
-          class: 'grid two',
-          style: { display: clinic24h.checked ? 'none' : 'grid' },
+          class: 'col',
+          style: { display: clinic24h.checked ? 'none' : 'flex', gap: '10px' },
         },
-        field(t('settings.openAt'), workStartHour),
-        field(t('settings.closeAt'), workEndHour),
+        h('h3', { style: { margin: '4px 0 0', fontSize: '0.95rem' } }, '🕒 ' + t('settings.workHoursTitle')),
+        netHoursBadge,
+        h('strong', { class: 'small' }, '☀️ ' + t('settings.shift1Title')),
+        h(
+          'div',
+          { class: 'grid', style: { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '8px' } },
+          field(t('settings.openAt'), workStartHour),
+          field(t('settings.closeAt'), workEndHour),
+          field(t('settings.hoursDuration'), shift1HoursInput),
+        ),
+        switchRow(t('settings.twoShiftsToggle'), h('label', { class: 'switch' }, twoShiftsToggle, h('span', {}))),
+        shift2Box,
+        switchRow(t('settings.doctorBreakToggle'), h('label', { class: 'switch' }, breakToggle, h('span', {}))),
+        breakBox,
       );
       const badge24hHint = h(
         'div',
@@ -162,7 +362,7 @@
       );
 
       clinic24h.addEventListener('change', () => {
-        hoursBox.style.display = clinic24h.checked ? 'none' : 'grid';
+        hoursBox.style.display = clinic24h.checked ? 'none' : 'flex';
         badge24hHint.style.display = clinic24h.checked ? 'block' : 'none';
         if (clinic24h.checked) {
           sameDay.checked = true;
@@ -207,6 +407,12 @@
             clinic_24h_enabled: clinic24h.checked ? '1' : '0',
             work_start_hour: workStartHour.value || '08:00',
             work_end_hour: workEndHour.value || '17:00',
+            two_shifts_enabled: twoShiftsToggle.checked ? '1' : '0',
+            shift2_start_hour: shift2StartHour.value || '21:00',
+            shift2_end_hour: shift2EndHour.value || '00:00',
+            break_enabled: breakToggle.checked ? '1' : '0',
+            break_start_hour: breakStartHour.value || '12:30',
+            break_end_hour: breakEndHour.value || '13:30',
             allow_same_day_booking: sameDay.checked ? '1' : '0',
             queue_notify_enabled: queueNotify.checked ? '1' : '0',
             working_days: [...working].sort().join(','),

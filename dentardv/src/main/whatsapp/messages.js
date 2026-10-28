@@ -67,9 +67,24 @@ function formatHoursLine(s, lang = 'fr') {
       : '🕒 Horaires : Ouvert 24h/24 sans interruption\n';
   }
   if (s.openHour && s.closeHour) {
+    const endFmt = (hhmm) =>
+      hhmm === '00:00' ? (lang === 'ar' ? '00:00 (12 ليلاً)' : '00:00 (minuit)') : hhmm;
+    const shift1 = `${s.openHour} – ${endFmt(s.closeHour)}`;
+    const shift2 =
+      s.twoShifts && s.shift2OpenHour && s.shift2CloseHour
+        ? lang === 'ar'
+          ? ` | الفترة 2: ${s.shift2OpenHour} – ${endFmt(s.shift2CloseHour)}`
+          : ` | 2e période : ${s.shift2OpenHour} – ${endFmt(s.shift2CloseHour)}`
+        : '';
+    const breakLine =
+      s.breakEnabled && s.breakStart && s.breakEnd
+        ? lang === 'ar'
+          ? `\n☕ راحة الطبيب: ${s.breakStart} – ${s.breakEnd}`
+          : `\n☕ Pause praticien : ${s.breakStart} – ${s.breakEnd}`
+        : '';
     return lang === 'ar'
-      ? `🕒 أوقات العمل: ${s.openHour} – ${s.closeHour}\n`
-      : `🕒 Horaires : ${s.openHour} – ${s.closeHour}\n`;
+      ? `🕒 أوقات العمل: ${shift1}${shift2}${breakLine}\n`
+      : `🕒 Horaires : ${shift1}${shift2}${breakLine}\n`;
   }
   return '';
 }
@@ -178,7 +193,7 @@ const t = {
     availableDaysPreview: (s, { days = [] }) =>
       formatHolidayBanner(s, 'fr') +
       `📅 Prochaines dates disponibles au ${s.clinic} :\n` +
-      (s?.is24h ? `🕒 Ouvert 24h/24 sans interruption\n` : '') +
+      (s?.is24h || s?.twoShifts || s?.breakEnabled ? formatHoursLine(s, 'fr') : '') +
       `\n${formatAvailableDaysList(days, 'fr')}\n\n` +
       `✍️ Pour réserver, envoyez d'abord votre nom complet (exemple : Oussama Hamdaoui).`,
 
@@ -190,7 +205,7 @@ const t = {
     welcomeAskName: (s) =>
       formatHolidayBanner(s, 'fr') +
       `Bienvenue au ${s.clinic} 🦷👋\n` +
-      (s?.is24h ? `🕒 Clinique ouverte 24h/24 sans interruption\n` : '') +
+      (s?.is24h || s?.twoShifts || s?.breakEnabled ? formatHoursLine(s, 'fr') : '') +
       `Veuillez entrer votre nom complet (exemple : Oussama Hamdaoui).`,
 
     invalidName: () =>
@@ -209,7 +224,7 @@ const t = {
       `Numéro de passage : ${queue}\n` +
       `\n${s.clinic}` +
       (s.address ? `\n📍 ${s.address}` : '') +
-      (s?.is24h ? `\n🕒 Ouvert 24h/24 sans interruption` : '') +
+      (s?.is24h || s?.twoShifts || s?.breakEnabled ? `\n${formatHoursLine(s, 'fr').trim()}` : '') +
       `\nPour annuler, envoyez : ANNULER\n\n` +
       `📋 Pour préparer votre soin dentaire (âge, poids et symptômes éventuels) :\n` +
       `🔒 Données locales strictement confidentielles au cabinet (Loi 18-07).\n` +
@@ -407,7 +422,7 @@ const t = {
     availableDaysPreview: (s, { days = [] }) =>
       formatHolidayBanner(s, 'ar') +
       `📅 الأيام والتواريخ المتاحة حالياً في ${s.clinic}:\n` +
-      (s?.is24h ? `🕒 مفتوحة 24/24 ساعة بدون توقف\n` : '') +
+      (s?.is24h || s?.twoShifts || s?.breakEnabled ? formatHoursLine(s, 'ar') : '') +
       `\n${formatAvailableDaysList(days, 'ar')}\n\n` +
       `✍️ للحجز، أرسلوا أولاً اسمكم الكامل (مثال: أسامة حمداوي).`,
 
@@ -419,7 +434,7 @@ const t = {
     welcomeAskName: (s) =>
       formatHolidayBanner(s, 'ar') +
       `أهلاً بك في ${s.clinic} 🦷👋\n` +
-      (s?.is24h ? `🕒 العيادة تعمل 24/24 ساعة بدون توقف\n` : '') +
+      (s?.is24h || s?.twoShifts || s?.breakEnabled ? formatHoursLine(s, 'ar') : '') +
       `من فضلك أدخل اسمك الكامل (مثال: أسامة حمداوي).`,
 
     invalidName: () =>
@@ -438,7 +453,7 @@ const t = {
       `رقم الدور: ${queue}\n` +
       `\n${s.clinic}` +
       (s.address ? `\n📍 ${s.address}` : '') +
-      (s?.is24h ? `\n🕒 مفتوحة 24/24 ساعة بدون توقف` : '') +
+      (s?.is24h || s?.twoShifts || s?.breakEnabled ? `\n${formatHoursLine(s, 'ar').trim()}` : '') +
       `\nللإلغاء أرسلوا: إلغاء\n\n` +
       `📋 لتسهيل الفحص على طبيب الأسنان (العمر، الوزن، وبعض الأعراض إن أردتم):\n` +
       `🔒 معلوماتكم تبقى سرية داخل العيادة طبقا للقانون 18-07.\n` +

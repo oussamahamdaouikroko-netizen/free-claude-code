@@ -24,6 +24,15 @@ paiements, dépenses, rapports et réservation automatique par WhatsApp.
   technique (version, erreurs, WhatsApp) — il suffit de l'envoyer au support.
   Son chemin exact est affiché dans **Réglages → À propos**.
 
+### Nouveautés 2.3.0 — Système à Deux Périodes (`نظام الدوامين`), Calcul du Nombre d'Heures & Pause du Praticien (`فترة راحة للطبيب`)
+
+- **Contrôle complet des horaires & du nombre d'heures (`عدد الساعات`)** :
+  dans **Réglages → Agenda**, saisissez les heures de début et de fin (`من الساعة ... إلى الساعة ...`) ou directement le **nombre d'heures** souhaité (calcul bidirectionnel instantané avec affichage en direct du total net travaillé par jour).
+- **Système à deux périodes (`نظام الدوامين`)** :
+  possibilité d'activer une seconde période quotidienne y compris jusqu'à minuit (`00:00` / `12 ليلاً`), avec bouton de préréglage rapide **`08:00 – 17:00` puis `21:00 – 00:00`**.
+- **Pause / repos du chirurgien-dentiste pendant le travail (`فترة راحة للطبيب`)** :
+  fenêtre de pause configurable (ex. `12:30 – 13:30`) déduite automatiquement des heures nettes et affichée dans le Tableau de bord, l'Agenda et les messages d'information WhatsApp (FR / AR / Darija), tout en conservant le mode **`24h/24`**, la gestion des **congés / arrêts maladie (`عطلة / مرض`)** et la compatibilité totale des licences existantes (`DTRDV-LIC-V1:`).
+
 ### Nouveautés 2.1.0 — Choix du Jour & de la Date sur WhatsApp + File par Date & Verrouillage Strict du Tour
 
 - **Choix dynamique du jour et de la date sur WhatsApp (FR / AR / Darija)** :

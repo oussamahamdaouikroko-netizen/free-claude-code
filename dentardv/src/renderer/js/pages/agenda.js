@@ -182,7 +182,10 @@
       });
 
       const totalDue = agenda.reduce((sum, appointment) => sum + Math.max(0, appointment.price - appointment.paid), 0);
-      const is24h = window.App.settings?.clinic_24h_enabled === '1';
+      const sCfg = window.App.settings || {};
+      const is24h = sCfg.clinic_24h_enabled === '1';
+      const isTwoShifts = !is24h && sCfg.two_shifts_enabled === '1';
+      const isBreak = !is24h && sCfg.break_enabled === '1';
       const activeHoliday = info?.holiday || null;
 
       ctx.setHeader(
@@ -254,6 +257,28 @@
           'div',
           { class: 'row wrap mb' },
           is24h ? h('span', { class: 'badge ok' }, '🕒 ', t('dash.open24hBadge')) : null,
+          isTwoShifts
+            ? h(
+                'span',
+                { class: 'badge info' },
+                '🕒 ',
+                t('dash.twoShiftsBadge', {
+                  s1: `${sCfg.work_start_hour || '08:00'}–${sCfg.work_end_hour || '17:00'}`,
+                  s2: `${sCfg.shift2_start_hour || '21:00'}–${sCfg.shift2_end_hour || '00:00'}`,
+                }),
+              )
+            : null,
+          isBreak
+            ? h(
+                'span',
+                { class: 'badge gray' },
+                '☕ ',
+                t('dash.breakBadge', {
+                  from: sCfg.break_start_hour || '12:30',
+                  to: sCfg.break_end_hour || '13:30',
+                }),
+              )
+            : null,
           activeHoliday
             ? h('span', { class: 'badge warn' }, '🏖️ ', t('agenda.doctorOnLeave'))
             : h(
