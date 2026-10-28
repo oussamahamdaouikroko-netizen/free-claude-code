@@ -182,33 +182,93 @@
       });
 
       const totalDue = agenda.reduce((sum, appointment) => sum + Math.max(0, appointment.price - appointment.paid), 0);
+      const is24h = window.App.settings?.clinic_24h_enabled === '1';
+      const activeHoliday = info?.holiday || null;
 
       ctx.setHeader(
         t('agenda.title'),
         formatLong(day),
         h(
           'div',
-          { class: 'row' },
+          { class: 'row wrap' },
           h('button', { class: 'btn icon', title: t('common.back'), onClick: () => { window.App.day = addDays(day, -1); ctx.refresh(); } }, '‹'),
           dayPicker,
           h('button', { class: 'btn icon', title: t('common.today'), onClick: () => { window.App.day = addDays(day, 1); ctx.refresh(); } }, '›'),
           h('button', { class: 'btn', onClick: () => { window.App.day = todayISO(); ctx.refresh(); } }, t('common.today')),
-          h('button', { class: 'btn primary', onClick: () => window.Components.openAppointmentModal({ day, onSaved: ctx.refresh }) }, '＋ ', t('agenda.newAppointment')),
+          activeHoliday
+            ? h(
+                'button',
+                {
+                  class: 'btn soft',
+                  onClick: async () => {
+                    try {
+                      await window.API.invoke('holidays:remove', { id: activeHoliday.id });
+                      toast(t('holidays.removed'), 'ok');
+                      ctx.refresh();
+                    } catch (err) {
+                      toast(errorMessage(err), 'error');
+                    }
+                  },
+                },
+                '🔓 ',
+                t('agenda.reopenDay'),
+              )
+            : h(
+                'button',
+                {
+                  class: 'btn soft',
+                  onClick: () =>
+                    window.Components.openHolidayModal({
+                      defaultDay: day,
+                      onSaved: () => ctx.refresh(),
+                    }),
+                },
+                '🏖️ ',
+                t('agenda.markDayOff'),
+              ),
+          h(
+            'button',
+            {
+              class: 'btn primary',
+              disabled: Boolean(activeHoliday),
+              onClick: () => window.Components.openAppointmentModal({ day, onSaved: ctx.refresh }),
+            },
+            '＋ ',
+            t('agenda.newAppointment'),
+          ),
         ),
       );
 
       ctx.cancel = (appointment) => window.Components.cancelAppointment(appointment, ctx.refresh);
 
+      const activeReasonLabel = activeHoliday
+        ? activeHoliday.reason_type === 'sick'
+          ? '🩺 ' + t('holidays.reasonSick')
+          : activeHoliday.reason_type === 'other'
+            ? '🔒 ' + t('holidays.reasonOther')
+            : '🏖️ ' + t('holidays.reasonVacation')
+        : '';
+
       clear(root).append(
         h(
           'div',
           { class: 'row wrap mb' },
-          h('span', { class: `badge ${info && info.working ? (info.left > 0 ? 'ok' : 'warn') : 'gray'}` },
-            info && info.working
-              ? info.left > 0
-                ? t('dash.capacityLeft', { n: info.left, cap: info.capacity })
-                : t('dash.fullDay')
-              : t('dash.closedDay')),
+          is24h ? h('span', { class: 'badge ok' }, '🕒 ', t('dash.open24hBadge')) : null,
+          activeHoliday
+            ? h('span', { class: 'badge warn' }, '🏖️ ', t('agenda.doctorOnLeave'))
+            : h(
+                'span',
+                { class: `badge ${info && info.working ? (info.left > 0 ? 'ok' : 'warn') : 'gray'}` },
+                info && info.working
+                  ? info.left > 0
+                    ? t('dash.capacityLeft', { n: info.left, cap: info.capacity })
+                    : t('dash.fullDay')
+                  : t('dash.closedDay'),
+              ),
+          activeHoliday ? h('span', { class: 'badge info' }, activeReasonLabel) : null,
+          activeHoliday && activeHoliday.label
+            ? h('span', { class: 'badge gray' }, activeHoliday.label)
+            : null,
           h('span', { class: 'badge' }, `${t('dash.appointmentsToday')} : ${agenda.filter((a) => a.status !== 'cancelled').length}`),
           h('span', { class: 'badge warn' }, `${t('agenda.totalDue')} : ${formatMoney(totalDue, window.App.settings.currency)}`),
         ),

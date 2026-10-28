@@ -11,6 +11,7 @@
 
 const { getDb } = require('../db');
 const settings = require('./settings');
+const holidays = require('./holidays');
 const { message } = require('../whatsapp/messages');
 const { cleanText, nowLocal } = require('../utils/common');
 const { toISODate } = require('../utils/dates');
@@ -27,6 +28,10 @@ function clinicSettings() {
     specialty: settings.get('doctor_specialty'),
     currency: settings.get('currency'),
     darija: settings.getBool('bot_darija_mode'),
+    is24h: settings.is24hClinic(),
+    openHour: settings.get('work_start_hour') || '08:00',
+    closeHour: settings.get('work_end_hour') || '17:00',
+    holidayCtx: holidays.getWhatsAppHolidayContext(toISODate()),
   };
 }
 

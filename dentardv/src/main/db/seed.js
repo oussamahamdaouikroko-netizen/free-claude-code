@@ -33,6 +33,10 @@ const DEFAULT_SETTINGS = {
   daily_capacity: '10',
   // 0 = Sunday … 6 = Saturday. Algeria works Sunday → Thursday.
   working_days: '0,1,2,3,4',
+  // 24/24 non-stop clinic mode & standard opening hours
+  clinic_24h_enabled: '0',
+  work_start_hour: '08:00',
+  work_end_hour: '17:00',
   // Patients can take today's slot when room is left.
   allow_same_day_booking: '1',
   booking_horizon_days: '45',

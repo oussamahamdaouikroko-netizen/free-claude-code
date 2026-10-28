@@ -19,6 +19,7 @@ const intents = require('./intents');
 const { message } = require('./messages');
 const patients = require('../services/patients');
 const appointments = require('../services/appointments');
+const holidays = require('../services/holidays');
 const intake = require('../services/intake');
 const settings = require('../services/settings');
 const chat = require('../services/chat');
@@ -209,6 +210,24 @@ function isChooseDayEnabled() {
   return settings.getBool('bot_choose_day_enabled');
 }
 
+function checkHolidayPauseReply({ lang }) {
+  const hCtx = holidays.getWhatsAppHolidayContext(toISODate());
+  if (hCtx && hCtx.activeToday && hCtx.blockAllBookings) {
+    return {
+      reply: reply(lang, 'doctorOnLeave', {
+        holiday: hCtx.holiday,
+        resumeDay: hCtx.resumeDay,
+      }),
+      lang,
+      action: 'doctor_on_leave',
+      holiday: hCtx.holiday,
+      resumeDay: hCtx.resumeDay,
+      callbackAnswered: true,
+    };
+  }
+  return null;
+}
+
 function buildDayButtons(days = [], hasMore = false, nextOffset = 0, lang = 'fr') {
   const buttons = days.slice(0, 3).map((d, idx) => ({
     id: `day_select:${d.day}`,
@@ -262,6 +281,19 @@ function promptDaySelection({
 
   if (avail.totalAvailable === 0) {
     clearPending(phone);
+    const hCtx = holidays.getWhatsAppHolidayContext(toISODate(), 45);
+    if (hCtx && hCtx.holiday) {
+      return {
+        reply: reply(lang, 'doctorOnLeave', {
+          holiday: hCtx.holiday,
+          resumeDay: hCtx.resumeDay,
+        }),
+        lang,
+        action: 'doctor_on_leave',
+        holiday: hCtx.holiday,
+        resumeDay: hCtx.resumeDay,
+      };
+    }
     const person = effectiveExisting
       ? { patient: effectiveExisting }
       : patients.upsertFromWhatsApp({ name: effectiveName, phone });
@@ -389,11 +421,12 @@ function finalizeBooking({ phone, patientObj, name, chosenDay = null, lang, deli
     if (
       chosenDay &&
       error instanceof AppError &&
-      ['DAY_FULL', 'NOT_WORKING_DAY', 'DATE_IN_PAST'].includes(error.code)
+      ['DAY_FULL', 'NOT_WORKING_DAY', 'DOCTOR_ON_LEAVE', 'DATE_IN_PAST'].includes(error.code)
     ) {
       const reasonMap = {
         DAY_FULL: 'full',
         NOT_WORKING_DAY: 'closed',
+        DOCTOR_ON_LEAVE: 'holiday',
         DATE_IN_PAST: 'past',
       };
       return promptDaySelection({
@@ -417,6 +450,19 @@ function finalizeBooking({ phone, patientObj, name, chosenDay = null, lang, deli
       };
     }
     if (error instanceof AppError && error.code === 'HORIZON_REACHED') {
+      const hCtx = holidays.getWhatsAppHolidayContext(toISODate(), 45);
+      if (hCtx && hCtx.holiday) {
+        return {
+          reply: reply(lang, 'doctorOnLeave', {
+            holiday: hCtx.holiday,
+            resumeDay: hCtx.resumeDay,
+          }),
+          lang,
+          action: 'doctor_on_leave',
+          holiday: hCtx.holiday,
+          resumeDay: hCtx.resumeDay,
+        };
+      }
       appointments.addToWaitingList({
         full_name: person.patient.full_name || name,
         phone,
@@ -826,6 +872,11 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
         };
       }
       if (cbToken.kind === 'day_more' || cbToken.kind === 'day_select') {
+        const holidayPause = checkHolidayPauseReply({ lang });
+        if (holidayPause) {
+          clearPending(phone);
+          return holidayPause;
+        }
         const pendingDay = getPending(phone);
         const effName = (registered ? patient.full_name : '') || pendingDay?.name || '';
         if (!effName) {
@@ -871,6 +922,11 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
         });
       }
       if (cbToken.kind === 'book_start') {
+        const holidayPause = checkHolidayPauseReply({ lang });
+        if (holidayPause) {
+          clearPending(phone);
+          return holidayPause;
+        }
         const cd = checkCooldownReply({ patient, phone, lang, nowMs });
         if (cd) return cd;
         if (!registered) {
@@ -1095,6 +1151,15 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
     // License guard before new bookings
     const licGuard = checkLicenseReply({ lang, nowMs });
     if (licGuard) return licGuard;
+
+    // Doctor holiday pause guard (when block_all_wa is enabled on an active holiday)
+    // Note: explicit `help` still returns clinic info unless it's a booking attempt;
+    // greetings, names, `book`, and `dates` immediately inform the patient of the holiday.
+    const holidayPause = checkHolidayPauseReply({ lang });
+    if (holidayPause && !(detection.intent === 'help' && !detection.isGreeting && !detection.isStopWord)) {
+      clearPending(phone);
+      return holidayPause;
+    }
 
     // 1d. Active day-selection step (`await_day`): works identically for new & registered patients.
     const pendingDaySession = getPending(phone);

@@ -23,6 +23,16 @@ const clampInt = (value, min, max, fallback) => {
 
 const asFlag = (value) => (String(value) === '1' || String(value) === 'true' ? 1 : 0);
 
+const normalizeHourMinute = (value, fallback) => {
+  const s = String(value ?? '').trim();
+  const m = s.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return fallback;
+  const hh = Number.parseInt(m[1], 10);
+  const mm = Number.parseInt(m[2], 10);
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return fallback;
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+};
+
 /**
  * Validators. Each returns the normalized string to store.
  * Throwing here means the renderer gets a readable error through IPC.
@@ -40,7 +50,7 @@ const VALIDATORS = {
   doctor_ordre: (v) => String(v ?? '').trim().slice(0, 60),
   currency: (v) => String(v ?? 'DZD').trim().toUpperCase().slice(0, 8) || 'DZD',
   language: (v) => (v === 'ar' ? 'ar' : 'fr'),
-  daily_capacity: (v) => String(clampInt(v, 1, 100, 10)),
+  daily_capacity: (v) => String(clampInt(v, 1, 500, 10)),
   working_days: (v) => {
     const raw = Array.isArray(v) ? v.join(',') : String(v ?? '');
     const days = raw
@@ -51,6 +61,9 @@ const VALIDATORS = {
     if (unique.length === 0) throw new Error('SETTING_INVALID:working_days');
     return unique.join(',');
   },
+  clinic_24h_enabled: (v) => String(asFlag(v)),
+  work_start_hour: (v) => normalizeHourMinute(v, '08:00'),
+  work_end_hour: (v) => normalizeHourMinute(v, '17:00'),
   allow_same_day_booking: (v) => String(asFlag(v)),
   booking_horizon_days: (v) => String(clampInt(v, 1, 365, 45)),
   avg_session_minutes: (v) => String(clampInt(v, 5, 180, 20)),
@@ -152,6 +165,19 @@ function isWorkingDay(isoDate) {
   return getWorkingDays().includes(weekday(isoDate));
 }
 
+function is24hClinic() {
+  return getBool('clinic_24h_enabled');
+}
+
+function formatScheduleSummary(lang = 'fr') {
+  if (is24hClinic()) {
+    return lang === 'ar' ? '24/24 ساعة بدون توقف' : '24h/24 sans interruption';
+  }
+  const start = get('work_start_hour') || '08:00';
+  const end = get('work_end_hour') || '17:00';
+  return `${start} – ${end}`;
+}
+
 /** Localized labels for the settings screen. */
 function dayLabels(lang = 'fr') {
   return (DAY_LABELS[lang] || DAY_LABELS.fr).map((label, index) => ({ index, label }));
@@ -168,5 +194,7 @@ module.exports = {
   writableKeys,
   getWorkingDays,
   isWorkingDay,
+  is24hClinic,
+  formatScheduleSummary,
   dayLabels,
 };

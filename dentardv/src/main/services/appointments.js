@@ -19,6 +19,7 @@ const { getDb } = require('../db');
 const { CANCEL_COOLDOWN_MINUTES, formatAlgeriaTime } = require('../config');
 const license = require('./license');
 const settings = require('./settings');
+const holidays = require('./holidays');
 const chat = require('./chat');
 const { message } = require('../whatsapp/messages');
 const { AppError, money, cleanText, nowLocal, requireId, phoneKey } = require('../utils/common');
@@ -60,17 +61,19 @@ function usedCapacity(day) {
     .get(day).n;
 }
 
-/** @returns {{day: string, capacity: number, used: number, left: number, working: boolean}} */
+/** @returns {{day: string, capacity: number, used: number, left: number, working: boolean, holiday: object|null}} */
 function dayInfo(day) {
   if (!isValidISODate(day)) throw new AppError('INVALID_DATE');
   const capacity = settings.getInt('daily_capacity');
   const used = usedCapacity(day);
+  const holiday = holidays.getForDay(day);
   return {
     day,
     capacity,
     used,
     left: Math.max(0, capacity - used),
-    working: settings.isWorkingDay(day),
+    working: settings.isWorkingDay(day) && !holiday,
+    holiday: holiday || null,
   };
 }
 
@@ -103,7 +106,7 @@ function findNextFreeDay(options = {}) {
 
   for (let offset = 0; offset <= horizon; offset += 1) {
     const day = addDays(start, offset);
-    if (!settings.isWorkingDay(day)) continue;
+    if (!settings.isWorkingDay(day) || holidays.isHoliday(day)) continue;
     if (usedCapacity(day) < settings.getInt('daily_capacity')) return day;
   }
   return null;
@@ -188,6 +191,9 @@ function checkDayAvailability(day, options = {}) {
     return { bookable: false, reason: 'beyond_horizon', day };
   }
   const info = dayInfo(day);
+  if (info.holiday) {
+    return { bookable: false, reason: 'holiday', day, holiday: info.holiday };
+  }
   if (!info.working) {
     return { bookable: false, reason: 'closed', day };
   }
@@ -208,6 +214,8 @@ function assertBookableDay(day) {
   if (!isValidISODate(day)) throw new AppError('INVALID_DATE');
   const today = toISODate();
   if (diffDays(today, day) < 0) throw new AppError('DATE_IN_PAST');
+  const holiday = holidays.getForDay(day);
+  if (holiday) throw new AppError('DOCTOR_ON_LEAVE', 'Doctor on leave', { day, holiday });
   if (!settings.isWorkingDay(day)) throw new AppError('NOT_WORKING_DAY', 'Clinic closed', { day });
   if (dayInfo(day).left <= 0) throw new AppError('DAY_FULL', 'Day is full', { day });
 }

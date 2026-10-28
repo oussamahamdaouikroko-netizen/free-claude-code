@@ -8,6 +8,7 @@
  */
 
 const settings = require('./services/settings');
+const holidays = require('./services/holidays');
 const patients = require('./services/patients');
 const appointments = require('./services/appointments');
 const treatments = require('./services/treatments');
@@ -55,6 +56,8 @@ const WRITE_GATED = new Set([
   'appointments:complete',
   'appointments:confirm',
   'appointments:waiting-handle',
+  'holidays:create',
+  'holidays:remove',
   'treatments:create',
   'treatments:update',
   'treatments:remove',
@@ -224,6 +227,9 @@ function createHandlers(context) {
     'appointments:next-free-day': (payload) => appointments.findNextFreeDay(payload || {}),
     'appointments:available-days': (payload) => appointments.listAvailableDays(payload || {}),
     'appointments:check-day': (payload) => appointments.checkDayAvailability(payload?.day, payload || {}),
+    'holidays:list': (payload) => holidays.list(payload || {}),
+    'holidays:create': (payload) => holidays.create(payload || {}),
+    'holidays:remove': (payload) => holidays.remove(payload?.id),
     'appointments:range': (payload) => appointments.listRange(payload?.start, payload?.end),
     'appointments:create': (payload) => {
       const created = appointments.create(payload);

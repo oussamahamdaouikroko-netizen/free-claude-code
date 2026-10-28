@@ -96,16 +96,46 @@
       ], { value: window.App.language });
 
       /* ------------------------------- agenda ----------------------------- */
-      const capacity = input({ type: 'number', min: '1', max: '100', value: settings.daily_capacity });
+      const capacity = input({ type: 'number', min: '1', max: '500', value: settings.daily_capacity });
       const horizon = input({ type: 'number', min: '1', max: '365', value: settings.booking_horizon_days });
       const avgSession = input({ type: 'number', min: '5', max: '180', step: '5', value: settings.avg_session_minutes || '20' });
       const sameDay = input({ type: 'checkbox', checked: settings.allow_same_day_booking === '1' });
       const queueNotify = input({ type: 'checkbox', checked: settings.queue_notify_enabled !== '0' });
+      const clinic24h = input({ type: 'checkbox', checked: settings.clinic_24h_enabled === '1' });
+      const workStartHour = input({ type: 'time', value: settings.work_start_hour || '08:00' });
+      const workEndHour = input({ type: 'time', value: settings.work_end_hour || '17:00' });
+
+      const hoursBox = h(
+        'div',
+        {
+          class: 'grid two',
+          style: { display: clinic24h.checked ? 'none' : 'grid' },
+        },
+        field(t('settings.openAt'), workStartHour),
+        field(t('settings.closeAt'), workEndHour),
+      );
+      const badge24hHint = h(
+        'div',
+        {
+          class: 'small',
+          style: {
+            display: clinic24h.checked ? 'block' : 'none',
+            padding: '8px 10px',
+            borderRadius: '8px',
+            background: 'rgba(16, 185, 129, 0.12)',
+            color: '#0f766e',
+            fontWeight: '600',
+          },
+        },
+        '🕒 ' + t('settings.clinic24hActiveHint'),
+      );
+
       const dayButtons = DAY_ORDER.map((day) =>
         h(
           'button',
           {
             type: 'button',
+            dataset: { dayIndex: String(day) },
             class: working.has(day) ? 'on' : '',
             onClick: (event) => {
               const button = event.currentTarget;
@@ -117,6 +147,29 @@
           t(DAY_KEYS[day]),
         ),
       );
+
+      const activateAll7DaysBtn = h(
+        'button',
+        {
+          type: 'button',
+          class: 'btn sm soft',
+          onClick: () => {
+            DAY_ORDER.forEach((d) => working.add(d));
+            dayButtons.forEach((btn) => btn.classList.add('on'));
+          },
+        },
+        '⚡ ' + t('settings.selectAll7Days'),
+      );
+
+      clinic24h.addEventListener('change', () => {
+        hoursBox.style.display = clinic24h.checked ? 'none' : 'grid';
+        badge24hHint.style.display = clinic24h.checked ? 'block' : 'none';
+        if (clinic24h.checked) {
+          sameDay.checked = true;
+          DAY_ORDER.forEach((d) => working.add(d));
+          dayButtons.forEach((btn) => btn.classList.add('on'));
+        }
+      });
 
       /* ------------------------------ whatsapp ---------------------------- */
       const botLanguage = select([
@@ -151,6 +204,9 @@
             daily_capacity: capacity.value,
             booking_horizon_days: horizon.value,
             avg_session_minutes: avgSession.value,
+            clinic_24h_enabled: clinic24h.checked ? '1' : '0',
+            work_start_hour: workStartHour.value || '08:00',
+            work_end_hour: workEndHour.value || '17:00',
             allow_same_day_booking: sameDay.checked ? '1' : '0',
             queue_notify_enabled: queueNotify.checked ? '1' : '0',
             working_days: [...working].sort().join(','),
@@ -187,12 +243,14 @@
       let info = {};
       let medSummary = null;
       let licStatus = null;
+      let holidayList = [];
       try {
-        [backups, info, medSummary, licStatus] = await Promise.all([
+        [backups, info, medSummary, licStatus, holidayList] = await Promise.all([
           window.API.invoke('backup:list').catch(() => []),
           window.API.invoke('app:info').catch(() => ({})),
           window.API.invoke('nomenclature:summary').catch(() => null),
           window.API.invoke('license:status').catch(() => null),
+          window.API.invoke('holidays:list', { includePast: false }).catch(() => []),
         ]);
       } catch (error) {
         toast(errorMessage(error), 'error');
@@ -333,13 +391,123 @@
             field(t('settings.doctorName'), doctorName),
             h('div', { class: 'grid two' }, field(t('settings.doctorSpecialty'), doctorSpecialty), field(t('settings.doctorOrdre'), doctorOrdre)),
           ),
-          card(
-            t('settings.agenda'),
-            h('div', { class: 'grid two' }, field(t('settings.capacity'), capacity), field(t('settings.horizon'), horizon)),
-            field(t('settings.avgSession'), avgSession, t('settings.avgSessionHint')),
-            field(t('settings.workingDays'), h('div', { class: 'day-toggle' }, dayButtons)),
-            switchRow(t('settings.sameDay'), h('label', { class: 'switch' }, sameDay, h('span', {}))),
-            switchRow(t('settings.queueNotify'), h('label', { class: 'switch' }, queueNotify, h('span', {}))),
+          h(
+            'div',
+            { class: 'col' },
+            card(
+              t('settings.agenda'),
+              switchRow(t('settings.clinic24h'), h('label', { class: 'switch' }, clinic24h, h('span', {}))),
+              badge24hHint,
+              hoursBox,
+              h('div', { class: 'grid two' }, field(t('settings.capacity'), capacity), field(t('settings.horizon'), horizon)),
+              field(t('settings.avgSession'), avgSession, t('settings.avgSessionHint')),
+              field(
+                t('settings.workingDays'),
+                h('div', { class: 'col', style: { gap: '8px' } }, h('div', { class: 'day-toggle' }, dayButtons), h('div', {}, activateAll7DaysBtn)),
+              ),
+              switchRow(t('settings.sameDay'), h('label', { class: 'switch' }, sameDay, h('span', {}))),
+              switchRow(t('settings.queueNotify'), h('label', { class: 'switch' }, queueNotify, h('span', {}))),
+            ),
+            card(
+              t('holidays.title'),
+              h('div', { class: 'muted small' }, t('holidays.subtitle')),
+              h(
+                'div',
+                { class: 'row between wrap mt-s' },
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    class: 'btn soft',
+                    onClick: () =>
+                      window.Components.openHolidayModal({
+                        onSaved: () => ctx.refresh(),
+                      }),
+                  },
+                  '🏖️ ',
+                  t('holidays.addBtn'),
+                ),
+              ),
+              holidayList.length === 0
+                ? h('div', { class: 'muted small mt-s' }, t('holidays.empty'))
+                : h(
+                    'div',
+                    { class: 'col mt-s', style: { gap: '8px' } },
+                    holidayList.map((item) => {
+                      const reasonBadge =
+                        item.reason_type === 'sick'
+                          ? h('span', { class: 'badge warn' }, '🩺 ' + t('holidays.reasonSick'))
+                          : item.reason_type === 'other'
+                            ? h('span', { class: 'badge gray' }, '🔒 ' + t('holidays.reasonOther'))
+                            : h('span', { class: 'badge info' }, '🏖️ ' + t('holidays.reasonVacation'));
+                      const dateText = item.is_single_day
+                        ? t('holidays.singleDayLabel', { day: window.I18N.formatDate(item.start_day) })
+                        : t('holidays.rangeLabel', {
+                            start: window.I18N.formatDate(item.start_day),
+                            end: window.I18N.formatDate(item.end_day),
+                          });
+                      return h(
+                        'div',
+                        {
+                          class: 'row between wrap',
+                          style: {
+                            padding: '8px 10px',
+                            border: '1px solid var(--border, #e2e8f0)',
+                            borderRadius: '8px',
+                            gap: '8px',
+                          },
+                        },
+                        h(
+                          'div',
+                          { class: 'col', style: { gap: '4px' } },
+                          h(
+                            'div',
+                            { class: 'row wrap', style: { gap: '6px' } },
+                            reasonBadge,
+                            h('strong', {}, dateText),
+                            item.block_all_wa
+                              ? h('span', { class: 'badge warn' }, '📵 WhatsApp')
+                              : null,
+                            item.booked_conflicts > 0
+                              ? h(
+                                  'button',
+                                  {
+                                    type: 'button',
+                                    class: 'badge danger',
+                                    style: { border: 'none', cursor: 'pointer' },
+                                    onClick: () => {
+                                      window.App.day = item.start_day;
+                                      window.App.navigate('agenda');
+                                    },
+                                  },
+                                  '⚠️ ' + t('holidays.conflictsWarn', { n: item.booked_conflicts }),
+                                )
+                              : null,
+                          ),
+                          item.label ? h('div', { class: 'muted small' }, item.label) : null,
+                        ),
+                        h(
+                          'button',
+                          {
+                            type: 'button',
+                            class: 'btn icon sm',
+                            title: t('common.delete'),
+                            onClick: async () => {
+                              try {
+                                await window.API.invoke('holidays:remove', { id: item.id });
+                                toast(t('holidays.removed'), 'ok');
+                                ctx.refresh();
+                              } catch (err) {
+                                toast(errorMessage(err), 'error');
+                              }
+                            },
+                          },
+                          '🗑️',
+                        ),
+                      );
+                    }),
+                  ),
+            ),
           ),
           card(
             t('settings.whatsapp'),

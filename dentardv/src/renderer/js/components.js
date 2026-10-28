@@ -131,7 +131,8 @@
       if (!dateInput.value) return;
       try {
         const info = await window.API.invoke('appointments:day-info', { day: dateInput.value });
-        if (!info.working) dayInfo.textContent = t('agenda.notWorking');
+        if (info.holiday) dayInfo.textContent = '🏖️ ' + t('agenda.doctorOnLeave');
+        else if (!info.working) dayInfo.textContent = t('agenda.notWorking');
         else if (info.left <= 0) dayInfo.textContent = t('agenda.dayFull', { cap: info.capacity });
         else dayInfo.textContent = t('dash.capacityLeft', { n: info.left, cap: info.capacity });
       } catch (err) {
@@ -492,6 +493,80 @@
     } catch (error) {
       toast(errorMessage(error), 'error');
     }
+  };
+
+  /* ------------------------ doctor holiday / sick day ---------------------- */
+  C.openHolidayModal = function openHolidayModal({ defaultDay, onSaved } = {}) {
+    const baseDay = defaultDay || todayISO();
+    const startInput = input({ type: 'date', value: baseDay, min: todayISO() });
+    const endInput = input({ type: 'date', value: baseDay, min: todayISO() });
+    startInput.addEventListener('change', () => {
+      if (!endInput.value || endInput.value < startInput.value) {
+        endInput.value = startInput.value;
+      }
+      endInput.min = startInput.value;
+    });
+
+    const reasonSelect = select(
+      [
+        { value: 'vacation', label: '🏖️ ' + t('holidays.reasonVacation') },
+        { value: 'sick', label: '🩺 ' + t('holidays.reasonSick') },
+        { value: 'other', label: '🔒 ' + t('holidays.reasonOther') },
+      ],
+      { value: 'vacation' },
+    );
+
+    const noteInput = input({ placeholder: t('holidays.noteLabel') });
+    const blockWaBox = input({ type: 'checkbox', checked: false });
+    const error = inlineError();
+
+    modal({
+      title: '🏖️ ' + t('holidays.title'),
+      body: h(
+        'div',
+        { class: 'col' },
+        h(
+          'div',
+          { class: 'grid two' },
+          field(t('holidays.startDay'), startInput),
+          field(t('holidays.endDay'), endInput),
+        ),
+        field(t('holidays.reason'), reasonSelect, t('holidays.privacyHint')),
+        field(t('holidays.noteLabel'), noteInput),
+        h(
+          'div',
+          { class: 'row between', style: { gap: '12px', paddingTop: '4px' } },
+          h('span', { class: 'small' }, t('holidays.blockAllWa')),
+          h('label', { class: 'switch' }, blockWaBox, h('span', {})),
+        ),
+        error,
+      ),
+      actions: [
+        { label: t('common.cancel'), kind: 'ghost' },
+        {
+          label: t('common.save'),
+          kind: 'primary',
+          onClick: async () => {
+            error.textContent = '';
+            try {
+              const saved = await window.API.invoke('holidays:create', {
+                start_day: startInput.value,
+                end_day: endInput.value || startInput.value,
+                reason_type: reasonSelect.value,
+                label: noteInput.value.trim(),
+                block_all_wa: blockWaBox.checked,
+              });
+              toast(t('holidays.added'), 'ok');
+              if (onSaved) onSaved(saved);
+              return true;
+            } catch (err) {
+              error.textContent = errorMessage(err);
+              return false;
+            }
+          },
+        },
+      ],
+    });
   };
 
   /* --------------------------- live clinic queue --------------------------- */

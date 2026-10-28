@@ -1,6 +1,6 @@
 {
   "name": "dentardv",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "DentaRDV - offline-first desktop app for dental clinics (agenda, WhatsApp booking bot, dental prescriptions, patients, payments, expenses, reports).",
   "main": "src/main/index.js",
   "author": "DentaRDV",

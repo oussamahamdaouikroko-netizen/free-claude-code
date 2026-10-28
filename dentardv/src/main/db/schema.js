@@ -10,7 +10,7 @@
  * New schema additions are strictly additive in MIGRATION_3+.
  */
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 /** v1 - initial clinic schema. */
 const MIGRATION_1 = `
@@ -468,10 +468,32 @@ function runMigration3(db) {
   `);
 }
 
+/**
+ * v4 — DentaRDV v2.2.0 additive upgrade:
+ *   - Doctor holidays, sick-leave & exceptional off-days (`clinic_holidays`)
+ */
+function runMigration4(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS clinic_holidays (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      start_day    TEXT NOT NULL,
+      end_day      TEXT NOT NULL,
+      reason_type  TEXT NOT NULL DEFAULT 'vacation'
+                   CHECK (reason_type IN ('vacation', 'sick', 'other')),
+      label        TEXT NOT NULL DEFAULT '',
+      block_all_wa INTEGER NOT NULL DEFAULT 0,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_clinic_holidays_range
+      ON clinic_holidays(start_day, end_day);
+  `);
+}
+
 const MIGRATIONS = [
   (db) => db.exec(MIGRATION_1),
   (db) => db.exec(MIGRATION_2),
   runMigration3,
+  runMigration4,
 ];
 
 /**

@@ -59,10 +59,42 @@ function formatAvailableDaysList(days = [], lang = 'fr') {
     .join('\n');
 }
 
+function formatHoursLine(s, lang = 'fr') {
+  if (!s) return '';
+  if (s.is24h) {
+    return lang === 'ar'
+      ? '🕒 أوقات العمل: مفتوحة 24/24 ساعة بدون توقف\n'
+      : '🕒 Horaires : Ouvert 24h/24 sans interruption\n';
+  }
+  if (s.openHour && s.closeHour) {
+    return lang === 'ar'
+      ? `🕒 أوقات العمل: ${s.openHour} – ${s.closeHour}\n`
+      : `🕒 Horaires : ${s.openHour} – ${s.closeHour}\n`;
+  }
+  return '';
+}
+
+function formatHolidayBanner(s, lang = 'fr') {
+  const h = s?.holidayCtx?.holiday;
+  if (!h) return '';
+  if (lang === 'ar') {
+    if (h.start_day === h.end_day) {
+      return `🏖️ تنبيه: نعلمكم أن الطبيب في عطلة يوم ${formatLong(h.start_day, 'ar')} (${formatFR(h.start_day)}) — الحجز مغلق في هذا اليوم ومتاح في الأيام الموالية.\n\n`;
+    }
+    return `🏖️ تنبيه: نعلمكم أن الطبيب في عطلة من ${formatLong(h.start_day, 'ar')} إلى ${formatLong(h.end_day, 'ar')} — الحجز متاح بعد انتهاء العطلة.\n\n`;
+  }
+  if (h.start_day === h.end_day) {
+    return `🏖️ Info : Nous vous informons que le praticien est en congé le ${formatLong(h.start_day, 'fr')} (${formatFR(h.start_day)}) — réservation fermée ce jour et ouverte sur les autres dates.\n\n`;
+  }
+  return `🏖️ Info : Nous vous informons que le praticien est en congé du ${formatLong(h.start_day, 'fr')} au ${formatLong(h.end_day, 'fr')} — réservation ouverte après cette période.\n\n`;
+}
+
 function formatUnavailableReason({ day, reason }, lang = 'fr') {
   const dateText = day ? `${formatLong(day, lang)} (${formatFR(day)})` : '';
   if (lang === 'ar') {
     switch (reason) {
+      case 'holiday':
+        return `🏖️ عذراً، نعلمكم أن الطبيب في عطلة يوم ${dateText}، لذلك لا يمكن الحجز في هذا التاريخ.`;
       case 'full':
         return `⚠️ عذراً، يوم ${dateText} ممتلئ بالكامل حسب الحجوزات الحالية.`;
       case 'closed':
@@ -78,6 +110,8 @@ function formatUnavailableReason({ day, reason }, lang = 'fr') {
     }
   }
   switch (reason) {
+    case 'holiday':
+      return `🏖️ Désolé, nous vous informons que le praticien est en congé le ${dateText} (réservation indisponible à cette date).`;
     case 'full':
       return `⚠️ Désolé, la journée du ${dateText} est complète selon les réservations actuelles.`;
     case 'closed':
@@ -96,9 +130,11 @@ function formatUnavailableReason({ day, reason }, lang = 'fr') {
 const t = {
   fr: {
     help: (s) =>
+      formatHolidayBanner(s, 'fr') +
       `Bonjour et bienvenue au ${s.clinic}. 🦷👋\n` +
       (s.doctor ? `${s.doctor}${s.specialty ? ` — ${s.specialty}` : ''}\n` : '') +
       (s.address ? `📍 ${s.address}\n` : '') +
+      formatHoursLine(s, 'fr') +
       `\nPour prendre un rendez-vous dentaire, envoyez simplement votre nom complet (prénom et nom).\n\n` +
       `Commandes :\n` +
       `• JOURS DISPONIBLES — consulter les dates libres\n` +
@@ -107,7 +143,20 @@ const t = {
       `• ANNULER — annuler votre rendez-vous\n\n` +
       `Merci.`,
 
-    chooseDay: (_s, { name, days = [], hasMore = false }) =>
+    doctorOnLeave: (s, { holiday, resumeDay } = {}) =>
+      `🏖️ Information — ${s.clinic}\n\n` +
+      (holiday && holiday.start_day !== holiday.end_day
+        ? `Nous vous informons que le praticien est actuellement en congé du ${formatLong(holiday.start_day, 'fr')} au ${formatLong(holiday.end_day, 'fr')}.\n`
+        : holiday
+          ? `Nous vous informons que le praticien est en congé le ${formatLong(holiday.start_day, 'fr')} (${formatFR(holiday.start_day)}).\n`
+          : `Nous vous informons que le praticien est actuellement en congé.\n`) +
+      (resumeDay
+        ? `📅 Les consultations et réservations reprendront à partir du ${formatLong(resumeDay, 'fr')} (${formatFR(resumeDay)}).\n\n`
+        : `\n`) +
+      `Merci de votre compréhension 🙏`,
+
+    chooseDay: (s, { name, days = [], hasMore = false }) =>
+      formatHolidayBanner(s, 'fr') +
       `📅 Bonjour${name ? ` ${name}` : ''}, veuillez choisir le jour et la date de votre rendez-vous dentaire parmi les disponibilités :\n\n` +
       `${formatAvailableDaysList(days, 'fr')}\n\n` +
       `👉 Répondez par le numéro du jour souhaité (1 à ${days.length}) ou écrivez une date (ex : ${days[0] ? formatFR(days[0].day).slice(0, 5) : '05/11'}).` +
@@ -127,16 +176,21 @@ const t = {
       (hasMore ? `\n\n🔄 Envoyez 0 ou PLUS pour voir les dates suivantes.` : ''),
 
     availableDaysPreview: (s, { days = [] }) =>
-      `📅 Prochaines dates disponibles au ${s.clinic} :\n\n` +
-      `${formatAvailableDaysList(days, 'fr')}\n\n` +
+      formatHolidayBanner(s, 'fr') +
+      `📅 Prochaines dates disponibles au ${s.clinic} :\n` +
+      (s?.is24h ? `🕒 Ouvert 24h/24 sans interruption\n` : '') +
+      `\n${formatAvailableDaysList(days, 'fr')}\n\n` +
       `✍️ Pour réserver, envoyez d'abord votre nom complet (exemple : Oussama Hamdaoui).`,
 
     askName: (s) =>
+      formatHolidayBanner(s, 'fr') +
       `Bienvenue au ${s.clinic}. 🙏\nEnvoyez votre nom complet (prénom + nom, ex : Oussama Hamdaoui) ` +
       `pour réserver le premier créneau disponible.`,
 
     welcomeAskName: (s) =>
+      formatHolidayBanner(s, 'fr') +
       `Bienvenue au ${s.clinic} 🦷👋\n` +
+      (s?.is24h ? `🕒 Clinique ouverte 24h/24 sans interruption\n` : '') +
       `Veuillez entrer votre nom complet (exemple : Oussama Hamdaoui).`,
 
     invalidName: () =>
@@ -155,6 +209,7 @@ const t = {
       `Numéro de passage : ${queue}\n` +
       `\n${s.clinic}` +
       (s.address ? `\n📍 ${s.address}` : '') +
+      (s?.is24h ? `\n🕒 Ouvert 24h/24 sans interruption` : '') +
       `\nPour annuler, envoyez : ANNULER\n\n` +
       `📋 Pour préparer votre soin dentaire (âge, poids et symptômes éventuels) :\n` +
       `🔒 Données locales strictement confidentielles au cabinet (Loi 18-07).\n` +
@@ -304,9 +359,11 @@ const t = {
 
   ar: {
     help: (s) =>
+      formatHolidayBanner(s, 'ar') +
       `مرحبا بكم في ${s.clinic}. 🦷👋\n` +
       (s.doctor ? `${s.doctor}${s.specialty ? ` — ${s.specialty}` : ''}\n` : '') +
       (s.address ? `📍 ${s.address}\n` : '') +
+      formatHoursLine(s, 'ar') +
       `\nلحجز موعد لطب الأسنان، أرسلوا اسمكم الكامل (الاسم واللقب).\n\n` +
       `الأوامر:\n` +
       `• الأيام المتاحة — لعرض التواريخ المتوفرة للحجز\n` +
@@ -315,7 +372,20 @@ const t = {
       `• إلغاء — لإلغاء الموعد\n\n` +
       `شكرا.`,
 
-    chooseDay: (_s, { name, days = [], hasMore = false }) =>
+    doctorOnLeave: (s, { holiday, resumeDay } = {}) =>
+      `🏖️ إشعار من ${s.clinic}\n\n` +
+      (holiday && holiday.start_day !== holiday.end_day
+        ? `نعلمكم أن الطبيب في عطلة حالياً من ${formatLong(holiday.start_day, 'ar')} إلى غاية ${formatLong(holiday.end_day, 'ar')}.\n`
+        : holiday
+          ? `نعلمكم أن الطبيب في عطلة يوم ${formatLong(holiday.start_day, 'ar')} (${formatFR(holiday.start_day)}).\n`
+          : `نعلمكم أن الطبيب في عطلة حالياً.\n`) +
+      (resumeDay
+        ? `📅 سيُستأنف العمل واستقبال الحجوزات ابتداءً من يوم ${formatLong(resumeDay, 'ar')} (${formatFR(resumeDay)}) إن شاء الله.\n\n`
+        : `\n`) +
+      `شكراً لتفهمكم ونتمنى لكم دوام الصحة والعافية 🙏`,
+
+    chooseDay: (s, { name, days = [], hasMore = false }) =>
+      formatHolidayBanner(s, 'ar') +
       `📅 مرحبا${name ? ` ${name}` : ''}، يرجى اختيار اليوم والتاريخ المناسب لحجز موعدكم من بين الأيام المتاحة:\n\n` +
       `${formatAvailableDaysList(days, 'ar')}\n\n` +
       `👉 أرسلوا رقم اليوم المطلوب (من 1 إلى ${days.length}) أو اكتبوا التاريخ (مثلاً: ${days[0] ? formatFR(days[0].day).slice(0, 5) : '05/11'}).` +
@@ -335,16 +405,21 @@ const t = {
       (hasMore ? `\n\n🔄 أرسلوا 0 أو المزيد لعرض التواريخ التالية.` : ''),
 
     availableDaysPreview: (s, { days = [] }) =>
-      `📅 الأيام والتواريخ المتاحة حالياً في ${s.clinic}:\n\n` +
-      `${formatAvailableDaysList(days, 'ar')}\n\n` +
+      formatHolidayBanner(s, 'ar') +
+      `📅 الأيام والتواريخ المتاحة حالياً في ${s.clinic}:\n` +
+      (s?.is24h ? `🕒 مفتوحة 24/24 ساعة بدون توقف\n` : '') +
+      `\n${formatAvailableDaysList(days, 'ar')}\n\n` +
       `✍️ للحجز، أرسلوا أولاً اسمكم الكامل (مثال: أسامة حمداوي).`,
 
     askName: (s) =>
+      formatHolidayBanner(s, 'ar') +
       `مرحبا بكم في ${s.clinic}. 🙏\nأرسلوا اسمكم الكامل (الاسم واللقب، مثال: أسامة حمداوي) ` +
       `لحجز أول موعد متاح.`,
 
     welcomeAskName: (s) =>
+      formatHolidayBanner(s, 'ar') +
       `أهلاً بك في ${s.clinic} 🦷👋\n` +
+      (s?.is24h ? `🕒 العيادة تعمل 24/24 ساعة بدون توقف\n` : '') +
       `من فضلك أدخل اسمك الكامل (مثال: أسامة حمداوي).`,
 
     invalidName: () =>
@@ -363,6 +438,7 @@ const t = {
       `رقم الدور: ${queue}\n` +
       `\n${s.clinic}` +
       (s.address ? `\n📍 ${s.address}` : '') +
+      (s?.is24h ? `\n🕒 مفتوحة 24/24 ساعة بدون توقف` : '') +
       `\nللإلغاء أرسلوا: إلغاء\n\n` +
       `📋 لتسهيل الفحص على طبيب الأسنان (العمر، الوزن، وبعض الأعراض إن أردتم):\n` +
       `🔒 معلوماتكم تبقى سرية داخل العيادة طبقا للقانون 18-07.\n` +
@@ -511,12 +587,26 @@ const t = {
 const DARIJA_TEMPLATES = {
   ar: {
     help: (s) =>
+      formatHolidayBanner(s, 'ar') +
       `سلام ومرحبا بيكم في ${s.clinic} 🦷👋\n` +
       (s.doctor ? `${s.doctor}${s.specialty ? ` — ${s.specialty}` : ''}\n` : '') +
       (s.address ? `📍 ${s.address}\n` : '') +
+      formatHoursLine(s, 'ar') +
       `\nباش تحجز موعد عند طبيب الأسنان، ابعث برك الاسم واللقب تاعك كاملين.\n\n` +
       `الأوامر:\n• الأيام المتاحة — باش تشوف النهارات الفارغة\n• موعدي — لمعرفة نهار ونيميرو الدور تاعك\n• تأكيد — لتأكيد الحضور\n• إلغاء — لإلغاء الموعد`,
-    chooseDay: (_s, { name, days = [], hasMore = false }) =>
+    doctorOnLeave: (s, { holiday, resumeDay } = {}) =>
+      `🏖️ إعلام من ${s.clinic}\n\n` +
+      (holiday && holiday.start_day !== holiday.end_day
+        ? `نعلموكم بلي الطبيب راهو في عطلة من ${formatLong(holiday.start_day, 'ar')} حتى لـ ${formatLong(holiday.end_day, 'ar')}.\n`
+        : holiday
+          ? `نعلموكم بلي الطبيب راهو في عطلة نهار ${formatLong(holiday.start_day, 'ar')} (${formatFR(holiday.start_day)}).\n`
+          : `نعلموكم بلي الطبيب راهو في عطلة حالياً.\n`) +
+      (resumeDay
+        ? `📅 الخدمة والحجز يرجعو ابتداءً من نهار ${formatLong(resumeDay, 'ar')} (${formatFR(resumeDay)}) إن شاء الله.\n`
+        : '') +
+      `بارك الله فيكم على التفهم 🙏`,
+    chooseDay: (s, { name, days = [], hasMore = false }) =>
+      formatHolidayBanner(s, 'ar') +
       `📅 مرحبا${name ? ` ${name}` : ''}، خيّر النهار والتاريخ اللي يساعدك من القائمة:\n\n` +
       `${formatAvailableDaysList(days, 'ar')}\n\n` +
       `👉 ابعث نيميرو النهار (من 1 إلى ${days.length}) ولا اكتب التاريخ (مثلا: ${days[0] ? formatFR(days[0].day).slice(0, 5) : '05/11'}).` +
@@ -534,9 +624,21 @@ const DARIJA_TEMPLATES = {
   },
   fr: {
     help: (s) =>
+      formatHolidayBanner(s, 'fr') +
       `Salam et marhba bikoum au ${s.clinic} 🦷👋\n` +
+      formatHoursLine(s, 'fr') +
       `Envoyez votre nom complet (prénom + nom) pour réserver votre RDV dentaire.\n` +
-      `Commandes : MON RDV · CONFIRMER · ANNULER.`,
+      `Commandes : JOURS DISPONIBLES · MON RDV · CONFIRMER · ANNULER.`,
+    doctorOnLeave: (s, { holiday, resumeDay } = {}) =>
+      `🏖️ Info ${s.clinic} : Le docteur est en congé` +
+      (holiday && holiday.start_day !== holiday.end_day
+        ? ` du ${formatLong(holiday.start_day, 'fr')} au ${formatLong(holiday.end_day, 'fr')}.`
+        : holiday
+          ? ` le ${formatLong(holiday.start_day, 'fr')}.`
+          : `.`) +
+      (resumeDay
+        ? `\n📅 Reprise des RDV à partir du ${formatLong(resumeDay, 'fr')} (${formatFR(resumeDay)}) inchallah. Baraka Allahou fikoum 🙏`
+        : `\nBaraka Allahou fikoum 🙏`),
     booked: (_s, { name, day, queue }) =>
       `✅ Rendez-vous confirmé (RDV mriguel inchallah) !\nPatient : ${name}\n` +
       `Jour : ${formatLong(day, 'fr')} — Numéro de passage : ${queue}.\n` +

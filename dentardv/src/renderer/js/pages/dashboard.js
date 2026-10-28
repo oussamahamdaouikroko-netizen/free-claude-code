@@ -134,6 +134,7 @@
 
       const currency = window.App.settings.currency;
       const stats = data.stats;
+      const is24h = window.App.settings?.clinic_24h_enabled === '1';
 
       clear(root).append(
         h(
@@ -155,13 +156,20 @@
               { class: 'card-title' },
               t('dash.queue'),
               h(
-                'span',
-                { class: `badge ${stats.left === 0 ? 'warn' : 'ok'}` },
-                stats.working
-                  ? stats.left > 0
-                    ? t('dash.capacityLeft', { n: stats.left, cap: stats.capacity })
-                    : t('dash.fullDay')
-                  : t('dash.closedDay'),
+                'div',
+                { class: 'row wrap', style: { gap: '6px' } },
+                is24h ? h('span', { class: 'badge ok' }, '🕒 ', t('dash.open24hBadge')) : null,
+                stats.holiday
+                  ? h('span', { class: 'badge warn' }, '🏖️ ', t('agenda.doctorOnLeave'))
+                  : h(
+                      'span',
+                      { class: `badge ${stats.left === 0 ? 'warn' : 'ok'}` },
+                      stats.working
+                        ? stats.left > 0
+                          ? t('dash.capacityLeft', { n: stats.left, cap: stats.capacity })
+                          : t('dash.fullDay')
+                        : t('dash.closedDay'),
+                    ),
               ),
             ),
             window.Components.queueLiveBanner(data.agenda, { day, onChanged: ctx.refresh }),
