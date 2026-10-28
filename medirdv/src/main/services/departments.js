@@ -86,7 +86,7 @@ function normalize(input = {}, { partial = false } = {}) {
   if (!partial || input.daily_capacity !== undefined) {
     const cap = Number.parseInt(input.daily_capacity, 10);
     out.daily_capacity = Number.isFinite(cap)
-      ? Math.min(200, Math.max(1, cap))
+      ? Math.min(500, Math.max(1, cap))
       : settings.getInt('daily_capacity') || 15;
   }
   if (!partial || input.working_days !== undefined) {

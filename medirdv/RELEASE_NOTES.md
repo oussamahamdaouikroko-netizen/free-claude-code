@@ -1,4 +1,20 @@
-# MediRDV v2.4.0 — Suite Clinique Complète Hors-Ligne pour Cabinets & Polycliniques (Algérie)
+# MediRDV v2.5.0 — Suite Clinique Complète Hors-Ligne pour Cabinets & Polycliniques (Algérie)
+
+## Nouveautés de la version 2.5.0 (تحديثات الإصدار 2.5.0 — 2026-10-28)
+
+1. **Gestion des congés médecin & arrêts maladie (`عطلة الطبيب / استراحة مرضية — MIGRATION_13`)** :
+   - Possibilité de marquer un jour unique ou une période complète (cabinet entier ou service spécifique en polyclinique) avec motif interne confidentiel (`عطلة / Congé`, `مرض / Maladie`, `أخرى / Autre`), note optionnelle et détection non destructive des rendez-vous déjà programmés (`booked_conflicts`).
+   - Blocage automatique des nouvelles réservations sur l'application bureau et sur WhatsApp pendant la période de congé, avec saut automatique vers le prochain jour ouvrable libre.
+   - **Confidentialité totale sur WhatsApp** : même si le motif interne est `مرض / Maladie`, le bot WhatsApp affiche uniquement un message courtois indiquant que **le médecin est en congé (`الطبيب في عطلة` / `en congé`)** avec la date exacte de reprise (en Français, Arabe et Darija algérienne), ainsi qu'une option de pause globale des nouvelles réservations WhatsApp (`إيقاف استقبال الحجوزات الجديدة مؤقتاً`).
+2. **Contrôle complet des horaires de travail, calcul du nombre d'heures, système à deux périodes (`نظام الدوامين`) & pause médecin (`فترة راحة للطبيب`)** :
+   - Contrôle précis des heures de début et de fin (`من الساعة ... إلى الساعة ...`) **et** du nombre d'heures de travail (`عدد الساعات` avec calcul bidirectionnel instantané du temps net travaillé).
+   - **Système à deux périodes (`نظام الدوامين`)** : prise en charge d'une seconde période quotidienne y compris jusqu'à minuit (`00:00` / `12 ليلاً`), avec préréglage rapide **`08:00 – 17:00` puis `21:00 – 00:00`**.
+   - **Pause / repos du médecin (`فترة راحة للطبيب في وقت العمل`)** : fenêtre de pause configurable (ex. `12:30 – 13:30`) déduite automatiquement des heures nettes, exclue des créneaux horaires générés, protégée contre la prise de rendez-vous et affichée clairement dans le Tableau de bord, l'Agenda et les messages WhatsApp.
+3. **Mode Clinique / Urgences `24/24` sans interruption (`عيادات تعمل 24/24 ساعة بدون توقف`)** :
+   - Option dédiée `24/24` continu avec sélection rapide `7/7` tous les jours, capacité journalière étendue jusqu'à **500 patients/jour** et badges visuels + mention automatique `24/24` sur WhatsApp.
+   - **Compatibilité totale des licences existantes (`MRDV-LIC-V1:`)** et conservation intégrale des **5 381 médicaments de la Nomenclature Nationale Algérienne**.
+
+---
 
 ## Nouveautés de la version 2.4.0 (تحديثات الإصدار 2.4.0 — 2026-10-26)
 

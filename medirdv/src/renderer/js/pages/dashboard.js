@@ -200,6 +200,12 @@
 
       const currency = window.App.settings.currency;
       const stats = data.stats;
+      const is24h = window.App.settings?.clinic_24h_enabled === '1';
+      const twoShiftsOn = !is24h && window.App.settings?.two_shifts_enabled === '1';
+      const breakOn = !is24h && window.App.settings?.break_enabled === '1';
+      const schedSummary = twoShiftsOn
+        ? `${window.App.settings?.work_start_hour || '08:00'}–${window.App.settings?.work_end_hour || '17:00'} · ${window.App.settings?.shift2_start_hour || '21:00'}–${window.App.settings?.shift2_end_hour || '00:00'}`
+        : `${window.App.settings?.work_start_hour || '08:00'}–${window.App.settings?.work_end_hour || '17:00'}`;
 
       const deptBar =
         depts.length > 0
@@ -255,13 +261,29 @@
               { class: 'card-title' },
               t('dash.queue'),
               h(
-                'span',
-                { class: `badge ${stats.left === 0 ? 'warn' : 'ok'}` },
-                stats.working
-                  ? stats.left > 0
-                    ? t('dash.capacityLeft', { n: stats.left, cap: stats.capacity })
-                    : t('dash.fullDay')
-                  : t('dash.closedDay'),
+                'div',
+                { class: 'row wrap', style: { gap: '6px' } },
+                is24h
+                  ? h('span', { class: 'badge ok' }, '🕒 ', t('dash.open24hBadge'))
+                  : h('span', { class: 'badge info' }, '🕒 ', t('dash.scheduleBadge', { sched: schedSummary })),
+                breakOn
+                  ? h(
+                      'span',
+                      { class: 'badge gray' },
+                      `☕ ${window.App.settings?.break_start_hour || '12:30'}–${window.App.settings?.break_end_hour || '13:30'}`,
+                    )
+                  : null,
+                stats.holiday
+                  ? h('span', { class: 'badge warn' }, '🏖️ ', t('agenda.doctorOnLeave'))
+                  : h(
+                      'span',
+                      { class: `badge ${stats.left === 0 ? 'warn' : 'ok'}` },
+                      stats.working
+                        ? stats.left > 0
+                          ? t('dash.capacityLeft', { n: stats.left, cap: stats.capacity })
+                          : t('dash.fullDay')
+                        : t('dash.closedDay'),
+                    ),
               ),
             ),
             deptBar,

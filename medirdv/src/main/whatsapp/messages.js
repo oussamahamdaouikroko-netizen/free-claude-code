@@ -80,10 +80,46 @@ function formatAvailableDaysList(days = [], lang = 'fr') {
     .join('\n');
 }
 
+function formatHoursBlock(s, lang = 'fr') {
+  if (!s) return '';
+  if (s.is24h) {
+    return lang === 'ar'
+      ? `🕒 أوقات العمل: 24/24 ساعة بدون توقف\n`
+      : `🕒 Horaires : Ouvert 24h/24 sans interruption\n`;
+  }
+  const schedText = lang === 'ar' ? s.scheduleTextAr : s.scheduleTextFr;
+  const breakText = lang === 'ar' ? s.breakTextAr : s.breakTextFr;
+  if (!schedText) return '';
+  return lang === 'ar'
+    ? `🕒 أوقات العمل: ${schedText}${breakText ? ` (☕ ${breakText})` : ''}\n`
+    : `🕒 Horaires : ${schedText}${breakText ? ` (☕ ${breakText})` : ''}\n`;
+}
+
+function formatHolidayBanner(s, lang = 'fr') {
+  const h = s?.holidayCtx?.holiday;
+  if (!h) return '';
+  const single = h.start_day === h.end_day;
+  const resume = s?.holidayCtx?.resumeDay;
+  if (lang === 'ar') {
+    const period = single
+      ? `يوم ${formatLong(h.start_day, 'ar')} (${formatFR(h.start_day)})`
+      : `من ${formatLong(h.start_day, 'ar')} إلى ${formatLong(h.end_day, 'ar')}`;
+    const resumeText = resume ? ` — يستأنف العمل يوم ${formatLong(resume, 'ar')}` : '';
+    return `🏖️ تنبيه: الطبيب في عطلة ${period}${resumeText}.\n\n`;
+  }
+  const period = single
+    ? `le ${formatLong(h.start_day, 'fr')} (${formatFR(h.start_day)})`
+    : `du ${formatLong(h.start_day, 'fr')} au ${formatLong(h.end_day, 'fr')}`;
+  const resumeText = resume ? ` — reprise le ${formatLong(resume, 'fr')}` : '';
+  return `🏖️ Info : Le médecin est en congé ${period}${resumeText}.\n\n`;
+}
+
 function formatUnavailableReason({ day, reason, closureLabel }, lang = 'fr') {
   const dateText = day ? `${formatLong(day, lang)} (${formatFR(day)})` : '';
   if (lang === 'ar') {
     switch (reason) {
+      case 'holiday':
+        return `🏖️ عذراً، الطبيب في عطلة يوم ${dateText}، لذلك لا يمكن الحجز في هذا التاريخ.`;
       case 'full':
         return `⚠️ عذراً، يوم ${dateText} ممتلئ بالكامل حسب الحجوزات الحالية.`;
       case 'closed':
@@ -103,6 +139,8 @@ function formatUnavailableReason({ day, reason, closureLabel }, lang = 'fr') {
     }
   }
   switch (reason) {
+    case 'holiday':
+      return `🏖️ Désolé, le médecin est en congé le ${dateText}. Aucune réservation n'est possible à cette date.`;
     case 'full':
       return `⚠️ Désolé, la journée du ${dateText} est complète selon les réservations actuelles.`;
     case 'closed':
@@ -125,9 +163,11 @@ function formatUnavailableReason({ day, reason, closureLabel }, lang = 'fr') {
 const t = {
   fr: {
     help: (s, { departments } = {}) =>
+      formatHolidayBanner(s, 'fr') +
       `Bonjour et bienvenue au ${s.clinic}. 👋\n` +
       (s.doctor ? `${s.doctor}${s.specialty ? ` — ${s.specialty}` : ''}\n` : '') +
       (s.address ? `📍 ${s.address}\n` : '') +
+      formatHoursBlock(s, 'fr') +
       `\n` +
       (Array.isArray(departments) && departments.length >= 2
         ? `Services disponibles :\n${formatDepartmentList(departments, 'fr', s.currency)}\n\n` +
@@ -139,12 +179,27 @@ const t = {
       `• ANNULER — annuler votre rendez-vous\n\n` +
       `Merci.`,
 
+    doctorOnLeave: (s, { holiday, resumeDay, department } = {}) =>
+      `🏖️ Information — ${s.clinic}${department ? ` (${department})` : ''}\n\n` +
+      (holiday && holiday.start_day !== holiday.end_day
+        ? `Nous vous informons que le médecin est actuellement en congé du ${formatLong(holiday.start_day, 'fr')} au ${formatLong(holiday.end_day, 'fr')}.\n`
+        : holiday
+          ? `Nous vous informons que le médecin est en congé le ${formatLong(holiday.start_day, 'fr')} (${formatFR(holiday.start_day)}).\n`
+          : `Nous vous informons que le médecin est actuellement en congé.\n`) +
+      (resumeDay
+        ? `📅 Les consultations et réservations reprendront à partir du ${formatLong(resumeDay, 'fr')} (${formatFR(resumeDay)}).\n\n`
+        : `\n`) +
+      `Merci de votre compréhension 🙏`,
+
     askName: (s) =>
+      formatHolidayBanner(s, 'fr') +
       `Bienvenue au ${s.clinic}. 🙏\nEnvoyez votre nom complet (prénom + nom, ex : Oussama Hamdaoui) ` +
       `pour réserver le premier créneau disponible.`,
 
     welcomeAskName: (s) =>
+      formatHolidayBanner(s, 'fr') +
       `Bienvenue au ${s.clinic} 👋\n` +
+      formatHoursBlock(s, 'fr') +
       `Veuillez entrer votre nom complet (exemple : Oussama Hamdaoui).`,
 
     invalidName: () =>
@@ -168,7 +223,8 @@ const t = {
       `Numéro de service invalide. Merci d'envoyer un numéro entre 1 et ${departments.length} :\n\n` +
       `${formatDepartmentList(departments, 'fr', s.currency)}`,
 
-    chooseDay: (_s, { name, department, days = [], hasMore = false }) =>
+    chooseDay: (s, { name, department, days = [], hasMore = false }) =>
+      formatHolidayBanner(s, 'fr') +
       `📅 Bonjour${name ? ` ${name}` : ''}` +
       (department ? ` (${department})` : '') +
       `, veuillez choisir le jour et la date de votre rendez-vous parmi les disponibilités :\n\n` +
@@ -192,10 +248,12 @@ const t = {
       (hasMore ? `\n\n🔄 Envoyez 0 ou PLUS pour voir les dates suivantes.` : ''),
 
     availableDaysPreview: (s, { department, days = [], hasMore = false }) =>
+      formatHolidayBanner(s, 'fr') +
       `📅 Prochaines dates disponibles au ${s.clinic}` +
       (department ? ` (${department})` : '') +
-      ` :\n\n` +
-      `${formatAvailableDaysList(days, 'fr')}` +
+      ` :\n` +
+      formatHoursBlock(s, 'fr') +
+      `\n${formatAvailableDaysList(days, 'fr')}` +
       (hasMore ? `\n(et d'autres dates suivantes…)` : '') +
       `\n\n✍️ Pour réserver l'une de ces dates, envoyez d'abord votre nom complet (exemple : Oussama Hamdaoui).`,
 
@@ -208,6 +266,7 @@ const t = {
       `Date : ${formatLong(day, 'fr')}\n` +
       (slotTime ? `Horaire : ${slotTime}\n` : '') +
       `Numéro de passage : ${queue}\n` +
+      formatHoursBlock(s, 'fr') +
       (instructions ? `\n📌 Consignes : ${instructions}\n` : '') +
       `\n${s.clinic}` +
       (s.address ? `\n📍 ${s.address}` : '') +
@@ -371,9 +430,11 @@ const t = {
 
   ar: {
     help: (s, { departments } = {}) =>
+      formatHolidayBanner(s, 'ar') +
       `مرحبا بكم في ${s.clinic}. 👋\n` +
       (s.doctor ? `${s.doctor}${s.specialty ? ` — ${s.specialty}` : ''}\n` : '') +
       (s.address ? `📍 ${s.address}\n` : '') +
+      formatHoursBlock(s, 'ar') +
       `\n` +
       (Array.isArray(departments) && departments.length >= 2
         ? `المصالح الطبية المتوفرة:\n${formatDepartmentList(departments, 'ar', s.currency)}\n\n` +
@@ -385,12 +446,27 @@ const t = {
       `• إلغاء — لإلغاء الموعد\n\n` +
       `شكرا.`,
 
+    doctorOnLeave: (s, { holiday, resumeDay, department } = {}) =>
+      `🏖️ إعلام — ${s.clinic}${department ? ` (${department})` : ''}\n\n` +
+      (holiday && holiday.start_day !== holiday.end_day
+        ? `نُعلمكم أن الطبيب في عطلة حالياً من ${formatLong(holiday.start_day, 'ar')} إلى ${formatLong(holiday.end_day, 'ar')}.\n`
+        : holiday
+          ? `نُعلمكم أن الطبيب في عطلة يوم ${formatLong(holiday.start_day, 'ar')} (${formatFR(holiday.start_day)}).\n`
+          : `نُعلمكم أن الطبيب في عطلة حالياً.\n`) +
+      (resumeDay
+        ? `📅 يُستأنف استقبال المرضى والحجز ابتداءً من يوم ${formatLong(resumeDay, 'ar')} (${formatFR(resumeDay)}).\n\n`
+        : `\n`) +
+      `نشكركم على تفهمكم ونتمنى لكم دوام الصحة والعافية 🙏`,
+
     askName: (s) =>
+      formatHolidayBanner(s, 'ar') +
       `مرحبا بكم في ${s.clinic}. 🙏\nأرسلوا اسمكم الكامل (الاسم واللقب، مثال: أسامة حمداوي) ` +
       `لحجز أول موعد متاح.`,
 
     welcomeAskName: (s) =>
+      formatHolidayBanner(s, 'ar') +
       `أهلاً بك في ${s.clinic} 👋\n` +
+      formatHoursBlock(s, 'ar') +
       `من فضلك أدخل اسمك الكامل (مثال: أسامة حمداوي).`,
 
     invalidName: () =>
@@ -414,7 +490,8 @@ const t = {
       `رقم المصلحة غير صحيح. يرجى إرسال رقم بين 1 و ${departments.length}:\n\n` +
       `${formatDepartmentList(departments, 'ar', s.currency)}`,
 
-    chooseDay: (_s, { name, department, days = [], hasMore = false }) =>
+    chooseDay: (s, { name, department, days = [], hasMore = false }) =>
+      formatHolidayBanner(s, 'ar') +
       `📅 مرحبا${name ? ` ${name}` : ''}` +
       (department ? ` (${department})` : '') +
       `، يرجى اختيار اليوم والتاريخ المناسب لحجز موعدكم من بين الأيام المتاحة:\n\n` +
@@ -438,10 +515,12 @@ const t = {
       (hasMore ? `\n\n🔄 أرسلوا 0 أو المزيد لعرض التواريخ التالية.` : ''),
 
     availableDaysPreview: (s, { department, days = [], hasMore = false }) =>
+      formatHolidayBanner(s, 'ar') +
       `📅 الأيام والتواريخ المتاحة حالياً في ${s.clinic}` +
       (department ? ` (${department})` : '') +
-      `:\n\n` +
-      `${formatAvailableDaysList(days, 'ar')}` +
+      `:\n` +
+      formatHoursBlock(s, 'ar') +
+      `\n${formatAvailableDaysList(days, 'ar')}` +
       (hasMore ? `\n(وتوجد تواريخ أخرى تالية…)` : '') +
       `\n\n✍️ لحجز أحد هذه الأيام، أرسلوا أولاً اسمكم الكامل (مثال: أسامة حمداوي).`,
 
@@ -454,6 +533,7 @@ const t = {
       `التاريخ: ${formatLong(day, 'ar')}\n` +
       (slotTime ? `التوقيت: ${slotTime}\n` : '') +
       `رقم الدور: ${queue}\n` +
+      formatHoursBlock(s, 'ar') +
       (instructions ? `\n📌 ملاحظة: ${instructions}\n` : '') +
       `\n${s.clinic}` +
       (s.address ? `\n📍 ${s.address}` : '') +
@@ -615,16 +695,28 @@ const t = {
 const DARIJA_TEMPLATES = {
   ar: {
     help: (s, { departments } = {}) =>
+      formatHolidayBanner(s, 'ar') +
       `سلام ومرحبا بيكم في ${s.clinic} 👋\n` +
       (s.doctor ? `${s.doctor}${s.specialty ? ` — ${s.specialty}` : ''}\n` : '') +
       (s.address ? `📍 ${s.address}\n` : '') +
+      formatHoursBlock(s, 'ar') +
       `\n` +
       (Array.isArray(departments) && departments.length >= 2
         ? `المصالح الطبية المتوفرة:\n${formatDepartmentList(departments, 'ar', s.currency)}\n\n` +
           `باش تحجز موعد، ابعث الاسم واللقب تاعك (ولا رقم المصلحة).\n\n`
         : `باش تحجز موعد، ابعث برك الاسم واللقب تاعك كاملين.\n\n`) +
       `الأوامر:\n• الأيام المتاحة — باش تشوف النهارات الفارغة\n• إلغاء — لإلغاء الموعد\n• موعدي — لمعرفة نهار ونيميرو الدور تاعك\n• تأكيد — لتأكيد الحضور`,
-    chooseDay: (_s, { name, department, days = [], hasMore = false }) =>
+    doctorOnLeave: (s, { holiday, resumeDay, department } = {}) =>
+      `🏖️ سلام خويا/ختي — ${s.clinic}${department ? ` (${department})` : ''}\n\n` +
+      (holiday && holiday.start_day !== holiday.end_day
+        ? `الطبيب راه في عطلة من ${formatLong(holiday.start_day, 'ar')} حتى ${formatLong(holiday.end_day, 'ar')}.\n`
+        : holiday
+          ? `الطبيب راه في عطلة نهار ${formatLong(holiday.start_day, 'ar')} (${formatFR(holiday.start_day)}).\n`
+          : `الطبيب راه في عطلة حالياً.\n`) +
+      (resumeDay ? `📅 الخدمة والحجز يرجعو نهار ${formatLong(resumeDay, 'ar')} إن شاء الله.\n` : '') +
+      `ربي يجيب الشفاء 🙏`,
+    chooseDay: (s, { name, department, days = [], hasMore = false }) =>
+      formatHolidayBanner(s, 'ar') +
       `📅 مرحبا${name ? ` ${name}` : ''}` +
       (department ? ` (${department})` : '') +
       `، خيّر النهار والتاريخ اللي يساعدك من القائمة:\n\n` +
@@ -647,11 +739,22 @@ const DARIJA_TEMPLATES = {
   },
   fr: {
     help: (s, { departments } = {}) =>
+      formatHolidayBanner(s, 'fr') +
       `Salam et marhba bikoum au ${s.clinic} 👋\n` +
+      formatHoursBlock(s, 'fr') +
       (Array.isArray(departments) && departments.length >= 2
         ? `Services disponibles :\n${formatDepartmentList(departments, 'fr', s.currency)}\n\n`
         : '') +
       `Envoyez votre nom complet bash tahجزou RDV. Commandes : MON RDV · CONFIRMER · ANNULER.`,
+    doctorOnLeave: (s, { holiday, resumeDay, department } = {}) =>
+      `🏖️ Salam — ${s.clinic}${department ? ` (${department})` : ''} : le médecin est actuellement en congé` +
+      (holiday && holiday.start_day !== holiday.end_day
+        ? ` du ${formatLong(holiday.start_day, 'fr')} au ${formatLong(holiday.end_day, 'fr')}`
+        : holiday
+          ? ` le ${formatLong(holiday.start_day, 'fr')}`
+          : '') +
+      `.\n` +
+      (resumeDay ? `📅 Reprise des RDV le ${formatLong(resumeDay, 'fr')} inchallah. 🙏` : `Merci de votre compréhension 🙏`),
     booked: (_s, { name, day, queue, department, room }) =>
       `✅ RDV mriguel inchallah !\nPatient : ${name}\n` +
       (department ? `Service : ${department}${room ? ` (${room})` : ''}\n` : '') +

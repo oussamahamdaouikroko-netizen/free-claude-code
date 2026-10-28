@@ -52,7 +52,7 @@ function makeIsolatedEnv(extraOpts = {}) {
   const ledgerPath = path.join(dir, 'dev-issued.csv');
   fs.writeFileSync(privPath, privPem, { mode: 0o600 });
 
-  let nowMs = extraOpts.initialNowMs || Date.parse('2026-10-26T10:00:00.000Z');
+  let nowMs = extraOpts.initialNowMs || Date.now();
   const fakeReg = createFakeRegRunner();
   const events = [];
   const warnings = [];

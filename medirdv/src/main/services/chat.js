@@ -11,6 +11,7 @@
 
 const { getDb } = require('../db');
 const settings = require('./settings');
+const holidays = require('./holidays');
 const { message } = require('../whatsapp/messages');
 const { cleanText, nowLocal } = require('../utils/common');
 const { toISODate } = require('../utils/dates');
@@ -18,7 +19,7 @@ const { toISODate } = require('../utils/dates');
 const VALID_KINDS = new Set(['booked', 'cancelled', 'turn_now', 'queue_ahead', 'incoming']);
 const VALID_DELIVERY = new Set(['local', 'queued', 'sent', 'failed']);
 
-function clinicSettings() {
+function clinicSettings(departmentId = null) {
   return {
     clinic: settings.get('clinic_name'),
     phone: settings.get('clinic_phone'),
@@ -27,6 +28,13 @@ function clinicSettings() {
     specialty: settings.get('doctor_specialty'),
     currency: settings.get('currency'),
     darija: settings.getBool('bot_darija_mode'),
+    is24h: settings.is24hClinic(),
+    schedule: settings.getWorkSchedule(),
+    scheduleTextFr: settings.formatScheduleSummary('fr'),
+    scheduleTextAr: settings.formatScheduleSummary('ar'),
+    breakTextFr: settings.formatBreakSummary('fr'),
+    breakTextAr: settings.formatBreakSummary('ar'),
+    holidayCtx: holidays.getWhatsAppHolidayContext(toISODate(), departmentId, 14),
   };
 }
 

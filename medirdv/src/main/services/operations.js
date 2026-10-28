@@ -6,6 +6,7 @@
  */
 
 const { getDb } = require('../db');
+const settings = require('./settings');
 const departments = require('./departments');
 const expenses = require('./expenses');
 const { AppError, cleanText, money, nowLocal, requireId } = require('../utils/common');
@@ -117,12 +118,31 @@ function fmtMinutes(total) {
 }
 
 function generateTimeSlots(dept) {
-  const start = parseMinutes(dept?.slot_start_time, 8 * 60 + 30);
-  const end = parseMinutes(dept?.slot_end_time, 16 * 60 + 30);
-  const step = Math.max(5, Math.min(180, Number.parseInt(dept?.slot_duration_min, 10) || 20));
+  const step = Math.max(5, Math.min(180, Number.parseInt(dept?.slot_duration_min, 10) || settings.getInt('avg_session_minutes') || 20));
   const out = [];
-  for (let t = start; t + step <= end; t += step) {
-    out.push(fmtMinutes(t));
+  const appendWindow = (startHHMM, endHHMM) => {
+    const start = parseMinutes(startHHMM, 8 * 60 + 30);
+    let end = parseMinutes(endHHMM, 16 * 60 + 30);
+    if (end <= start) end += 1440;
+    for (let t = start; t + step <= end; t += step) {
+      const slot = fmtMinutes(t % 1440);
+      if (!settings.isTimeInBreak(slot)) out.push(slot);
+    }
+  };
+
+  if (dept && dept.slot_start_time && dept.slot_end_time) {
+    appendWindow(dept.slot_start_time, dept.slot_end_time);
+    return out;
+  }
+
+  const sched = settings.getWorkSchedule();
+  if (sched.is24h) {
+    for (let t = 0; t + step <= 1440; t += step) out.push(fmtMinutes(t));
+    return out;
+  }
+  appendWindow(sched.shift1Start, sched.shift1End);
+  if (sched.twoShifts) {
+    appendWindow(sched.shift2Start, sched.shift2End);
   }
   return out;
 }

@@ -31,6 +31,7 @@ const auth = require('./services/auth');
 const security = require('./services/security');
 const license = require('./services/license');
 const autostart = require('./autostart');
+const holidays = require('./services/holidays');
 const operations = require('./services/operations');
 const documents = require('./services/documents');
 const {
@@ -596,6 +597,11 @@ function createHandlers(context) {
     /* --------------------------------- reports ----------------------------- */
     'reports:daily': (payload) => reports.daily(payload?.day),
     'reports:monthly': (payload) => reports.monthly(payload?.month),
+
+    /* ------------------- doctor holidays / sick-leave days ----------------- */
+    'holidays:list': (payload) => holidays.list(payload || {}),
+    'holidays:create': (payload) => holidays.create(payload || {}),
+    'holidays:remove': (payload) => holidays.remove(payload?.id),
 
     /* --------------------------------- backups ----------------------------- */
     'backup:list': () => backup.list(),

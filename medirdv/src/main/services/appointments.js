@@ -17,6 +17,7 @@ const { CANCEL_COOLDOWN_MINUTES, formatAlgeriaTime } = require('../config');
 const license = require('./license');
 const settings = require('./settings');
 const departments = require('./departments');
+const holidays = require('./holidays');
 const operations = require('./operations');
 const chat = require('./chat');
 const { message } = require('../whatsapp/messages');
@@ -80,7 +81,8 @@ function dayInfo(day, departmentId = null) {
   const dKey = deptKey(departmentId);
   const capacity = departments.capacityFor(dKey || null);
   const used = usedCapacity(day, dKey || null);
-  const working = departments.isWorkingDay(dKey || null, day);
+  const holiday = holidays.getForDay(day, dKey || null);
+  const working = departments.isWorkingDay(dKey || null, day) && !holiday;
   return {
     day,
     department_id: dKey || null,
@@ -88,6 +90,7 @@ function dayInfo(day, departmentId = null) {
     used,
     left: Math.max(0, capacity - used),
     working,
+    holiday: holiday || null,
   };
 }
 
@@ -125,7 +128,7 @@ function findNextFreeDay(options = {}) {
 
   for (let offset = 0; offset <= horizon; offset += 1) {
     const day = addDays(start, offset);
-    if (!departments.isWorkingDay(dKey || null, day)) continue;
+    if (!departments.isWorkingDay(dKey || null, day) || holidays.isHoliday(day, dKey || null)) continue;
     if (usedCapacity(day, dKey || null) < cap) return day;
   }
   return null;
@@ -262,6 +265,10 @@ function checkDayAvailability(day, departmentId = null, options = {}) {
 
   const dKey = deptKey(departmentId);
   const dept = dKey ? departments.getOptional(dKey) : null;
+  const holiday = holidays.getForDay(day, dKey || null);
+  if (holiday) {
+    return { bookable: false, reason: 'holiday', day, holiday };
+  }
   if (!departments.isWorkingDay(dKey || null, day)) {
     const closure = closureForDay(day, dKey || null);
     return { bookable: false, reason: 'closed', day, closure };
@@ -297,6 +304,14 @@ function assertBookableDay(day, departmentId = null) {
   const today = toISODate();
   if (diffDays(today, day) < 0) throw new AppError('DATE_IN_PAST');
   const dKey = deptKey(departmentId);
+  const holiday = holidays.getForDay(day, dKey || null);
+  if (holiday) {
+    throw new AppError('DOCTOR_ON_LEAVE', 'Doctor on leave', {
+      day,
+      department_id: dKey || null,
+      holiday,
+    });
+  }
   if (!departments.isWorkingDay(dKey || null, day)) {
     throw new AppError('NOT_WORKING_DAY', 'Clinic closed', { day, department_id: dKey || null });
   }
@@ -376,6 +391,11 @@ function create(input = {}) {
     ? input.priority
     : 'normal';
   let slotTime = cleanText(input.slot_time, 8);
+  if (slotTime && input.historical !== true && settings.isTimeInBreak(slotTime)) {
+    throw new AppError('DOCTOR_BREAK_TIME', 'Requested time falls inside doctor break', {
+      slot_time: slotTime,
+    });
+  }
   if (dept && dept.scheduling_mode === 'slots') {
     if (slotTime) {
       const takenSlot = db

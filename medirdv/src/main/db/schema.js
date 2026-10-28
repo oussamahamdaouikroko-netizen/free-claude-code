@@ -9,7 +9,7 @@
  * and medical certificates.
  */
 
-const SCHEMA_VERSION = 12;
+const SCHEMA_VERSION = 13;
 
 const MIGRATION_1 = `
 CREATE TABLE IF NOT EXISTS settings (
@@ -984,6 +984,21 @@ const MIGRATION_12 = `
 CREATE INDEX IF NOT EXISTS idx_bot_sessions_updated ON bot_sessions(updated_at);
 `;
 
+const MIGRATION_13 = `
+CREATE TABLE IF NOT EXISTS clinic_holidays (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  start_day     TEXT NOT NULL,
+  end_day       TEXT NOT NULL,
+  reason_type   TEXT NOT NULL DEFAULT 'vacation'
+                CHECK (reason_type IN ('vacation', 'sick', 'other')),
+  label         TEXT NOT NULL DEFAULT '',
+  department_id INTEGER REFERENCES departments(id) ON DELETE SET NULL,
+  block_all_wa  INTEGER NOT NULL DEFAULT 0 CHECK (block_all_wa IN (0, 1)),
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_clinic_holidays_range ON clinic_holidays(start_day, end_day);
+`;
+
 const MIGRATIONS = [
   MIGRATION_1,
   MIGRATION_2,
@@ -997,6 +1012,7 @@ const MIGRATIONS = [
   MIGRATION_10,
   MIGRATION_11,
   MIGRATION_12,
+  MIGRATION_13,
 ];
 
 function hasColumn(db, tableName, colName) {
@@ -1017,6 +1033,19 @@ function ensureIdempotentColumns(db) {
         updated_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_bot_sessions_updated ON bot_sessions(updated_at);
+
+      CREATE TABLE IF NOT EXISTS clinic_holidays (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        start_day     TEXT NOT NULL,
+        end_day       TEXT NOT NULL,
+        reason_type   TEXT NOT NULL DEFAULT 'vacation'
+                      CHECK (reason_type IN ('vacation', 'sick', 'other')),
+        label         TEXT NOT NULL DEFAULT '',
+        department_id INTEGER REFERENCES departments(id) ON DELETE SET NULL,
+        block_all_wa  INTEGER NOT NULL DEFAULT 0 CHECK (block_all_wa IN (0, 1)),
+        created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_clinic_holidays_range ON clinic_holidays(start_day, end_day);
     `);
 
     if (!hasColumn(db, 'patients', 'blocked_until')) {

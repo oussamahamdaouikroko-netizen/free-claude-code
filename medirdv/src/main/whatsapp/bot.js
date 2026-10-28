@@ -21,6 +21,7 @@ const { message } = require('./messages');
 const patients = require('../services/patients');
 const appointments = require('../services/appointments');
 const departments = require('../services/departments');
+const holidays = require('../services/holidays');
 const intake = require('../services/intake');
 const settings = require('../services/settings');
 const chat = require('../services/chat');
@@ -158,12 +159,12 @@ function preferredLanguage(phone, fullName) {
   return chat.detectLanguage(fullName);
 }
 
-function clinicSettings() {
-  return chat.clinicSettings();
+function clinicSettings(departmentId = null) {
+  return chat.clinicSettings(departmentId);
 }
 
 function reply(lang, key, vars = {}) {
-  return message(lang, key, clinicSettings(), vars);
+  return message(lang, key, clinicSettings(vars.departmentId || null), vars);
 }
 
 function forgetLanguage(phone) {
@@ -181,6 +182,29 @@ function hasRegisteredName(patient) {
 
 function isChooseDayEnabled() {
   return settings.getBool('bot_choose_day_enabled');
+}
+
+function checkHolidayPauseReply({ lang, department = null }) {
+  const deptId = department ? department.id : null;
+  const hCtx = holidays.getWhatsAppHolidayContext(toISODate(), deptId);
+  if (hCtx && hCtx.activeToday && hCtx.blockAllBookings) {
+    const deptLabel = department ? departments.labelFor(department, lang) : '';
+    return {
+      reply: reply(lang, 'doctorOnLeave', {
+        holiday: hCtx.holiday,
+        resumeDay: hCtx.resumeDay,
+        department: deptLabel,
+        departmentId: deptId,
+      }),
+      lang,
+      action: 'doctor_on_leave',
+      holiday: hCtx.holiday,
+      resumeDay: hCtx.resumeDay,
+      department: department || undefined,
+      callbackAnswered: true,
+    };
+  }
+  return null;
 }
 
 function buildDayButtons(days = [], hasMore = false, nextOffset = 0, lang = 'fr') {
@@ -273,6 +297,22 @@ function promptDaySelection({
 
   if (avail.totalAvailable === 0) {
     clearPending(phone);
+    const hCtx = holidays.getWhatsAppHolidayContext(toISODate(), deptId, 45);
+    if (hCtx && hCtx.holiday) {
+      return {
+        reply: reply(lang, 'doctorOnLeave', {
+          holiday: hCtx.holiday,
+          resumeDay: hCtx.resumeDay,
+          department: deptLabel,
+          departmentId: deptId,
+        }),
+        lang,
+        action: 'doctor_on_leave',
+        holiday: hCtx.holiday,
+        resumeDay: hCtx.resumeDay,
+        department: department || undefined,
+      };
+    }
     const person = effectiveExisting
       ? { patient: effectiveExisting }
       : patients.upsertFromWhatsApp({ name: effectiveName, phone });
@@ -429,7 +469,10 @@ function finalizeBooking({ phone, patientObj, name, department, chosenDay = null
     if (
       chosenDay &&
       error instanceof AppError &&
-      (error.code === 'DAY_FULL' || error.code === 'NOT_WORKING_DAY' || error.code === 'SLOT_TAKEN')
+      (error.code === 'DAY_FULL' ||
+        error.code === 'NOT_WORKING_DAY' ||
+        error.code === 'DOCTOR_ON_LEAVE' ||
+        error.code === 'SLOT_TAKEN')
     ) {
       return promptDaySelection({
         phone,
@@ -440,12 +483,33 @@ function finalizeBooking({ phone, patientObj, name, department, chosenDay = null
         offset: 0,
         unavailableNotice: {
           day: chosenDay,
-          reason: error.code === 'NOT_WORKING_DAY' ? 'closed' : 'full',
+          reason:
+            error.code === 'DOCTOR_ON_LEAVE'
+              ? 'holiday'
+              : error.code === 'NOT_WORKING_DAY'
+                ? 'closed'
+                : 'full',
         },
         nowMs,
       });
     }
     if (error instanceof AppError && error.code === 'HORIZON_REACHED') {
+      const hCtx = holidays.getWhatsAppHolidayContext(toISODate(), deptId, 45);
+      if (hCtx && hCtx.holiday) {
+        return {
+          reply: reply(lang, 'doctorOnLeave', {
+            holiday: hCtx.holiday,
+            resumeDay: hCtx.resumeDay,
+            department: deptLabel,
+            departmentId: deptId,
+          }),
+          lang,
+          action: 'doctor_on_leave',
+          holiday: hCtx.holiday,
+          resumeDay: hCtx.resumeDay,
+          department: department || undefined,
+        };
+      }
       appointments.addToWaitingList({
         full_name: person.patient.full_name || name,
         phone,
@@ -912,6 +976,11 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
         };
       }
       if (cbToken.kind === 'day_more' || cbToken.kind === 'day_select') {
+        const globalPause = checkHolidayPauseReply({ lang });
+        if (globalPause) {
+          clearPending(phone);
+          return globalPause;
+        }
         const pendingDay = getPending(phone);
         const effName = (registered ? patient.full_name : '') || pendingDay?.name || '';
         if (!effName) {
@@ -971,6 +1040,11 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
         });
       }
       if (cbToken.kind === 'book_start' || cbToken.kind === 'dept_select') {
+        const globalPause = checkHolidayPauseReply({ lang });
+        if (globalPause) {
+          clearPending(phone);
+          return globalPause;
+        }
         const cd = checkCooldownReply({ patient, phone, lang, nowMs });
         if (cd) return cd;
         if (!registered) {
@@ -1249,6 +1323,12 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
     // while keeping existing-appointment read/cancel commands above working cleanly.
     const licGuard = checkLicenseReply({ lang, nowMs });
     if (licGuard) return licGuard;
+
+    const holidayPause = checkHolidayPauseReply({ lang });
+    if (holidayPause && !(detection.intent === 'help' && !detection.isGreeting && !detection.isStopWord)) {
+      clearPending(phone);
+      return holidayPause;
+    }
 
     // 1d. Active day-selection step (`await_day`): works identically for new & registered patients.
     const pendingDaySession = getPending(phone);

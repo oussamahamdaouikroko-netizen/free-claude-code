@@ -49,7 +49,7 @@
     const doctorName = input({ value: dept?.doctor_name || '', placeholder: 'Ex. Dr. Kaddour Mehdi' });
     const room = input({ value: dept?.room || '', placeholder: 'Ex. Étage 1 — Salle 102' });
     const fee = input({ type: 'number', min: '0', step: '100', value: String(dept?.consultation_fee ?? 2500) });
-    const cap = input({ type: 'number', min: '1', max: '200', value: String(dept?.daily_capacity ?? 15) });
+    const cap = input({ type: 'number', min: '1', max: '500', value: String(dept?.daily_capacity ?? 15) });
     const instructions = textarea({ value: dept?.instructions || '', placeholder: t('dept.instructionsHint') });
     const err = h('div', { class: 'error-text' });
 
@@ -218,16 +218,245 @@
       ], { value: window.App.language });
 
       /* ------------------------------- agenda ----------------------------- */
-      const capacity = input({ type: 'number', min: '1', max: '200', value: settings.daily_capacity });
+      const parseMin = (hhmm, fb = 0) => {
+        const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || '').trim());
+        if (!m) return fb;
+        return Number(m[1]) * 60 + Number(m[2]);
+      };
+      const spanMin = (s, e) => {
+        const sm = parseMin(s, 0);
+        const em = parseMin(e, 0);
+        if (sm === em) return 0;
+        return em > sm ? em - sm : em + 1440 - sm;
+      };
+      const addMin = (s, delta) => {
+        const total = (((parseMin(s, 0) + Math.round(Number(delta) || 0)) % 1440) + 1440) % 1440;
+        return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+      };
+      const segs = (s, e) => {
+        const sm = parseMin(s, 0);
+        const em = parseMin(e, 0);
+        if (sm === em) return [];
+        return em > sm ? [[sm, em]] : [[sm, 1440], [0, em]];
+      };
+      const overlapMin = (a1, a2, b1, b2) => {
+        let tot = 0;
+        for (const [x1, x2] of segs(a1, a2)) {
+          for (const [y1, y2] of segs(b1, b2)) {
+            const lo = Math.max(x1, y1);
+            const hi = Math.min(x2, y2);
+            if (hi > lo) tot += hi - lo;
+          }
+        }
+        return tot;
+      };
+
+      const capacity = input({ type: 'number', min: '1', max: '500', value: settings.daily_capacity });
       const horizon = input({ type: 'number', min: '1', max: '365', value: settings.booking_horizon_days });
       const avgSession = input({ type: 'number', min: '5', max: '180', step: '5', value: settings.avg_session_minutes || '15' });
       const sameDay = input({ type: 'checkbox', checked: settings.allow_same_day_booking === '1' });
       const queueNotify = input({ type: 'checkbox', checked: settings.queue_notify_enabled !== '0' });
+
+      const clinic24h = input({ type: 'checkbox', checked: settings.clinic_24h_enabled === '1' });
+      const workStartHour = input({ type: 'time', value: settings.work_start_hour || '08:00' });
+      const workEndHour = input({ type: 'time', value: settings.work_end_hour || '17:00' });
+      const shift1HoursInput = input({
+        type: 'number',
+        min: '0.5',
+        max: '23.5',
+        step: '0.5',
+        value: String(Math.round((spanMin(workStartHour.value, workEndHour.value) / 60) * 100) / 100 || 9),
+      });
+
+      const twoShifts = input({ type: 'checkbox', checked: settings.two_shifts_enabled === '1' });
+      const shift2StartHour = input({ type: 'time', value: settings.shift2_start_hour || '21:00' });
+      const shift2EndHour = input({ type: 'time', value: settings.shift2_end_hour || '00:00' });
+      const shift2HoursInput = input({
+        type: 'number',
+        min: '0.5',
+        max: '23.5',
+        step: '0.5',
+        value: String(Math.round((spanMin(shift2StartHour.value, shift2EndHour.value) / 60) * 100) / 100 || 3),
+      });
+
+      const breakEnabled = input({ type: 'checkbox', checked: settings.break_enabled === '1' });
+      const breakStartHour = input({ type: 'time', value: settings.break_start_hour || '12:30' });
+      const breakEndHour = input({ type: 'time', value: settings.break_end_hour || '13:30' });
+
+      const netHoursBox = h('div', {
+        class: 'small',
+        dataset: { role: 'net-hours-summary' },
+        style: {
+          padding: '8px 10px',
+          borderRadius: '8px',
+          background: 'rgba(14, 116, 144, 0.1)',
+          color: '#0e7490',
+          fontWeight: '700',
+        },
+      });
+
+      const badge24hHint = h(
+        'div',
+        {
+          class: 'small',
+          style: {
+            display: clinic24h.checked ? 'block' : 'none',
+            padding: '8px 10px',
+            borderRadius: '8px',
+            background: 'rgba(16, 185, 129, 0.12)',
+            color: '#0f766e',
+            fontWeight: '600',
+          },
+        },
+        '🕒 ' + t('settings.clinic24hActiveHint'),
+      );
+
+      const shift2FieldsWrap = h(
+        'div',
+        {
+          class: 'col',
+          style: {
+            display: twoShifts.checked ? 'flex' : 'none',
+            padding: '10px',
+            borderRadius: '8px',
+            border: '1px dashed var(--line, #cbd5e1)',
+            gap: '8px',
+          },
+        },
+        h(
+          'div',
+          { class: 'row between wrap', style: { gap: '8px' } },
+          h('strong', { class: 'small' }, '🌙 ' + t('settings.shift2Title')),
+          h(
+            'button',
+            {
+              type: 'button',
+              class: 'btn sm soft',
+              onClick: () => {
+                workStartHour.value = '08:00';
+                workEndHour.value = '17:00';
+                shift1HoursInput.value = '9';
+                twoShifts.checked = true;
+                shift2StartHour.value = '21:00';
+                shift2EndHour.value = '00:00';
+                shift2HoursInput.value = '3';
+                refreshScheduleSummary();
+              },
+            },
+            '⚡ ' + t('settings.shift2PresetBtn'),
+          ),
+        ),
+        h(
+          'div',
+          { class: 'grid three' },
+          field(t('settings.openAt'), shift2StartHour),
+          field(t('settings.closeAt'), shift2EndHour),
+          field(t('settings.hoursDuration'), shift2HoursInput),
+        ),
+      );
+
+      const breakFieldsWrap = h(
+        'div',
+        {
+          class: 'grid two',
+          style: {
+            display: breakEnabled.checked ? 'grid' : 'none',
+            padding: '10px',
+            borderRadius: '8px',
+            border: '1px dashed var(--line, #cbd5e1)',
+          },
+        },
+        field(t('settings.breakStart'), breakStartHour),
+        field(t('settings.breakEnd'), breakEndHour),
+      );
+
+      const scheduleConfigWrap = h(
+        'div',
+        {
+          class: 'col',
+          style: { display: clinic24h.checked ? 'none' : 'flex', gap: '10px' },
+        },
+        netHoursBox,
+        h('strong', { class: 'small' }, '☀️ ' + t('settings.shift1Title')),
+        h(
+          'div',
+          { class: 'grid three' },
+          field(t('settings.openAt'), workStartHour),
+          field(t('settings.closeAt'), workEndHour),
+          field(t('settings.hoursDuration'), shift1HoursInput),
+        ),
+        switchRow('☕ ' + t('settings.doctorBreakToggle'), h('label', { class: 'switch' }, breakEnabled, h('span', {}))),
+        breakFieldsWrap,
+        switchRow('🌗 ' + t('settings.twoShiftsToggle'), h('label', { class: 'switch' }, twoShifts, h('span', {}))),
+        shift2FieldsWrap,
+      );
+
+      function refreshScheduleSummary() {
+        shift2FieldsWrap.style.display = twoShifts.checked ? 'flex' : 'none';
+        breakFieldsWrap.style.display = breakEnabled.checked ? 'grid' : 'none';
+        scheduleConfigWrap.style.display = clinic24h.checked ? 'none' : 'flex';
+        badge24hHint.style.display = clinic24h.checked ? 'block' : 'none';
+
+        const s1 = spanMin(workStartHour.value, workEndHour.value);
+        const s2 = twoShifts.checked ? spanMin(shift2StartHour.value, shift2EndHour.value) : 0;
+        const rawBrk = breakEnabled.checked ? spanMin(breakStartHour.value, breakEndHour.value) : 0;
+        let deducted = 0;
+        if (breakEnabled.checked && rawBrk > 0) {
+          const ov =
+            overlapMin(workStartHour.value, workEndHour.value, breakStartHour.value, breakEndHour.value) +
+            (twoShifts.checked
+              ? overlapMin(shift2StartHour.value, shift2EndHour.value, breakStartHour.value, breakEndHour.value)
+              : 0);
+          deducted = Math.min(rawBrk, ov);
+        }
+        const netMin = Math.max(0, Math.min(1440, s1 + s2) - deducted);
+        const netH = Math.round((netMin / 60) * 100) / 100;
+        netHoursBox.textContent =
+          '⏱️ ' +
+          (deducted > 0
+            ? t('settings.netHoursSummaryBreak', { net: netH, brk: deducted })
+            : t('settings.netHoursSummary', { net: netH }));
+      }
+
+      workStartHour.addEventListener('change', () => {
+        shift1HoursInput.value = String(Math.round((spanMin(workStartHour.value, workEndHour.value) / 60) * 100) / 100);
+        refreshScheduleSummary();
+      });
+      workEndHour.addEventListener('change', () => {
+        shift1HoursInput.value = String(Math.round((spanMin(workStartHour.value, workEndHour.value) / 60) * 100) / 100);
+        refreshScheduleSummary();
+      });
+      shift1HoursInput.addEventListener('change', () => {
+        const hrs = Math.max(0.5, Math.min(23.5, Number(shift1HoursInput.value) || 8));
+        workEndHour.value = addMin(workStartHour.value, hrs * 60);
+        refreshScheduleSummary();
+      });
+
+      shift2StartHour.addEventListener('change', () => {
+        shift2HoursInput.value = String(Math.round((spanMin(shift2StartHour.value, shift2EndHour.value) / 60) * 100) / 100);
+        refreshScheduleSummary();
+      });
+      shift2EndHour.addEventListener('change', () => {
+        shift2HoursInput.value = String(Math.round((spanMin(shift2StartHour.value, shift2EndHour.value) / 60) * 100) / 100);
+        refreshScheduleSummary();
+      });
+      shift2HoursInput.addEventListener('change', () => {
+        const hrs = Math.max(0.5, Math.min(23.5, Number(shift2HoursInput.value) || 3));
+        shift2EndHour.value = addMin(shift2StartHour.value, hrs * 60);
+        refreshScheduleSummary();
+      });
+
+      twoShifts.addEventListener('change', refreshScheduleSummary);
+      breakEnabled.addEventListener('change', refreshScheduleSummary);
+      breakStartHour.addEventListener('change', refreshScheduleSummary);
+      breakEndHour.addEventListener('change', refreshScheduleSummary);
+
       const dayButtons = DAY_ORDER.map((day) =>
         h(
           'button',
           {
             type: 'button',
+            dataset: { dayIndex: String(day) },
             class: working.has(day) ? 'on' : '',
             onClick: (event) => {
               const button = event.currentTarget;
@@ -239,6 +468,29 @@
           t(DAY_KEYS[day]),
         ),
       );
+
+      const activateAll7DaysBtn = h(
+        'button',
+        {
+          type: 'button',
+          class: 'btn sm soft',
+          onClick: () => {
+            DAY_ORDER.forEach((d) => working.add(d));
+            dayButtons.forEach((btn) => btn.classList.add('on'));
+          },
+        },
+        '⚡ ' + t('settings.selectAll7Days'),
+      );
+
+      clinic24h.addEventListener('change', () => {
+        if (clinic24h.checked) {
+          sameDay.checked = true;
+          DAY_ORDER.forEach((d) => working.add(d));
+          dayButtons.forEach((btn) => btn.classList.add('on'));
+        }
+        refreshScheduleSummary();
+      });
+      refreshScheduleSummary();
 
       /* ------------------------------ whatsapp ---------------------------- */
       const botLanguage = select([
@@ -282,6 +534,15 @@
             daily_capacity: capacity.value,
             booking_horizon_days: horizon.value,
             avg_session_minutes: avgSession.value,
+            clinic_24h_enabled: clinic24h.checked ? '1' : '0',
+            work_start_hour: workStartHour.value || '08:00',
+            work_end_hour: workEndHour.value || '17:00',
+            two_shifts_enabled: twoShifts.checked ? '1' : '0',
+            shift2_start_hour: shift2StartHour.value || '21:00',
+            shift2_end_hour: shift2EndHour.value || '00:00',
+            break_enabled: breakEnabled.checked ? '1' : '0',
+            break_start_hour: breakStartHour.value || '12:30',
+            break_end_hour: breakEndHour.value || '13:30',
             allow_same_day_booking: sameDay.checked ? '1' : '0',
             queue_notify_enabled: queueNotify.checked ? '1' : '0',
             working_days: [...working].sort().join(','),
@@ -321,8 +582,9 @@
       let invAlerts = { low_stock: [], expiring: [] };
       let staffList = [];
       let autostartStatus = { enabled: settings.autostart_enabled !== '0' };
+      let holidayList = [];
       try {
-        [backups, info, depts, usersList, auditEntries, auditCheck, closures, invList, invAlerts, staffList, autostartStatus] = await Promise.all([
+        [backups, info, depts, usersList, auditEntries, auditCheck, closures, invList, invAlerts, staffList, autostartStatus, holidayList] = await Promise.all([
           window.API.invoke('backup:list').catch(() => []),
           window.API.invoke('app:info').catch(() => ({})),
           window.API.invoke('departments:list', { include_inactive: true }).catch(() => []),
@@ -334,6 +596,7 @@
           window.API.invoke('ops:inventory-alerts').catch(() => ({ low_stock: [], expiring: [] })),
           window.API.invoke('ops:staff').catch(() => []),
           window.API.invoke('app:autostart-get').catch(() => ({ enabled: settings.autostart_enabled !== '0' })),
+          window.API.invoke('holidays:list', { includePast: false }).catch(() => []),
         ]);
       } catch (error) {
         toast(errorMessage(error), 'error');
@@ -630,13 +893,132 @@
             field(t('settings.language'), language),
             h('div', { class: 'muted small' }, '🖨️ ' + t('settings.ordonnanceNote')),
           ),
-          card(
-            t('settings.agenda'),
-            h('div', { class: 'grid two' }, field(t('settings.capacity'), capacity), field(t('settings.horizon'), horizon)),
-            field(t('settings.avgSession'), avgSession, t('settings.avgSessionHint')),
-            field(t('settings.workingDays'), h('div', { class: 'day-toggle' }, dayButtons)),
-            switchRow(t('settings.sameDay'), h('label', { class: 'switch' }, sameDay, h('span', {}))),
-            switchRow(t('settings.queueNotify'), h('label', { class: 'switch' }, queueNotify, h('span', {}))),
+          h(
+            'div',
+            { class: 'col' },
+            card(
+              t('settings.agenda'),
+              switchRow(t('settings.clinic24h'), h('label', { class: 'switch' }, clinic24h, h('span', {}))),
+              badge24hHint,
+              scheduleConfigWrap,
+              h('div', { class: 'grid two' }, field(t('settings.capacity'), capacity), field(t('settings.horizon'), horizon)),
+              field(t('settings.avgSession'), avgSession, t('settings.avgSessionHint')),
+              field(
+                t('settings.workingDays'),
+                h('div', { class: 'col', style: { gap: '8px' } }, h('div', { class: 'day-toggle' }, dayButtons), h('div', {}, activateAll7DaysBtn)),
+              ),
+              switchRow(t('settings.sameDay'), h('label', { class: 'switch' }, sameDay, h('span', {}))),
+              switchRow(t('settings.queueNotify'), h('label', { class: 'switch' }, queueNotify, h('span', {}))),
+            ),
+            card(
+              t('holidays.title'),
+              h('div', { class: 'muted small' }, t('holidays.subtitle')),
+              h(
+                'div',
+                { class: 'row between wrap mt-s' },
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    class: 'btn soft',
+                    onClick: () =>
+                      window.Components.openHolidayModal({
+                        departments: depts,
+                        onSaved: () => ctx.refresh(),
+                      }),
+                  },
+                  '🏖️ ',
+                  t('holidays.addBtn'),
+                ),
+              ),
+              holidayList.length === 0
+                ? h('div', { class: 'muted small mt-s' }, t('holidays.empty'))
+                : h(
+                    'div',
+                    { class: 'col mt-s', style: { gap: '8px' } },
+                    holidayList.map((item) => {
+                      const reasonBadge =
+                        item.reason_type === 'sick'
+                          ? h('span', { class: 'badge warn' }, '🩺 ' + t('holidays.reasonSick'))
+                          : item.reason_type === 'other'
+                            ? h('span', { class: 'badge gray' }, '🔒 ' + t('holidays.reasonOther'))
+                            : h('span', { class: 'badge info' }, '🏖️ ' + t('holidays.reasonVacation'));
+                      const dateText = item.is_single_day
+                        ? t('holidays.singleDayLabel', { day: window.I18N.formatDate(item.start_day) })
+                        : t('holidays.rangeLabel', {
+                            start: window.I18N.formatDate(item.start_day),
+                            end: window.I18N.formatDate(item.end_day),
+                          });
+                      const deptPill = item.department_id
+                        ? h(
+                            'span',
+                            { class: 'badge info' },
+                            window.App.language === 'ar'
+                              ? item.department_name_ar || item.department_name_fr
+                              : item.department_name_fr || item.department_name_ar,
+                          )
+                        : null;
+                      return h(
+                        'div',
+                        {
+                          class: 'row between wrap',
+                          style: {
+                            padding: '8px 10px',
+                            border: '1px solid var(--line, #e2e8f0)',
+                            borderRadius: '8px',
+                            gap: '8px',
+                          },
+                        },
+                        h(
+                          'div',
+                          { class: 'col', style: { gap: '4px' } },
+                          h(
+                            'div',
+                            { class: 'row wrap', style: { gap: '6px' } },
+                            reasonBadge,
+                            deptPill,
+                            h('strong', {}, dateText),
+                            item.block_all_wa ? h('span', { class: 'badge warn' }, '📵 WhatsApp') : null,
+                            item.booked_conflicts > 0
+                              ? h(
+                                  'button',
+                                  {
+                                    type: 'button',
+                                    class: 'badge danger',
+                                    style: { border: 'none', cursor: 'pointer' },
+                                    onClick: () => {
+                                      window.App.day = item.start_day;
+                                      window.App.navigate('agenda');
+                                    },
+                                  },
+                                  '⚠️ ' + t('holidays.conflictsWarn', { n: item.booked_conflicts }),
+                                )
+                              : null,
+                          ),
+                          item.label ? h('div', { class: 'muted small' }, item.label) : null,
+                        ),
+                        h(
+                          'button',
+                          {
+                            type: 'button',
+                            class: 'btn icon sm',
+                            title: t('common.delete'),
+                            onClick: async () => {
+                              try {
+                                await window.API.invoke('holidays:remove', { id: item.id });
+                                toast(t('holidays.removed'), 'ok');
+                                ctx.refresh();
+                              } catch (err) {
+                                toast(errorMessage(err), 'error');
+                              }
+                            },
+                          },
+                          '🗑️',
+                        ),
+                      );
+                    }),
+                  ),
+            ),
           ),
           card(
             t('settings.whatsapp'),
