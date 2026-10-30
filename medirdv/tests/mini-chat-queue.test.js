@@ -53,8 +53,10 @@ test('WhatsApp booking & cancellation populate Mini Chat and auto-remove from ac
   const day = b1.appointment.day;
   assert.equal(appointments.agenda(day).length, 3, 'all three patients are on the list');
 
-  // Patient #2 cancels via WhatsApp → automatically removed from the list!
-  const cancelled = bot.handle({ phone: '213555100002', text: 'إلغاء', delivery: 'local' });
+  // Patient #2 cancels via WhatsApp (2-step: request -> confirm) → automatically removed from the list!
+  const askCancel = bot.handle({ phone: '213555100002', text: 'إلغاء', delivery: 'local' });
+  assert.equal(askCancel.action, 'cancel_confirm');
+  const cancelled = bot.handle({ phone: '213555100002', text: 'نعم', delivery: 'local' });
   assert.equal(cancelled.action, 'cancelled');
 
   const afterCancel = appointments.agenda(day);
@@ -228,11 +230,24 @@ test('handlers expose appointments:complete and enforce DEMO_ONLY on chat:simula
     assert.equal(appointments.agenda(toISODate()).filter((r) => r.status === 'booked').length, 0);
   }
 
-  // Completing an appointment on another day marks done without sending "come now" alerts.
+  // Future appointments cannot be completed before their scheduled date.
   const tomorrow = addDays(toISODate(), 1);
   const futureP = patients.create({ full_name: 'مريض الغد', phone: '0555400001' });
   const futureAppt = prodHandlers['appointments:create']({ patient_id: futureP.id, day: tomorrow });
-  const futureDone = prodHandlers['appointments:complete']({ id: futureAppt.id });
-  assert.equal(futureDone.appointment.status, 'done');
-  assert.equal(futureDone.notifications.length, 0);
+  assert.throws(
+    () => prodHandlers['appointments:complete']({ id: futureAppt.id }),
+    (err) => err.code === 'APPOINTMENT_FUTURE_DAY',
+  );
+
+  // Completing a historical/past appointment marks done without sending "come now" alerts.
+  const yesterday = addDays(toISODate(), -1);
+  const pastP = patients.create({ full_name: 'مريض الأمس', phone: '0555400002' });
+  const pastAppt = prodHandlers['appointments:create']({
+    patient_id: pastP.id,
+    day: yesterday,
+    historical: true,
+  });
+  const pastDone = prodHandlers['appointments:complete']({ id: pastAppt.id });
+  assert.equal(pastDone.appointment.status, 'done');
+  assert.equal(pastDone.notifications.length, 0);
 });

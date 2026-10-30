@@ -82,6 +82,8 @@
         { class: 'row' },
         h('div', { class: 'tabs' }, h('button', { class: 'active', onClick: () => { mode = 'daily'; ctx.refresh(); } }, t('reports.daily'))),
         h('div', { class: 'tabs' }, h('button', { onClick: () => { mode = 'monthly'; ctx.refresh(); } }, t('reports.monthly'))),
+        h('div', { class: 'tabs' }, h('button', { onClick: () => { mode = 'epidemiology'; ctx.refresh(); } }, t('icd.epidemiologyTab'))),
+        h('div', { class: 'tabs' }, h('button', { onClick: () => { mode = 'z_report'; ctx.refresh(); } }, t('billing.zReportTab'))),
         dayInput,
         h('button', { class: 'btn', onClick: () => window.Components.printDailyReport(dayInput.value) }, '🖨️ ', t('reports.print')),
       ),
@@ -156,6 +158,8 @@
         { class: 'row' },
         h('div', { class: 'tabs' }, h('button', { onClick: () => { mode = 'daily'; ctx.refresh(); } }, t('reports.daily'))),
         h('div', { class: 'tabs' }, h('button', { class: 'active', onClick: () => { mode = 'monthly'; ctx.refresh(); } }, t('reports.monthly'))),
+        h('div', { class: 'tabs' }, h('button', { onClick: () => { mode = 'epidemiology'; ctx.refresh(); } }, t('icd.epidemiologyTab'))),
+        h('div', { class: 'tabs' }, h('button', { onClick: () => { mode = 'z_report'; ctx.refresh(); } }, t('billing.zReportTab'))),
         monthInput,
       ),
     );
@@ -296,11 +300,224 @@
     );
   }
 
+  let epiStart = '';
+  let epiEnd = '';
+  let epiDept = '';
+
+  async function renderEpidemiology(root, ctx) {
+    const today = window.UI.todayISO();
+    if (!epiEnd) epiEnd = today;
+    if (!epiStart) epiStart = `${today.slice(0, 7)}-01`;
+
+    const depts = await window.API.invoke('departments:list').catch(() => []);
+    const startIn = input({ type: 'date', value: epiStart, style: { maxWidth: '155px' } });
+    const endIn = input({ type: 'date', value: epiEnd, style: { maxWidth: '155px' } });
+    const deptSel = window.UI.select(
+      [{ value: '', label: t('common.all') }].concat(
+        depts.map((d) => ({
+          value: String(d.id),
+          label: window.App.language === 'ar' ? d.name_ar || d.name_fr : d.name_fr,
+        })),
+      ),
+      { value: epiDept, style: { maxWidth: '200px' } },
+    );
+
+    startIn.addEventListener('change', () => { epiStart = startIn.value; ctx.refresh(); });
+    endIn.addEventListener('change', () => { epiEnd = endIn.value; ctx.refresh(); });
+    deptSel.addEventListener('change', () => { epiDept = deptSel.value; ctx.refresh(); });
+
+    ctx.setHeader(
+      t('reports.title'),
+      t('icd.epidemiologyTab'),
+      h(
+        'div',
+        { class: 'row wrap' },
+        h('div', { class: 'tabs' }, h('button', { onClick: () => { mode = 'daily'; ctx.refresh(); } }, t('reports.daily'))),
+        h('div', { class: 'tabs' }, h('button', { onClick: () => { mode = 'monthly'; ctx.refresh(); } }, t('reports.monthly'))),
+        h('div', { class: 'tabs' }, h('button', { class: 'active', onClick: () => { mode = 'epidemiology'; ctx.refresh(); } }, t('icd.epidemiologyTab'))),
+        h('div', { class: 'tabs' }, h('button', { onClick: () => { mode = 'z_report'; ctx.refresh(); } }, t('billing.zReportTab'))),
+        startIn,
+        endIn,
+        depts.length > 0 ? deptSel : null,
+      ),
+    );
+
+    const stats = await window.API.invoke('diagnoses:stats', {
+      start: epiStart,
+      end: epiEnd,
+      department_id: epiDept ? Number(epiDept) : undefined,
+    });
+    const isAr = window.App.language === 'ar';
+
+    clear(root).append(
+      h(
+        'div',
+        { class: 'grid four' },
+        kpi(t('icd.kpiTotalDiag'), String(stats.totals?.total_diagnoses || 0)),
+        kpi(t('icd.kpiRxCoded'), String(stats.totals?.prescriptions_with_diag || 0)),
+        kpi(t('icd.kpiAld'), String(stats.totals?.chronic_ald_cases || 0), 'income'),
+        kpi(t('icd.kpiMdo'), String(stats.totals?.notifiable_cases || 0), stats.totals?.notifiable_cases > 0 ? 'expense' : ''),
+      ),
+      h(
+        'div',
+        { class: 'grid mt two', style: { alignItems: 'start' } },
+        tableCard(
+          t('icd.topDiagnoses'),
+          [t('icd.codeLabel'), t('common.name'), t('common.total')],
+          (stats.by_code || []).map((r) => [
+            r.code,
+            `${isAr ? r.label_ar || r.label_fr : r.label_fr}${r.is_notifiable ? ' 🚨' : r.is_chronic_ald ? ' ✓' : ''}`,
+            String(r.count),
+          ]),
+          t('reports.noData'),
+        ),
+        h(
+          'div',
+          { class: 'col' },
+          tableCard(
+            t('icd.byAgeGroup'),
+            [t('rx.age'), t('common.total')],
+            (stats.by_age_group || []).map((r) => [t(`icd.age_${r.age_group}`), String(r.count)]),
+            t('reports.noData'),
+          ),
+          tableCard(
+            t('icd.byDepartment'),
+            [t('dept.select'), t('common.total')],
+            (stats.by_department || []).map((r) => [isAr ? r.name_ar || r.name_fr : r.name_fr, String(r.count)]),
+            t('reports.noData'),
+          ),
+        ),
+      ),
+    );
+  }
+
+  async function renderZReport(root, ctx, currency) {
+    const dayIn = input({ type: 'date', value: window.App.day || window.UI.todayISO(), style: { maxWidth: '170px' } });
+    dayIn.addEventListener('change', () => {
+      window.App.day = dayIn.value;
+      ctx.refresh();
+    });
+
+    ctx.setHeader(
+      t('reports.title'),
+      t('billing.zReportTab'),
+      h(
+        'div',
+        { class: 'row wrap' },
+        h('div', { class: 'tabs' }, h('button', { onClick: () => { mode = 'daily'; ctx.refresh(); } }, t('reports.daily'))),
+        h('div', { class: 'tabs' }, h('button', { onClick: () => { mode = 'monthly'; ctx.refresh(); } }, t('reports.monthly'))),
+        h('div', { class: 'tabs' }, h('button', { onClick: () => { mode = 'epidemiology'; ctx.refresh(); } }, t('icd.epidemiologyTab'))),
+        h('div', { class: 'tabs' }, h('button', { class: 'active', onClick: () => { mode = 'z_report'; ctx.refresh(); } }, t('billing.zReportTab'))),
+        dayIn,
+      ),
+    );
+
+    const [z, invoices] = await Promise.all([
+      window.API.invoke('billing:z-report', { day: dayIn.value }),
+      window.API.invoke('billing:invoices', { start: dayIn.value, end: dayIn.value, limit: 100 }),
+    ]);
+
+    const downloadBlob = (content, mime, filename, isBase64 = false) => {
+      let blob;
+      if (isBase64) {
+        const bin = atob(content);
+        const arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        blob = new Blob([arr], { type: mime });
+      } else {
+        blob = new Blob([content], { type: mime });
+      }
+      const url = URL.createObjectURL(blob);
+      const a = h('a', { href: url, download: filename });
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
+
+    clear(root).append(
+      h(
+        'div',
+        { class: 'grid four' },
+        kpi(t('billing.grossCollected'), formatMoney(z.gross_collected, currency)),
+        kpi(t('billing.refundsTotal'), formatMoney(z.total_refunds, currency), z.total_refunds > 0 ? 'expense' : ''),
+        kpi(t('billing.netCollected'), formatMoney(z.net_collected, currency), 'income'),
+        kpi(t('billing.insuredReceivable'), formatMoney(z.invoices?.insured_receivable || 0, currency)),
+      ),
+      h(
+        'div',
+        { class: 'grid mt two', style: { alignItems: 'start' } },
+        tableCard(
+          t('billing.zTitle'),
+          [t('common.method'), t('billing.grossCollected'), t('billing.refundsTotal'), t('billing.netCollected')],
+          ['cash', 'card', 'transfer'].map((m) => [
+            t(`common.${m}`),
+            formatMoney(z.by_method[m].gross, currency),
+            formatMoney(z.by_method[m].refunds, currency),
+            formatMoney(z.by_method[m].net, currency),
+          ]),
+          t('reports.noData'),
+        ),
+        h(
+          'div',
+          { class: 'card col' },
+          h('h2', { class: 'card-title' }, t('billing.claimsExportTitle')),
+          h(
+            'div',
+            { class: 'row wrap' },
+            h(
+              'button',
+              {
+                type: 'button',
+                class: 'btn primary',
+                onClick: async () => {
+                  const res = await window.API.invoke('billing:claims-export', { format: 'xlsx' });
+                  downloadBlob(res.buffer_base64, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', `bordereau-cnas-${dayIn.value}.xlsx`, true);
+                  toast(t('billing.exportedToast', { n: res.count }), 'ok');
+                },
+              },
+              '📊 ',
+              t('billing.exportXlsx'),
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                class: 'btn soft',
+                onClick: async () => {
+                  const res = await window.API.invoke('billing:claims-export', { format: 'csv' });
+                  downloadBlob(res.csv, 'text/csv;charset=utf-8', `bordereau-cnas-${dayIn.value}.csv`, false);
+                  toast(t('billing.exportedToast', { n: res.count }), 'ok');
+                },
+              },
+              '📄 ',
+              t('billing.exportCsv'),
+            ),
+          ),
+        ),
+      ),
+      tableCard(
+        t('billing.invoices'),
+        ['N°', t('common.patient'), t('billing.insuranceType'), t('common.total'), t('billing.patientShare')],
+        invoices.map((inv) => [
+          inv.invoice_number,
+          inv.patient_name,
+          t(`billing.ins_${inv.insurance_type || 'none'}`),
+          formatMoney(inv.total_amount, currency),
+          formatMoney(inv.patient_share, currency),
+        ]),
+        t('reports.noData'),
+      ),
+    );
+  }
+
   Pages.reports = {
     async render(root, ctx) {
       const currency = window.App.settings.currency;
       try {
         if (mode === 'monthly') await renderMonthly(root, ctx, currency);
+        else if (mode === 'epidemiology') await renderEpidemiology(root, ctx);
+        else if (mode === 'z_report') await renderZReport(root, ctx, currency);
         else await renderDaily(root, ctx, currency);
       } catch (error) {
         ctx.setHeader(t('reports.title'), '');

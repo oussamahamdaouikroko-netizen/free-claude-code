@@ -9,6 +9,7 @@
 
 const crypto = require('node:crypto');
 const { getDb } = require('../db');
+const security = require('./security');
 const { AppError } = require('../utils/common');
 
 const SESSION_MS = 30 * 60 * 1000;
@@ -18,6 +19,7 @@ const LOCKOUT_MS = 60 * 1000;
 let unlockedAt = 0;
 let failedAttempts = 0;
 let lockedUntil = 0;
+let activeUser = null;
 
 function readKey(key) {
   const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get(key);
@@ -41,13 +43,19 @@ function hasPassword() {
 }
 
 function status() {
+  security.ensureLegacyAdminMigrated();
   const locked = Date.now() < lockedUntil;
   return {
     has_password: hasPassword(),
     unlocked: isUnlocked(),
     locked,
     lock_seconds: locked ? Math.ceil((lockedUntil - Date.now()) / 1000) : 0,
+    user: isUnlocked() ? currentUser() : null,
   };
+}
+
+function currentUser() {
+  return activeUser || { id: null, username: 'admin', full_name: 'Administrateur', role: 'admin' };
 }
 
 function isUnlocked() {
@@ -64,10 +72,11 @@ function touch() {
   if (unlockedAt) unlockedAt = Date.now();
 }
 
-function unlock() {
+function unlock(user = null) {
   unlockedAt = Date.now();
   failedAttempts = 0;
   lockedUntil = 0;
+  activeUser = user || { id: null, username: 'admin', full_name: 'Administrateur', role: 'admin' };
 }
 
 function lock() {
@@ -90,7 +99,8 @@ function setup({ password, confirm } = {}) {
   const salt = crypto.randomBytes(16).toString('hex');
   writeKey('password_salt', salt);
   writeKey('password_hash', hash(value, salt));
-  unlock();
+  const migrated = security.ensureLegacyAdminMigrated();
+  unlock(migrated);
   return status();
 }
 
@@ -119,7 +129,21 @@ function login(password) {
       attempts_left: MAX_ATTEMPTS - failedAttempts,
     });
   }
-  unlock();
+  const migrated = security.ensureLegacyAdminMigrated();
+  unlock(migrated);
+  return status();
+}
+
+function loginUser({ username, password } = {}) {
+  const user = security.authenticateUser({ username, password });
+  unlock(user);
+  return status();
+}
+
+function unlockPin({ username, pin } = {}) {
+  const uname = username || activeUser?.username || 'admin';
+  const user = security.unlockWithPin({ username: uname, pin });
+  unlock(user);
   return status();
 }
 
@@ -129,15 +153,22 @@ function changePassword({ current, next, confirm } = {}) {
   const value = assertPassword(next);
   if (confirm !== undefined && confirm !== next) throw new AppError('PASSWORD_MISMATCH');
   const salt = crypto.randomBytes(16).toString('hex');
+  const pwHash = hash(value, salt);
   writeKey('password_salt', salt);
-  writeKey('password_hash', hash(value, salt));
-  unlock();
+  writeKey('password_hash', pwHash);
+  getDb()
+    .prepare("UPDATE users SET password_salt = ?, password_hash = ? WHERE username = 'admin'")
+    .run(salt, pwHash);
+  unlock(activeUser);
   return { ok: true };
 }
 
 /** Guard used by the IPC layer for every sensitive channel. */
-function requireUnlocked() {
+function requireUnlocked(method = '') {
   if (!isUnlocked()) throw new AppError('LOCKED');
+  if (method) {
+    security.assertPermission(currentUser().role, method);
+  }
   touch();
   return true;
 }
@@ -146,6 +177,9 @@ module.exports = {
   status,
   setup,
   login,
+  loginUser,
+  unlockPin,
+  currentUser,
   lock,
   isUnlocked,
   touch,

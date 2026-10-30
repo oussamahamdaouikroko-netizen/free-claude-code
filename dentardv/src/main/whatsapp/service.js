@@ -290,7 +290,8 @@ class WhatsAppService {
         return;
       }
       this.attempts += 1;
-      const delay = Math.min(60000, 3000 * this.attempts);
+      const baseDelay = Math.min(300000, 3000 * Math.pow(2, Math.min(this.attempts - 1, 6)));
+      const delay = baseDelay + randomBetween(200, 1500);
       this.setState('connecting', { error: lastDisconnect?.error?.message || 'Connexion perdue' });
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = setTimeout(() => {
@@ -409,14 +410,12 @@ class WhatsAppService {
     if (!this.canReply(phone)) return this.skip('rate_limit', tag);
 
     if (!text) {
-      const lang = settings.get('bot_language');
-      const { message: tpl } = require('./messages');
-      const answer = tpl(lang, 'unsupported', {
-        clinic: settings.get('clinic_name'),
-        phone: settings.get('clinic_phone'),
-        currency: settings.get('currency'),
-      });
-      if (await this.reply(phone, replyJid, answer)) this.stats.replied += 1;
+      const mediaResult = bot.handle({ phone, text: '', isMedia: true, delivery: 'queued' });
+      const answer = mediaResult?.reply;
+      if (answer && (await this.reply(phone, replyJid, answer))) {
+        this.stats.replied += 1;
+        this.logMessage(phone, 'out', answer);
+      }
       return;
     }
 
@@ -430,6 +429,17 @@ class WhatsAppService {
       if (result.chatEvent?.id) chatService.setDelivery(result.chatEvent.id, 'sent');
     } else if (result.chatEvent?.id) {
       chatService.setDelivery(result.chatEvent.id, 'failed');
+    }
+    if (result.action === 'cancelled' && result.appointment) {
+      const queueAdvance = appointments.advanceNotificationsAfterRemoval(result.appointment, {
+        waConnected: this.state === 'connected' && Boolean(this.sock),
+        resolveLanguage: (p, fullName) => bot.preferredLanguage(p, fullName),
+      });
+      if (queueAdvance.length > 0) {
+        this.notifyQueueAdvance(queueAdvance).catch((err) => {
+          console.error('[wa] post-cancel queue advance failed:', err.message);
+        });
+      }
     }
     this.onEvent({
       type: 'message',

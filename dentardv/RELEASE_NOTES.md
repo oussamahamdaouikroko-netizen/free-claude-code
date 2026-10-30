@@ -24,6 +24,69 @@ paiements, dépenses, rapports et réservation automatique par WhatsApp.
   technique (version, erreurs, WhatsApp) — il suffit de l'envoyer au support.
   Son chemin exact est affiché dans **Réglages → À propos**.
 
+### Nouveautés 2.3.0 — Système à Deux Périodes (`نظام الدوامين`), Calcul du Nombre d'Heures & Pause du Praticien (`فترة راحة للطبيب`)
+
+- **Contrôle complet des horaires & du nombre d'heures (`عدد الساعات`)** :
+  dans **Réglages → Agenda**, saisissez les heures de début et de fin (`من الساعة ... إلى الساعة ...`) ou directement le **nombre d'heures** souhaité (calcul bidirectionnel instantané avec affichage en direct du total net travaillé par jour).
+- **Système à deux périodes (`نظام الدوامين`)** :
+  possibilité d'activer une seconde période quotidienne y compris jusqu'à minuit (`00:00` / `12 ليلاً`), avec bouton de préréglage rapide **`08:00 – 17:00` puis `21:00 – 00:00`**.
+- **Pause / repos du chirurgien-dentiste pendant le travail (`فترة راحة للطبيب`)** :
+  fenêtre de pause configurable (ex. `12:30 – 13:30`) déduite automatiquement des heures nettes et affichée dans le Tableau de bord, l'Agenda et les messages d'information WhatsApp (FR / AR / Darija), tout en conservant le mode **`24h/24`**, la gestion des **congés / arrêts maladie (`عطلة / مرض`)** et la compatibilité totale des licences existantes (`DTRDV-LIC-V1:`).
+
+### Nouveautés 2.1.0 — Choix du Jour & de la Date sur WhatsApp + File par Date & Verrouillage Strict du Tour
+
+- **Choix dynamique du jour et de la date sur WhatsApp (FR / AR / Darija)** :
+  le robot WhatsApp propose désormais automatiquement la liste numérotée (`1..5`)
+  des jours et dates réellement disponibles en temps réel selon les réservations
+  du cabinet (`daily_capacity`, `working_days`, `allow_same_day_booking`,
+  `booking_horizon_days`), avec le nombre exact de places restantes par jour,
+  pagination (`0` / `المزيد` / `PLUS`), saisie directe de date (`JJ/MM`,
+  `JJ/MM/AAAA`, `AAAA-MM-JJ`), commande `JOURS DISPONIBLES` / `الأيام المتاحة`,
+  et re-proposition automatique si la dernière place est prise au bureau entre-temps.
+- **Onglet Patients (`خانة المرضى`) organisé par Jours & Dates** :
+  séparation claire des patients en cartes chronologiques distinctes par jour et
+  date (`Aujourd'hui`, `Demain`, `Après-demain`, dates futures, dates passées et
+  dossiers sans RDV programmé), avec filtre rapide par date et 4 vues dédiées
+  (`Par jours & dates`, `Patients d'aujourd'hui`, `Tous`, `Débiteurs`).
+- **Verrouillage strict des dates futures et de l'ordre de passage (`#1` avant `#2`)** :
+  impossibilité absolue pour le secrétariat (côté interface et côté serveur) de
+  marquer un patient réservé à une date future (ex. demain ou après-demain) comme
+  examiné/terminé ou absent avant le jour de son rendez-vous (avec bouton direct
+  pour déplacer le RDV à aujourd'hui si le patient se présente tôt), et blocage du
+  passage hors tour dans la file d'aujourd'hui tant qu'un patient précédent non
+  urgent est encore en attente (`#1` avant `#2`).
+- **Compatibilité totale des licences existantes** :
+  les postes déjà activés sous `DentaRDV` restent 100% activés sans nouvelle clé.
+
+### Nouveautés 2.0.0 — Édition Chirurgien-Dentiste Complète
+
+- **Ordonnances Dentaires (`Ordonnances` A4 / A5 + QR de vérification)** :
+  rédaction rapide avec dent/secteur FDI (`11–48`, arcades, dents de sagesse),
+  modes d'affichage *Marque + DCI*, *Marque seule* ou *DCI seule*, mention
+  *Non substituable*, conseils post-opératoires et radiographies dentaires
+  (*Panoramique OPT*, *CBCT 3D*, *Rétro-alvéolaire*).
+- **Catalogue Médicamenteux 100% Dédié aux Chirurgiens-Dentistes** :
+  plus de 620 spécialités et génériques bucco-dentaires algériens filtrés
+  exclusivement pour l'odonto-stomatologie (antibiotiques dentaires, antalgiques,
+  AINS & corticoïdes, bains de bouche & gels buccaux, antifongiques/antiviraux
+  buccaux, anesthésiques locaux & hémostatiques, gastroprotection IPP), avec
+  recherche bilingue FR/AR, équivalents génériques et 7 protocoles dentaires prêts.
+- **Sécurité Clinique & Calculateur Pédiatrique (`mg/kg/j`)** :
+  détection en temps réel des allergies croisées (Pénicillines, AINS…),
+  interactions médicamenteuses, doublons de molécule et calcul automatique des
+  suspensions pédiatriques (*Amoxicilline*, *Augmentin*, *Paracétamol*).
+- **Certificats Médicaux Dentaires** : *Arrêt de travail*, *Certificat
+  bucco-dentaire*, *Certificat scolaire* et *Certificat général* avec QR signé.
+- **WhatsApp Intelligent v2 (FR / AR / Darija)** :
+  distinction salutations vs nom complet, sessions persistantes, confirmation
+  en 2 étapes avant annulation + délai anti-abus de 30 min, confirmation de
+  présence (`CONFIRMER` / `تأكيد`), questionnaire pré-visite optionnel conforme
+  à la **Loi 18-07** (*Âge*, *Poids* et *motif dentaire*), reconnexion
+  automatique exponentielle et icône dans la barre des tâches Windows.
+- **Essai Gratuit 7 Jours & Activation Hors-Ligne** :
+  clé d'activation cryptographique Ed25519 liée au poste, 100% sans Internet,
+  avec passage en *Mode Lecture Seule* à l'expiration (aucune perte de données).
+
 ### Nouveautés 1.2.0
 
 - **Mini-chat intégré (`Messages & File`)** : fenêtre flottante dans le coin de

@@ -1,25 +1,27 @@
-# MediRDV — Gestion de Cabinets Médicaux & Polycliniques (Algérie)
+# MediRDV v2.0.0 — Suite Médicale Hors-Ligne pour Cabinets & Polycliniques (Algérie)
 
-Application de bureau **100 % hors-ligne** (Windows `.exe`) dédiée à **toutes les spécialités médicales et polycliniques multi-services en Algérie** : Médecine Générale, Cardiologie, Ophtalmologie, Orthopédie, Pédiatrie, Gynécologie, ORL, Dermatologie, Gastro-entérologie, Neurologie, Urologie, etc.
+**MediRDV** est un logiciel de bureau Windows **100 % gratuit, 100 % hors-ligne** (à l’exception de la passerelle WhatsApp optionnelle sur le téléphone de la clinique) conçu spécialement pour les médecins spécialistes, généralistes et polycliniques multi-services en Algérie.
 
-- **Zéro abonnement, zéro serveur externe** : toutes les données patients restent stockées localement sur l’ordinateur de la clinique (`medirdv.sqlite` — conformité Loi 18-07).
-- **Bilingue Français / العربية (RTL)** en un clic.
-- **Identité complète de la clinique & du médecin** : Nom de la clinique, Wilaya & adresse, Téléphone, Nom du médecin, Spécialité médicale et N° du Conseil de l’Ordre.
-- **Cliniques Multi-Services (`عيادة متعددة المصالح`)** : Gestion de plusieurs départements/services médicaux avec files d’attente indépendantes et sélection automatique du service par le patient sur WhatsApp.
-- **Ordonnances Médicales (`وصفة طبية`) & Nomenclature Algérienne** :
-  - Catalogue local hors-ligne de médicaments commercialisés en Algérie (extensible par le médecin).
-  - Rédaction rapide (posologie, moment de prise, durée, constantes vitales, bilan biologique/radiologique, conseils) + impression A4 officielle avec en-tête du cabinet et du médecin.
-  - Alerte automatique d’allergies médicamenteuses, ordonnances types réutilisables, renouvellement en 1 clic et certificats médicaux imprimables.
-- **Robot WhatsApp sécurisé (QR Code)** : réponses uniquement aux messages entrants, délais humains et plafonds anti-blocage.
-- **Caisse, Dettes, Dépenses, Sauvegardes locales & Export `.xlsx` hors-ligne**.
+## Téléchargement de l’installateur Windows (`Setup.exe`)
 
-## Commandes utiles
+Les installateurs Windows compilés automatiquement via GitHub Actions se trouvent dans la section **Releases** du dépôt :
+- **Installateur complet Windows (64-bit NSIS)** : `MediRDV-Setup-2.0.0.exe` (ou `MediRDV-Setup-1.0.0.exe` pour la v1)
+- **Version démonstration portable (sans installation, pré-remplie)** : `MediRDV-Demo-2.0.0.exe`
+- Lien des versions publiées : `https://github.com/oussamahamdaouikroko-netizen/free-claude-code/releases`
 
+Pour compiler localement sous Windows :
 ```bash
+cd medirdv
 npm ci
 npm test
-npm start          # Lancer l'application Electron
-npm run demo:web   # Aperçu web interactif avec données de démonstration
-npm run dist:win   # Générer l'installateur Windows MediRDV-Setup-1.0.0.exe
-npm run dist:demo  # Générer la démo portable MediRDV-Demo-1.0.0.exe
+npm run dist        # Génère release/MediRDV-Setup-2.0.0.exe
+npm run dist:demo   # Génère release/MediRDV-Demo-2.0.0.exe
 ```
+
+## Architecture & Conformité Loi Algérienne 18-07
+
+Voir [`docs/ARCHITECTURE_AND_COMPLIANCE.md`](docs/ARCHITECTURE_AND_COMPLIANCE.md) pour le détail complet des 10 migrations SQLite (`MIGRATION_1` → `MIGRATION_10`), des actions IPC sécurisées par rôle (RBAC), des sauvegardes chiffrées `AES-256-GCM` et des garanties de protection des données de santé (Loi n° 18-07).
+
+## Avertissement Médical Obligatoire
+
+MediRDV fournit une aide informatique à la rédaction d’ordonnances et à la détection d’alertes. Il ne remplace en aucun cas le jugement clinique du médecin ni le contrôle pharmaceutique. Les bases de démarrage cliniques (`verified = 0`) sont fournies à titre indicatif et peuvent être remplacées par import officiel CSV / JSON / XLSX depuis l’écran **Paramètres**.

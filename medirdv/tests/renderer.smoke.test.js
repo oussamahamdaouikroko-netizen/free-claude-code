@@ -52,6 +52,14 @@ test('the full UI boots and every screen renders', async (t) => {
         addEventListener() {},
         removeEventListener() {},
       }));
+      // Enforce Chromium-strict attribute name validation (catches string-spread bugs like ...'A5').
+      const origSetAttr = window.Element.prototype.setAttribute;
+      window.Element.prototype.setAttribute = function setAttributeStrict(name, val) {
+        if (!/^[A-Za-z_:][A-Za-z0-9_.:-]*$/.test(String(name))) {
+          throw new Error(`InvalidCharacterError: '${name}' is not a valid attribute name`);
+        }
+        return origSetAttr.call(this, name, val);
+      };
     },
   });
 
@@ -111,13 +119,16 @@ test('the full UI boots and every screen renders', async (t) => {
   $('.modal-foot .btn').click();
   await waitFor(() => !$('.modal'), { label: 'modal closed' });
 
-  // Debtors filter: only the patients who still owe money are listed.
+  // Patients filters: By days & dates, Today, All files, Debtors.
   $('[data-page="patients"]').click();
   await waitFor(() => $('.content .tabs'), { label: 'patients filters' });
   const filters = $$('.content .tabs button');
-  assert.equal(filters.length, 2, 'two patient filters');
-  filters[1].click();
-  await waitFor(() => $$('table.list tbody tr').length > 0, { label: 'debtor rows' });
+  assert.equal(filters.length, 4, 'four patient view filters (by_days, today, all, debtors)');
+  filters[3].click();
+  await waitFor(
+    () => $('[data-mode="debtors"]') && $$('table.list tbody tr').length > 0,
+    { label: 'debtor rows' },
+  );
   const debtorRows = $$('table.list tbody tr');
   assert.ok(debtorRows.length >= 1, 'the demo data has patients with debts');
   for (const row of debtorRows) {
@@ -125,7 +136,7 @@ test('the full UI boots and every screen renders', async (t) => {
   }
   filters[0].click();
   await waitFor(() => $$('table.list tbody tr').length > debtorRows.length, {
-    label: 'full list restored',
+    label: 'grouped day/date list restored',
   });
 
   // Navigation uses real SVG icons, not emoji.
@@ -163,6 +174,11 @@ test('the full UI boots and every screen renders', async (t) => {
   );
   assert.match($('[data-page="agenda"] .label').textContent, /[\u0600-\u06FF]/);
 
+  // Verify Settings screen renders all cards cleanly in Arabic RTL (regression guard).
+  $('[data-page="settings"]').click();
+  await waitFor(() => $$('.content .card').length >= 10, { label: 'Arabic Settings cards' });
+  assert.ok(!$('.content .error-text'), 'no render error card in Arabic Settings');
+
   // Mini Chat + Secretary queue advance in Arabic RTL.
   $('[data-page="dashboard"]').click();
   await waitFor(() => $('.queue-live-bar'), { label: 'live queue bar on dashboard' });
@@ -186,6 +202,31 @@ test('the full UI boots and every screen renders', async (t) => {
   password.value = '1234';
   $('.auth-card form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
   await waitFor(() => $('.sidebar'), { label: 'dashboard after login' });
+
+  // Second language click switches Arabic -> English (LTR) and renders English UI cleanly.
+  $('.sidebar-foot button').click();
+  await waitFor(() => window.document.documentElement.lang === 'en', { label: 'English switch' });
+  assert.equal(window.document.documentElement.dir, 'ltr', 'English uses LTR direction');
+  await waitFor(
+    () => $('[data-page="agenda"] .label')?.textContent === "Today's Schedule",
+    { label: 'English navigation labels' },
+  );
+  $('[data-page="settings"]').click();
+  await waitFor(() => $$('.content .card').length >= 10, { label: 'English Settings cards' });
+  assert.ok(!$('.content .error-text'), 'no render error card in English Settings');
+
+  // Third language click completes the cycle English -> Français.
+  assert.ok(
+    $$('.content select option[value="en"]').length >= 2,
+    'Settings exposes English option for both UI language and WhatsApp bot_language',
+  );
+  $('.sidebar-foot button').click();
+  await waitFor(
+    () =>
+      window.document.documentElement.lang === 'fr' &&
+      $('[data-page="agenda"] .label')?.textContent === 'Agenda du jour',
+    { label: 'French cycle wrap' },
+  );
 
   assert.deepEqual(errors, [], 'no uncaught renderer errors');
 });

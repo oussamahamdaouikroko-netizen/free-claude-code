@@ -14,36 +14,16 @@
   }
 
   function rescheduleDialog(appointment, onDone) {
-    const day = input({ type: 'date', value: appointment.day, min: todayISO() });
-    const error = h('div', { class: 'error-text' });
-    modal({
-      title: t('agenda.reschedule'),
-      body: h('div', { class: 'col' }, field(t('agenda.chooseDay'), day), error),
-      actions: [
-        { label: t('common.cancel'), kind: 'ghost' },
-        {
-          label: t('common.confirm'),
-          kind: 'primary',
-          onClick: async () => {
-            try {
-              await window.API.invoke('appointments:reschedule', { id: appointment.id, day: day.value });
-              toast(t('agenda.rescheduled'), 'ok');
-              onDone();
-            } catch (err) {
-              error.textContent = errorMessage(err);
-              return false;
-            }
-            return true;
-          },
-        },
-      ],
-    });
+    return window.Components.rescheduleDialog(appointment, onDone);
   }
 
   function row(appointment, ctx) {
     const currency = window.App.settings.currency;
     const due = Math.max(0, appointment.price - appointment.paid);
     const deptLabel = window.Components.departmentLabel(appointment);
+    const today = todayISO();
+    const isFutureDay = appointment.day > today;
+    const isTodayDay = appointment.day === today;
 
     const action = async (status, message) => {
       try {
@@ -57,21 +37,59 @@
 
     const buttons = h('div', { class: 'row' });
     if (appointment.status === 'booked') {
+      if (isFutureDay) {
+        buttons.append(
+          h(
+            'span',
+            { class: 'badge warn', title: t('patients.futureLockedHint') },
+            '🔒 ' + t('patients.futureLockedBadge'),
+          ),
+        );
+      } else {
+        const canCompleteNow = !isTodayDay || Boolean(appointment.is_current_turn);
+        buttons.append(
+          h(
+            'button',
+            {
+              class: 'btn icon sm soft',
+              disabled: !canCompleteNow,
+              title: canCompleteNow
+                ? t('queue.finishAndCallNext')
+                : t('error.QUEUE_OUT_OF_TURN'),
+              onClick: () => window.Components.completeAppointment(appointment, ctx.refresh),
+            },
+            '✓',
+          ),
+          h(
+            'button',
+            {
+              class: 'btn icon sm',
+              title: t('agenda.noShow'),
+              onClick: () => action('no_show', t('agenda.noShow')),
+            },
+            '🚫',
+          ),
+        );
+      }
+    }
+    if (appointment.status !== 'cancelled') {
+      const secPayBtn = window.Components.confirmPaymentButton(appointment, ctx.refresh);
+      if (secPayBtn) buttons.append(secPayBtn);
       buttons.append(
         h(
           'button',
           {
-            class: 'btn icon sm soft',
-            title: t('queue.finishAndCallNext'),
-            onClick: () => window.Components.completeAppointment(appointment, ctx.refresh),
+            class: 'btn icon sm',
+            title: t('intake.newManual'),
+            onClick: () =>
+              window.Components.openIntakeModal({
+                patient: { id: appointment.patient_id, full_name: appointment.full_name },
+                appointmentId: appointment.id,
+                onSaved: ctx.refresh,
+              }),
           },
-          '✓',
+          window.Icons ? window.Icons.el('clipboard', { size: 15 }) : '📋',
         ),
-        h('button', { class: 'btn icon sm', title: t('agenda.noShow'), onClick: () => action('no_show', t('agenda.noShow')) }, '🚫'),
-      );
-    }
-    if (appointment.status !== 'cancelled') {
-      buttons.append(
         h(
           'button',
           {
@@ -125,6 +143,7 @@
       'div',
       { class: 'row wrap', style: { gap: '6px', justifyContent: 'flex-end' } },
       deptLabel ? h('span', { class: 'dept-pill' }, deptLabel) : null,
+      window.Components.intakeBadge(appointment),
       window.Components.queueEtaBadge(appointment, appointment.day),
       statusBadge(appointment.status),
     );
@@ -189,21 +208,102 @@
       });
 
       const totalDue = agenda.reduce((sum, appointment) => sum + Math.max(0, appointment.price - appointment.paid), 0);
+      const is24h = window.App.settings?.clinic_24h_enabled === '1';
+      const twoShiftsOn = !is24h && window.App.settings?.two_shifts_enabled === '1';
+      const breakOn = !is24h && window.App.settings?.break_enabled === '1';
+      const s1Label = `${window.App.settings?.work_start_hour || '08:00'}–${window.App.settings?.work_end_hour || '17:00'}`;
+      const s2Label = `${window.App.settings?.shift2_start_hour || '21:00'}–${window.App.settings?.shift2_end_hour || '00:00'}`;
+      const brkLabel = `${window.App.settings?.break_start_hour || '12:30'}–${window.App.settings?.break_end_hour || '13:30'}`;
+      const activeHoliday = info?.holiday || null;
 
       ctx.setHeader(
         t('agenda.title'),
         formatLong(day),
         h(
           'div',
-          { class: 'row' },
+          { class: 'row wrap' },
           h('button', { class: 'btn icon', title: t('common.back'), onClick: () => { window.App.day = addDays(day, -1); ctx.refresh(); } }, '‹'),
           dayPicker,
           h('button', { class: 'btn icon', title: t('common.today'), onClick: () => { window.App.day = addDays(day, 1); ctx.refresh(); } }, '›'),
           h('button', { class: 'btn', onClick: () => { window.App.day = todayISO(); ctx.refresh(); } }, t('common.today')),
+          activeHoliday
+            ? h(
+                'button',
+                {
+                  class: 'btn soft',
+                  onClick: async () => {
+                    try {
+                      await window.API.invoke('holidays:remove', { id: activeHoliday.id });
+                      toast(t('holidays.removed'), 'ok');
+                      ctx.refresh();
+                    } catch (err) {
+                      toast(errorMessage(err), 'error');
+                    }
+                  },
+                },
+                '🔓 ',
+                t('agenda.reopenDay'),
+              )
+            : h(
+                'button',
+                {
+                  class: 'btn soft',
+                  onClick: () =>
+                    window.Components.openHolidayModal({
+                      defaultDay: day,
+                      departmentId: selectedDepartmentId,
+                      departments: depts,
+                      onSaved: () => ctx.refresh(),
+                    }),
+                },
+                '🏖️ ',
+                t('agenda.markDayOff'),
+              ),
+          h(
+            'button',
+            {
+              class: 'btn soft',
+              onClick: async () => {
+                const board = await window.API.invoke('ops:waiting-room', {
+                  day,
+                  department_id: selectedDepartmentId,
+                });
+                modal({
+                  title: t('ops.waitingRoomTitle'),
+                  body:
+                    board.length === 0
+                      ? emptyState('🪑', t('agenda.emptyTitle'), '')
+                      : h(
+                          'div',
+                          { class: 'col', style: { gap: '8px' } },
+                          ...board.map((b) =>
+                            h(
+                              'div',
+                              { class: 'card row between wrap', style: { padding: '12px 16px' } },
+                              h(
+                                'div',
+                                { class: 'row', style: { gap: '12px' } },
+                                h('span', { class: 'queue-pill current' }, `#${b.queue_number}`),
+                                h('strong', { style: { fontSize: '18px' } }, b.initials),
+                                b.slot_time ? h('span', { class: 'badge info' }, b.slot_time) : null,
+                                b.priority === 'urgent' ? h('span', { class: 'badge danger' }, t('ops.priorityUrgent')) : null,
+                              ),
+                              h('div', { class: 'muted small' }, `${b.room ? b.room + ' · ' : ''}~${b.estimated_wait_min} min`),
+                            ),
+                          ),
+                        ),
+                  actions: [{ label: t('common.close'), kind: 'primary' }],
+                });
+              },
+            },
+            '📺 ',
+            t('ops.waitingRoomBtn'),
+          ),
           h(
             'button',
             {
               class: 'btn primary',
+              disabled: Boolean(activeHoliday),
               onClick: () =>
                 window.Components.openAppointmentModal({
                   day,
@@ -253,17 +353,41 @@
             )
           : null;
 
+      const activeReasonLabel = activeHoliday
+        ? activeHoliday.reason_type === 'sick'
+          ? '🩺 ' + t('holidays.reasonSick')
+          : activeHoliday.reason_type === 'other'
+            ? '🔒 ' + t('holidays.reasonOther')
+            : '🏖️ ' + t('holidays.reasonVacation')
+        : '';
+
       clear(root).append(
         deptBar,
         h(
           'div',
           { class: 'row wrap mb' },
-          h('span', { class: `badge ${info && info.working ? (info.left > 0 ? 'ok' : 'warn') : 'gray'}` },
-            info && info.working
-              ? info.left > 0
-                ? t('dash.capacityLeft', { n: info.left, cap: info.capacity })
-                : t('dash.fullDay')
-              : t('dash.closedDay')),
+          is24h
+            ? h('span', { class: 'badge ok' }, '🕒 ', t('dash.open24hBadge'))
+            : h(
+                'span',
+                { class: 'badge info' },
+                '🕒 ',
+                t('dash.scheduleBadge', { sched: twoShiftsOn ? `${s1Label} · ${s2Label}` : s1Label }),
+              ),
+          breakOn ? h('span', { class: 'badge gray' }, `☕ ${brkLabel}`) : null,
+          activeHoliday
+            ? h('span', { class: 'badge warn' }, '🏖️ ', t('agenda.doctorOnLeave'))
+            : h(
+                'span',
+                { class: `badge ${info && info.working ? (info.left > 0 ? 'ok' : 'warn') : 'gray'}` },
+                info && info.working
+                  ? info.left > 0
+                    ? t('dash.capacityLeft', { n: info.left, cap: info.capacity })
+                    : t('dash.fullDay')
+                  : t('dash.closedDay'),
+              ),
+          activeHoliday ? h('span', { class: 'badge info' }, activeReasonLabel) : null,
+          activeHoliday && activeHoliday.label ? h('span', { class: 'badge gray' }, activeHoliday.label) : null,
           h('span', { class: 'badge' }, `${t('dash.appointmentsToday')} : ${agenda.filter((a) => a.status !== 'cancelled').length}`),
           h('span', { class: 'badge warn' }, `${t('agenda.totalDue')} : ${formatMoney(totalDue, window.App.settings.currency)}`),
         ),

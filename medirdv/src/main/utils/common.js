@@ -54,4 +54,50 @@ function requireId(value, label = 'id') {
   return id;
 }
 
-module.exports = { AppError, money, phoneKey, cleanText, nowLocal, requireId };
+/**
+ * Shared case/accent/diacritic/hyphen-insensitive search normalizer:
+ *  - Unicode compatibility + canonical decomposition (NFKC -> NFD)
+ *  - Strips Latin combining accents & Arabic tashkeel / tatweel ("ـ")
+ *  - Unifies Arabic letter variants (إأآٱ -> ا, ى -> ي, ة -> ه, ؤئ -> ء) and digits
+ *  - Casefolds (toLowerCase + ligatures œ/æ/ß)
+ *  - Treats hyphens/dashes as spaces ("doli-prane" === "doli prane")
+ *  - Collapses repeated whitespace and trims.
+ */
+function normalizeSearch(text) {
+  return String(text ?? '')
+    .normalize('NFKC')
+    .replace(/œ/gi, 'oe')
+    .replace(/æ/gi, 'ae')
+    .replace(/ß/g, 'ss')
+    .replace(/ø/gi, 'o')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/[ؤئ]/g, 'ء')
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+    .toLowerCase()
+    .replace(/[-‐‑‒–—―]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Escape SQLite LIKE wildcards (%, _, \) for `LIKE ? ESCAPE '\'`. */
+function escapeLike(text) {
+  return String(text ?? '').replace(/[\\%_]/g, '\\$&');
+}
+
+module.exports = {
+  AppError,
+  money,
+  phoneKey,
+  cleanText,
+  nowLocal,
+  requireId,
+  normalizeSearch,
+  normalize_search: normalizeSearch,
+  escapeLike,
+};

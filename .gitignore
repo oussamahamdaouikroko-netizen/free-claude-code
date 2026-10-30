@@ -12,3 +12,14 @@ debug-*.log
 .coverage
 llama_cache
 .smoke-results
+
+# Developer-only licensing tools & private keys (never commit to repo)
+tools/license_keygen*
+medirdv/tools/
+dentardv/tools/
+*Keygen*.html
+*.pem
+*.key
+*private*key*
+issued_licenses.csv
+

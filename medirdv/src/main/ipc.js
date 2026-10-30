@@ -27,6 +27,8 @@ function registerIpc(context = {}) {
     demo: Boolean(context.demo),
     wa: context.wa,
     onEvent: context.onEvent,
+    autostartOptions: context.autostartOptions,
+    onAutostartChanged: context.onAutostartChanged,
     printReceipt: context.printReceipt,
     dialogs: {
       openPath: (target) => shell.openPath(target),
@@ -69,7 +71,7 @@ function registerIpc(context = {}) {
     try {
       const handler = handlers[method];
       if (!handler) throw new AppError('UNKNOWN_METHOD', `Unknown method: ${method}`);
-      if (!PUBLIC.has(method)) auth.requireUnlocked();
+      if (!PUBLIC.has(method)) auth.requireUnlocked(method);
       const data = await handler(payload || {});
       return { ok: true, data };
     } catch (error) {

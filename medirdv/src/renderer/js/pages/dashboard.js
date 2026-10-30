@@ -24,15 +24,19 @@
     const actions = h('div', { class: 'row' });
 
     if (appointment.status === 'booked') {
+      const canCompleteNow = Boolean(appointment.is_current_turn);
       actions.append(
         h(
           'button',
           {
-            class: 'btn sm soft',
-            title: t('queue.finishAndCallNext'),
+            class: canCompleteNow ? 'btn sm soft' : 'btn sm ghost',
+            disabled: !canCompleteNow,
+            title: canCompleteNow ? t('queue.finishAndCallNext') : t('error.QUEUE_OUT_OF_TURN'),
             onClick: () => window.Components.completeAppointment(appointment, onChanged),
           },
-          '✓ ' + t('queue.finishTreatment'),
+          canCompleteNow
+            ? '✓ ' + t('queue.finishTreatment')
+            : '⏳ ' + t('patients.waitTurnBadge', { q: appointment.ahead_count || 1 }),
         ),
       );
     }
@@ -60,6 +64,10 @@
           t('nav.prescriptions'),
         ),
       );
+    }
+    if (appointment.status !== 'cancelled') {
+      const secPayBtn = window.Components.confirmPaymentButton(appointment, onChanged);
+      if (secPayBtn) actions.append(secPayBtn);
     }
     if (due > 0) {
       actions.append(
@@ -96,6 +104,7 @@
       'div',
       { class: 'row wrap', style: { gap: '6px', justifyContent: 'flex-end' } },
       deptLabel ? h('span', { class: 'dept-pill' }, deptLabel) : null,
+      window.Components.intakeBadge(appointment),
       window.Components.queueEtaBadge(appointment, appointment.day),
       statusBadge(appointment.status),
     );
@@ -191,6 +200,12 @@
 
       const currency = window.App.settings.currency;
       const stats = data.stats;
+      const is24h = window.App.settings?.clinic_24h_enabled === '1';
+      const twoShiftsOn = !is24h && window.App.settings?.two_shifts_enabled === '1';
+      const breakOn = !is24h && window.App.settings?.break_enabled === '1';
+      const schedSummary = twoShiftsOn
+        ? `${window.App.settings?.work_start_hour || '08:00'}–${window.App.settings?.work_end_hour || '17:00'} · ${window.App.settings?.shift2_start_hour || '21:00'}–${window.App.settings?.shift2_end_hour || '00:00'}`
+        : `${window.App.settings?.work_start_hour || '08:00'}–${window.App.settings?.work_end_hour || '17:00'}`;
 
       const deptBar =
         depts.length > 0
@@ -246,13 +261,29 @@
               { class: 'card-title' },
               t('dash.queue'),
               h(
-                'span',
-                { class: `badge ${stats.left === 0 ? 'warn' : 'ok'}` },
-                stats.working
-                  ? stats.left > 0
-                    ? t('dash.capacityLeft', { n: stats.left, cap: stats.capacity })
-                    : t('dash.fullDay')
-                  : t('dash.closedDay'),
+                'div',
+                { class: 'row wrap', style: { gap: '6px' } },
+                is24h
+                  ? h('span', { class: 'badge ok' }, '🕒 ', t('dash.open24hBadge'))
+                  : h('span', { class: 'badge info' }, '🕒 ', t('dash.scheduleBadge', { sched: schedSummary })),
+                breakOn
+                  ? h(
+                      'span',
+                      { class: 'badge gray' },
+                      `☕ ${window.App.settings?.break_start_hour || '12:30'}–${window.App.settings?.break_end_hour || '13:30'}`,
+                    )
+                  : null,
+                stats.holiday
+                  ? h('span', { class: 'badge warn' }, '🏖️ ', t('agenda.doctorOnLeave'))
+                  : h(
+                      'span',
+                      { class: `badge ${stats.left === 0 ? 'warn' : 'ok'}` },
+                      stats.working
+                        ? stats.left > 0
+                          ? t('dash.capacityLeft', { n: stats.left, cap: stats.capacity })
+                          : t('dash.fullDay')
+                        : t('dash.closedDay'),
+                    ),
               ),
             ),
             deptBar,

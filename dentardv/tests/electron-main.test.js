@@ -116,6 +116,16 @@ test('the Electron main process boots and wires everything', async (t) => {
   t.after(() => {
     Module._load = originalLoad;
     delete process.env.DENTARDV_DATA_DIR;
+    try {
+      require('../src/main/services/license').stopPeriodicCheck();
+    } catch (_error) {
+      /* ignore */
+    }
+    try {
+      require('../src/main/services/backup').stopScheduler();
+    } catch (_error) {
+      /* ignore */
+    }
     // Windows keeps the SQLite file locked until the connection is closed.
     try {
       require('../src/main/db').close();

@@ -77,7 +77,10 @@ test('MON RDV and ANNULER work in French', (t) => {
   assert.equal(info.action, 'appointment_info');
   assert.match(info.reply, /Votre rendez-vous/);
 
-  const cancelled = bot.handle({ phone: '213555111224', text: 'annuler' });
+  const askCancel = bot.handle({ phone: '213555111224', text: 'annuler' });
+  assert.equal(askCancel.action, 'cancel_confirm');
+
+  const cancelled = bot.handle({ phone: '213555111224', text: 'oui' });
   assert.equal(cancelled.action, 'cancelled');
 
   const after = bot.handle({ phone: '213555111224', text: 'mon rdv' });
@@ -98,7 +101,10 @@ test('Arabic conversation: booking, reminder of appointment and cancellation', (
   assert.equal(mine.action, 'appointment_info');
   assert.match(mine.reply, /موعدكم/);
 
-  const cancelled = bot.handle({ phone, text: 'إلغاء' });
+  const askCancel = bot.handle({ phone, text: 'إلغاء' });
+  assert.equal(askCancel.action, 'cancel_confirm');
+
+  const cancelled = bot.handle({ phone, text: 'نعم' });
   assert.equal(cancelled.action, 'cancelled');
   assert.match(cancelled.reply, /تم إلغاء موعدكم/);
 });

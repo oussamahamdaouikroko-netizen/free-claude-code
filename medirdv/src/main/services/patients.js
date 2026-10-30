@@ -12,7 +12,7 @@ const { getDb } = require('../db');
 const {
   AppError, money, phoneKey, cleanText, nowLocal, requireId,
 } = require('../utils/common');
-const { toISODate } = require('../utils/dates');
+const { isValidISODate, toISODate, diffDays } = require('../utils/dates');
 
 function rowToPatient(row) {
   if (!row) return null;
@@ -34,18 +34,21 @@ const BLOOD_GROUPS = new Set(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'])
  */
 function list(search = '', options = {}) {
   const limit = Math.min(Math.max(Number(options.limit) || 500, 1), 2000);
+  const today = options.today || toISODate();
   const term = String(search ?? '').trim();
   const sql = `
     SELECT p.*, ${BALANCE_SQL} AS balance,
       (SELECT MAX(a.day) FROM appointments a
-        WHERE a.patient_id = p.id AND a.status <> 'cancelled') AS last_visit
+        WHERE a.patient_id = p.id AND a.status <> 'cancelled' AND a.day <= ?) AS last_visit,
+      (SELECT MIN(a.day) FROM appointments a
+        WHERE a.patient_id = p.id AND a.status = 'booked' AND a.day >= ?) AS next_visit
     FROM patients p
-    ${term ? 'WHERE p.full_name LIKE ? OR p.phone LIKE ? OR p.phone_norm LIKE ?' : ''}
+    ${term ? 'WHERE p.full_name LIKE ? OR p.phone LIKE ? OR p.phone_norm LIKE ? OR p.chifa_number LIKE ? OR p.nss LIKE ?' : ''}
     ORDER BY p.full_name COLLATE NOCASE ASC
     LIMIT ?`;
   const params = term
-    ? [`%${term}%`, `%${term}%`, `%${phoneKey(term) || term}%`, limit]
-    : [limit];
+    ? [today, today, `%${term}%`, `%${term}%`, `%${phoneKey(term) || term}%`, `%${term}%`, `%${term}%`, limit]
+    : [today, today, limit];
   return getDb().prepare(sql).all(...params).map(rowToPatient);
 }
 
@@ -90,6 +93,28 @@ function normalizeInput(input, { partial = false } = {}) {
   if (input.chronic_conditions !== undefined) {
     out.chronic_conditions = cleanText(input.chronic_conditions, 500);
   }
+  if (input.rh_factor !== undefined) {
+    const rh = cleanText(input.rh_factor, 4);
+    out.rh_factor = rh === '+' || rh === '-' ? rh : '';
+  }
+  if (input.marital_status !== undefined) out.marital_status = cleanText(input.marital_status, 40);
+  if (input.occupation !== undefined) out.occupation = cleanText(input.occupation, 100);
+  if (input.chifa_number !== undefined) out.chifa_number = cleanText(input.chifa_number, 40);
+  if (input.nss !== undefined) out.nss = cleanText(input.nss, 40);
+  if (input.wilaya !== undefined) out.wilaya = cleanText(input.wilaya, 60);
+  if (input.commune !== undefined) out.commune = cleanText(input.commune, 80);
+  if (input.emergency_contact_name !== undefined) out.emergency_contact_name = cleanText(input.emergency_contact_name, 100);
+  if (input.emergency_contact_phone !== undefined) out.emergency_contact_phone = cleanText(input.emergency_contact_phone, 30);
+  if (input.legal_guardian_name !== undefined) out.legal_guardian_name = cleanText(input.legal_guardian_name, 100);
+  if (input.legal_guardian_phone !== undefined) out.legal_guardian_phone = cleanText(input.legal_guardian_phone, 30);
+  if (input.insurance_type !== undefined) {
+    const ins = cleanText(input.insurance_type, 20);
+    out.insurance_type = ['none', 'CNAS', 'CASNOS', 'other', 'free'].includes(ins) ? ins : 'none';
+  }
+  if (input.insurance_rate !== undefined) {
+    out.insurance_rate = Math.min(100, Math.max(0, Number.parseInt(input.insurance_rate, 10) || 0));
+  }
+  if (input.insurance_org_name !== undefined) out.insurance_org_name = cleanText(input.insurance_org_name, 100);
   if (input.notes !== undefined) out.notes = cleanText(input.notes, 1000) || null;
   return out;
 }
@@ -104,10 +129,20 @@ function create(input = {}) {
     .prepare(
       `INSERT INTO patients
          (full_name, phone, phone_norm, birth_date, gender,
-          blood_group, allergies, chronic_conditions, notes, created_at, updated_at)
+          blood_group, rh_factor, allergies, chronic_conditions,
+          marital_status, occupation, chifa_number, nss, wilaya, commune,
+          emergency_contact_name, emergency_contact_phone,
+          legal_guardian_name, legal_guardian_phone,
+          insurance_type, insurance_rate, insurance_org_name,
+          notes, created_at, updated_at)
        VALUES
          (@full_name, @phone, @phone_norm, @birth_date, @gender,
-          @blood_group, @allergies, @chronic_conditions, @notes, @now, @now)`,
+          @blood_group, @rh_factor, @allergies, @chronic_conditions,
+          @marital_status, @occupation, @chifa_number, @nss, @wilaya, @commune,
+          @emergency_contact_name, @emergency_contact_phone,
+          @legal_guardian_name, @legal_guardian_phone,
+          @insurance_type, @insurance_rate, @insurance_org_name,
+          @notes, @now, @now)`,
     )
     .run({
       full_name: data.full_name,
@@ -116,8 +151,29 @@ function create(input = {}) {
       birth_date: data.birth_date ?? null,
       gender: data.gender ?? null,
       blood_group: data.blood_group ?? '',
+      rh_factor: data.rh_factor ?? '',
       allergies: data.allergies ?? '',
       chronic_conditions: data.chronic_conditions ?? '',
+      marital_status: data.marital_status ?? '',
+      occupation: data.occupation ?? '',
+      chifa_number: data.chifa_number ?? '',
+      nss: data.nss ?? '',
+      wilaya: data.wilaya ?? '',
+      commune: data.commune ?? '',
+      emergency_contact_name: data.emergency_contact_name ?? '',
+      emergency_contact_phone: data.emergency_contact_phone ?? '',
+      legal_guardian_name: data.legal_guardian_name ?? '',
+      legal_guardian_phone: data.legal_guardian_phone ?? '',
+      insurance_type: data.insurance_type ?? 'none',
+      insurance_rate:
+        data.insurance_rate !== undefined
+          ? data.insurance_rate
+          : data.insurance_type === 'CNAS' || data.insurance_type === 'CASNOS'
+            ? 80
+            : data.insurance_type === 'free'
+              ? 100
+              : 0,
+      insurance_org_name: data.insurance_org_name ?? '',
       notes: data.notes ?? null,
       now: nowLocal(),
     });
@@ -141,8 +197,22 @@ function update(input = {}) {
         birth_date = @birth_date,
         gender = @gender,
         blood_group = @blood_group,
+        rh_factor = @rh_factor,
         allergies = @allergies,
         chronic_conditions = @chronic_conditions,
+        marital_status = @marital_status,
+        occupation = @occupation,
+        chifa_number = @chifa_number,
+        nss = @nss,
+        wilaya = @wilaya,
+        commune = @commune,
+        emergency_contact_name = @emergency_contact_name,
+        emergency_contact_phone = @emergency_contact_phone,
+        legal_guardian_name = @legal_guardian_name,
+        legal_guardian_phone = @legal_guardian_phone,
+        insurance_type = @insurance_type,
+        insurance_rate = @insurance_rate,
+        insurance_org_name = @insurance_org_name,
         notes = @notes,
         updated_at = datetime('now')
        WHERE id = @id`,
@@ -155,11 +225,32 @@ function update(input = {}) {
       birth_date: data.birth_date !== undefined ? data.birth_date : current.birth_date,
       gender: data.gender !== undefined ? data.gender : current.gender,
       blood_group: data.blood_group !== undefined ? data.blood_group : (current.blood_group || ''),
+      rh_factor: data.rh_factor !== undefined ? data.rh_factor : (current.rh_factor || ''),
       allergies: data.allergies !== undefined ? data.allergies : (current.allergies || ''),
       chronic_conditions:
         data.chronic_conditions !== undefined
           ? data.chronic_conditions
           : (current.chronic_conditions || ''),
+      marital_status: data.marital_status !== undefined ? data.marital_status : (current.marital_status || ''),
+      occupation: data.occupation !== undefined ? data.occupation : (current.occupation || ''),
+      chifa_number: data.chifa_number !== undefined ? data.chifa_number : (current.chifa_number || ''),
+      nss: data.nss !== undefined ? data.nss : (current.nss || ''),
+      wilaya: data.wilaya !== undefined ? data.wilaya : (current.wilaya || ''),
+      commune: data.commune !== undefined ? data.commune : (current.commune || ''),
+      emergency_contact_name:
+        data.emergency_contact_name !== undefined ? data.emergency_contact_name : (current.emergency_contact_name || ''),
+      emergency_contact_phone:
+        data.emergency_contact_phone !== undefined ? data.emergency_contact_phone : (current.emergency_contact_phone || ''),
+      legal_guardian_name:
+        data.legal_guardian_name !== undefined ? data.legal_guardian_name : (current.legal_guardian_name || ''),
+      legal_guardian_phone:
+        data.legal_guardian_phone !== undefined ? data.legal_guardian_phone : (current.legal_guardian_phone || ''),
+      insurance_type:
+        data.insurance_type !== undefined ? data.insurance_type : (current.insurance_type || 'none'),
+      insurance_rate:
+        data.insurance_rate !== undefined ? data.insurance_rate : (current.insurance_rate || 0),
+      insurance_org_name:
+        data.insurance_org_name !== undefined ? data.insurance_org_name : (current.insurance_org_name || ''),
       notes: data.notes !== undefined ? data.notes : current.notes,
     });
   return get(id);
@@ -175,10 +266,16 @@ function findByPhone(phone) {
   return row ? rowToPatient(row) : null;
 }
 
-/** Create the patient if the phone is unknown, otherwise reuse the file. */
+/** Create the patient if the phone is unknown, or fill in full_name if cleared by migration. */
 function upsertFromWhatsApp({ name, phone }) {
   const existing = findByPhone(phone);
-  if (existing) return { patient: existing, created: false };
+  if (existing) {
+    if (!String(existing.full_name || '').trim() && String(name || '').trim()) {
+      const updated = update({ id: existing.id, full_name: name });
+      return { patient: updated, created: false };
+    }
+    return { patient: existing, created: false };
+  }
   const patient = create({ full_name: name, phone });
   return { patient, created: true };
 }
@@ -244,8 +341,195 @@ function newToday(day = toISODate()) {
     .get(day).n;
 }
 
+/**
+ * Patients organized strictly by appointment day & date, with accurate
+ * per-(day, department) queue turn tracking (`is_current_turn`, `can_complete`,
+ * `can_mark_no_show`, `blocking_queue_number`, `blocking_patient_name`).
+ *
+ * Turn order is computed BEFORE applying `search` so searching for a patient
+ * never hides the fact that an earlier patient is still ahead in today's queue.
+ */
+function byDayGroups(options = {}) {
+  const today = options.today && isValidISODate(options.today) ? options.today : toISODate();
+  const filterDay = options.day && isValidISODate(options.day) ? options.day : '';
+  const scope = options.scope === 'today' ? 'today' : 'all';
+  const term = String(options.search ?? '').trim();
+  const termLower = term.toLowerCase();
+  const termPhone = term ? phoneKey(term) : '';
+
+  let whereSql = "WHERE a.status <> 'cancelled'";
+  const whereParams = [];
+  if (scope === 'today') {
+    whereSql += ' AND a.day = ?';
+    whereParams.push(today);
+  } else if (filterDay) {
+    whereSql += ' AND a.day = ?';
+    whereParams.push(filterDay);
+  }
+
+  const rawRows = getDb()
+    .prepare(
+      `SELECT a.*,
+         p.full_name, p.phone, p.phone_norm, p.birth_date, p.gender,
+         p.blood_group, p.allergies, p.chronic_conditions,
+         p.chifa_number, p.nss,
+         (${BALANCE_SQL}) AS patient_balance,
+         d.name_fr AS dept_name_fr, d.name_ar AS dept_name_ar, d.room AS dept_room,
+         t.name_fr AS treatment_fr, t.name_ar AS treatment_ar,
+         COALESCE((SELECT SUM(pay.amount) FROM payments pay WHERE pay.appointment_id = a.id), 0) AS paid
+       FROM appointments a
+       JOIN patients p ON p.id = a.patient_id
+       LEFT JOIN departments d ON d.id = a.department_id
+       LEFT JOIN treatments t ON t.id = a.treatment_id
+       ${whereSql}
+       ORDER BY a.day ASC,
+                COALESCE(a.department_id, 0) ASC,
+                CASE WHEN a.status = 'booked' AND a.priority = 'urgent' THEN 0 ELSE 1 END ASC,
+                CASE WHEN a.slot_time <> '' THEN a.slot_time ELSE '99:99' END ASC,
+                a.queue_number ASC`,
+    )
+    .all(...whereParams);
+
+  // Compute true turn order on the unfiltered queue per (day, department).
+  const firstBookedByScope = new Map();
+  const aheadCounterByScope = new Map();
+
+  const decorated = rawRows.map((row) => {
+    const dKey = Number(row.department_id) > 0 ? Number(row.department_id) : 0;
+    const scopeKey = `${row.day}::${dKey}`;
+    const delta = diffDays(today, row.day);
+    const dayRelation = delta === 0 ? 'today' : delta > 0 ? 'future' : 'past';
+    const paid = money(row.paid);
+    const price = money(row.price);
+
+    let aheadCount = null;
+    let isCurrentTurn = false;
+    let blockingQueue = null;
+    let blockingName = null;
+
+    if (row.status === 'booked') {
+      aheadCount = aheadCounterByScope.get(scopeKey) || 0;
+      aheadCounterByScope.set(scopeKey, aheadCount + 1);
+      if (aheadCount === 0) {
+        firstBookedByScope.set(scopeKey, {
+          id: row.id,
+          queue_number: row.queue_number,
+          full_name: row.full_name,
+        });
+        isCurrentTurn = dayRelation === 'today';
+      } else {
+        const leader = firstBookedByScope.get(scopeKey);
+        if (leader) {
+          blockingQueue = leader.queue_number;
+          blockingName = leader.full_name;
+        }
+      }
+    }
+
+    const canComplete =
+      row.status === 'booked' &&
+      (dayRelation === 'past' || (dayRelation === 'today' && aheadCount === 0));
+    const canMarkNoShow = row.status === 'booked' && dayRelation !== 'future';
+
+    return {
+      ...row,
+      price,
+      paid,
+      balance: money(price - paid),
+      patient_balance: money(row.patient_balance ?? 0),
+      day_relation: dayRelation,
+      days_from_today: delta,
+      ahead_count: aheadCount,
+      is_current_turn: isCurrentTurn,
+      can_complete: canComplete,
+      can_mark_no_show: canMarkNoShow,
+      blocking_queue_number: blockingQueue,
+      blocking_patient_name: blockingName,
+    };
+  });
+
+  const matchesSearch = (item) => {
+    if (!termLower) return true;
+    const hay = [
+      item.full_name,
+      item.phone,
+      item.phone_norm,
+      item.chifa_number,
+      item.nss,
+      item.day,
+      item.dept_name_fr,
+      item.dept_name_ar,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    if (hay.includes(termLower)) return true;
+    if (termPhone && item.phone_norm && String(item.phone_norm).includes(termPhone)) return true;
+    return false;
+  };
+
+  const filtered = termLower ? decorated.filter(matchesSearch) : decorated;
+
+  const groupMap = new Map();
+  for (const item of filtered) {
+    let group = groupMap.get(item.day);
+    if (!group) {
+      group = {
+        day: item.day,
+        day_relation: item.day_relation,
+        days_from_today: item.days_from_today,
+        total_count: 0,
+        booked_count: 0,
+        done_count: 0,
+        no_show_count: 0,
+        items: [],
+      };
+      groupMap.set(item.day, group);
+    }
+    group.items.push(item);
+    group.total_count += 1;
+    if (item.status === 'booked') group.booked_count += 1;
+    else if (item.status === 'done') group.done_count += 1;
+    else if (item.status === 'no_show') group.no_show_count += 1;
+  }
+
+  // Sort groups: today & upcoming chronologically ASC first, then past days newest-first.
+  const groups = Array.from(groupMap.values()).sort((a, b) => {
+    const aUpcoming = a.days_from_today >= 0;
+    const bUpcoming = b.days_from_today >= 0;
+    if (aUpcoming && !bUpcoming) return -1;
+    if (!aUpcoming && bUpcoming) return 1;
+    if (aUpcoming && bUpcoming) return a.day.localeCompare(b.day);
+    return b.day.localeCompare(a.day);
+  });
+
+  let unscheduled = [];
+  if (scope === 'all' && !filterDay) {
+    const unschedRows = getDb()
+      .prepare(
+        `SELECT p.*, ${BALANCE_SQL} AS balance
+         FROM patients p
+         WHERE NOT EXISTS (
+           SELECT 1 FROM appointments a
+           WHERE a.patient_id = p.id AND a.status <> 'cancelled'
+         )
+         ORDER BY p.full_name COLLATE NOCASE ASC`,
+      )
+      .all()
+      .map(rowToPatient);
+    unscheduled = termLower ? unschedRows.filter(matchesSearch) : unschedRows;
+  }
+
+  return {
+    today,
+    groups,
+    unscheduled,
+  };
+}
+
 module.exports = {
   list,
+  byDayGroups,
   get,
   create,
   update,

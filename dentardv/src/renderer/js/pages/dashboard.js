@@ -21,15 +21,19 @@
     const actions = h('div', { class: 'row' });
 
     if (appointment.status === 'booked') {
+      const canCompleteNow = Boolean(appointment.is_current_turn);
       actions.append(
         h(
           'button',
           {
-            class: 'btn sm soft',
-            title: t('queue.finishAndCallNext'),
+            class: canCompleteNow ? 'btn sm soft' : 'btn sm ghost',
+            disabled: !canCompleteNow,
+            title: canCompleteNow ? t('queue.finishAndCallNext') : t('error.QUEUE_OUT_OF_TURN'),
             onClick: () => window.Components.completeAppointment(appointment, onChanged),
           },
-          '✓ ' + t('queue.finishTreatment'),
+          canCompleteNow
+            ? '✓ ' + t('queue.finishTreatment')
+            : '⏳ ' + t('patients.waitTurnBadge', { q: appointment.ahead_count || 1 }),
         ),
       );
     }
@@ -130,6 +134,10 @@
 
       const currency = window.App.settings.currency;
       const stats = data.stats;
+      const sCfg = window.App.settings || {};
+      const is24h = sCfg.clinic_24h_enabled === '1';
+      const isTwoShifts = !is24h && sCfg.two_shifts_enabled === '1';
+      const isBreak = !is24h && sCfg.break_enabled === '1';
 
       clear(root).append(
         h(
@@ -151,13 +159,42 @@
               { class: 'card-title' },
               t('dash.queue'),
               h(
-                'span',
-                { class: `badge ${stats.left === 0 ? 'warn' : 'ok'}` },
-                stats.working
-                  ? stats.left > 0
-                    ? t('dash.capacityLeft', { n: stats.left, cap: stats.capacity })
-                    : t('dash.fullDay')
-                  : t('dash.closedDay'),
+                'div',
+                { class: 'row wrap', style: { gap: '6px' } },
+                is24h ? h('span', { class: 'badge ok' }, '🕒 ', t('dash.open24hBadge')) : null,
+                isTwoShifts
+                  ? h(
+                      'span',
+                      { class: 'badge info' },
+                      '🕒 ',
+                      t('dash.twoShiftsBadge', {
+                        s1: `${sCfg.work_start_hour || '08:00'}–${sCfg.work_end_hour || '17:00'}`,
+                        s2: `${sCfg.shift2_start_hour || '21:00'}–${sCfg.shift2_end_hour || '00:00'}`,
+                      }),
+                    )
+                  : null,
+                isBreak
+                  ? h(
+                      'span',
+                      { class: 'badge gray' },
+                      '☕ ',
+                      t('dash.breakBadge', {
+                        from: sCfg.break_start_hour || '12:30',
+                        to: sCfg.break_end_hour || '13:30',
+                      }),
+                    )
+                  : null,
+                stats.holiday
+                  ? h('span', { class: 'badge warn' }, '🏖️ ', t('agenda.doctorOnLeave'))
+                  : h(
+                      'span',
+                      { class: `badge ${stats.left === 0 ? 'warn' : 'ok'}` },
+                      stats.working
+                        ? stats.left > 0
+                          ? t('dash.capacityLeft', { n: stats.left, cap: stats.capacity })
+                          : t('dash.fullDay')
+                        : t('dash.closedDay'),
+                    ),
               ),
             ),
             window.Components.queueLiveBanner(data.agenda, { day, onChanged: ctx.refresh }),

@@ -10,6 +10,8 @@
     const nameFr = input({ value: treatment?.name_fr || '', placeholder: 'Échographie cardiaque' });
     const nameAr = input({ value: treatment?.name_ar || '', placeholder: 'إيكوغرافيا القلب', dir: 'rtl' });
     const price = input({ type: 'number', min: '0', step: '100', value: String(treatment?.default_price ?? 0) });
+    const priceInsured = input({ type: 'number', min: '0', step: '100', value: String(treatment?.price_insured ?? treatment?.default_price ?? 0) });
+    const convRate = input({ type: 'number', min: '0', max: '100', value: String(treatment?.convention_rate ?? 80) });
     const color = input({ type: 'color', value: treatment?.color || '#0066cc', style: { padding: '4px', height: '46px' } });
     const error = h('div', { class: 'error-text' });
 
@@ -25,6 +27,9 @@
           name_fr: nameFr.value.trim(),
           name_ar: nameAr.value.trim(),
           default_price: Number(price.value) || 0,
+          price_private: Number(price.value) || 0,
+          price_insured: Number(priceInsured.value) || 0,
+          convention_rate: Number(convRate.value) || 80,
           color: color.value,
         };
         if (isEdit) await window.API.invoke('treatments:update', payload);
@@ -48,7 +53,13 @@
         h(
           'div',
           { class: 'grid two' },
-          field(`${t('treatments.defaultPrice')} (${window.App.settings.currency})`, price),
+          field(`${t('billing.pricePrivate')} (${window.App.settings.currency})`, price),
+          field(`${t('billing.priceInsured')} (${window.App.settings.currency})`, priceInsured),
+        ),
+        h(
+          'div',
+          { class: 'grid two' },
+          field(t('billing.conventionRate'), convRate),
           field(t('treatments.color'), color),
         ),
         error,

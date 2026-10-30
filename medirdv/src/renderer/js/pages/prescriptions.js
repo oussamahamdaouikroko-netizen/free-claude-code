@@ -55,6 +55,7 @@
       department_id: null,
       day: todayISO(),
       diagnosis: '',
+      diagnoses: [],
       vitals_bp: '',
       vitals_hr: '',
       vitals_temp: '',
@@ -62,6 +63,7 @@
       vitals_glycemia: '',
       exams_requested: '',
       advice: '',
+      print_mode: 'both',
       items: [],
     };
   }
@@ -245,8 +247,182 @@
       ctx.refresh();
     });
 
-    // Vitals & Diagnosis
-    const diagInput = input({ value: draft.diagnosis, placeholder: t('rx.diagnosis') });
+    // Vitals & Structured ICD-10 Multi-Select + Free-Text Diagnosis
+    if (!Array.isArray(draft.diagnoses)) draft.diagnoses = [];
+    const diagInput = input({ value: draft.diagnosis, placeholder: t('icd.freeTextPlaceholder') });
+    const icdSearchInput = input({ placeholder: t('icd.searchPlaceholder') });
+    const icdDropdown = h('div', { class: 'col', style: { gap: '4px', marginTop: '4px' } });
+    const icdChipsHost = h('div', { class: 'row wrap', style: { gap: '6px', marginTop: '6px' } });
+    const icdAlertsHost = h('div', { class: 'col', style: { gap: '6px', marginTop: '6px' } });
+
+    function renderSelectedDiagnoses() {
+      clear(icdChipsHost);
+      clear(icdAlertsHost);
+      const isAr = window.App.language === 'ar';
+      for (const [idx, d] of draft.diagnoses.entries()) {
+        const lbl = isAr ? d.label_ar || d.label_fr : d.label_fr;
+        icdChipsHost.append(
+          h(
+            'span',
+            {
+              class: `badge ${d.is_notifiable ? 'danger' : d.is_chronic_ald ? 'ok' : 'info'}`,
+              style: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 8px' },
+            },
+            h('strong', {}, d.icd10_code),
+            h('span', {}, lbl),
+            d.is_chronic_ald ? h('span', { class: 'small strong' }, `· ${t('icd.aldBadge')}`) : null,
+            d.is_notifiable ? h('span', { class: 'small strong' }, `· ${t('icd.notifiableBadge')}`) : null,
+            h(
+              'button',
+              {
+                type: 'button',
+                style: { border: 'none', background: 'transparent', cursor: 'pointer', fontWeight: '700', padding: '0 2px' },
+                onClick: () => {
+                  draft.diagnoses.splice(idx, 1);
+                  renderSelectedDiagnoses();
+                },
+              },
+              '×',
+            ),
+          ),
+        );
+      }
+
+      if (draft.diagnoses.some((d) => d.is_notifiable)) {
+        icdAlertsHost.append(
+          h(
+            'div',
+            {
+              class: 'small strong',
+              style: {
+                padding: '8px 10px',
+                borderRadius: '8px',
+                background: '#fef2f2',
+                border: '1px solid #dc2626',
+                color: '#991b1b',
+              },
+            },
+            '🚨 ',
+            t('icd.notifiableAlert'),
+          ),
+        );
+      }
+      if (draft.diagnoses.some((d) => d.is_chronic_ald)) {
+        icdAlertsHost.append(
+          h(
+            'div',
+            {
+              class: 'small',
+              style: {
+                padding: '6px 10px',
+                borderRadius: '8px',
+                background: '#ecfdf5',
+                border: '1px solid #059669',
+                color: '#065f46',
+              },
+            },
+            '✓ ',
+            t('icd.aldInfo'),
+          ),
+        );
+      }
+
+      const selectedCodes = new Set(draft.diagnoses.map((d) => String(d.icd10_code || '').toUpperCase()).filter(Boolean));
+      const matchedProtocols = templates.filter((tpl) => selectedCodes.has(String(tpl.icd10_code || '').toUpperCase()));
+      if (matchedProtocols.length > 0) {
+        icdAlertsHost.append(
+          h(
+            'div',
+            { class: 'col', style: { gap: '4px', padding: '8px', borderRadius: '8px', background: 'var(--bg-soft, #f8fafc)', border: '1px solid var(--line)' } },
+            h('div', { class: 'small strong' }, '📋 ', t('icd.suggestedProtocols')),
+            h(
+              'div',
+              { class: 'row wrap', style: { gap: '6px' } },
+              matchedProtocols.map((tpl) =>
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    class: 'btn sm soft',
+                    title: tpl.verified ? t('icd.verifiedProtocol') : t('icd.unverifiedProtocol'),
+                    onClick: () => {
+                      draft.items = (tpl.items || []).map((it) => ({ ...it }));
+                      if (tpl.exams_requested && !draft.exams_requested) draft.exams_requested = tpl.exams_requested;
+                      if (tpl.advice && !draft.advice) draft.advice = tpl.advice;
+                      examsArea.value = draft.exams_requested;
+                      adviceArea.value = draft.advice;
+                      renderItemsList();
+                    },
+                  },
+                  `${window.App.language === 'ar' ? tpl.title_ar || tpl.title_fr : tpl.title_fr}${tpl.verified ? ' ✓' : ' ⚠'}`,
+                ),
+              ),
+            ),
+            matchedProtocols.some((tpl) => !tpl.verified)
+              ? h('div', { class: 'muted small' }, '⚠ ', t('icd.unverifiedProtocol'))
+              : null,
+          ),
+        );
+      }
+    }
+
+    let icdTimer = null;
+    icdSearchInput.addEventListener('input', () => {
+      clearTimeout(icdTimer);
+      const q = icdSearchInput.value.trim();
+      if (!q) {
+        clear(icdDropdown);
+        return;
+      }
+      icdTimer = setTimeout(async () => {
+        const rows = await window.API.invoke('icd10:search', { query: q, limit: 8 }).catch(() => []);
+        clear(icdDropdown);
+        const isAr = window.App.language === 'ar';
+        for (const row of rows) {
+          icdDropdown.append(
+            h(
+              'button',
+              {
+                type: 'button',
+                class: 'row between wrap',
+                style: {
+                  textAlign: 'start',
+                  padding: '6px 10px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--line)',
+                  background: '#fff',
+                  cursor: 'pointer',
+                  gap: '6px',
+                },
+                onClick: () => {
+                  if (!draft.diagnoses.some((d) => d.icd10_code === row.code)) {
+                    draft.diagnoses.push({
+                      icd10_id: row.id,
+                      icd10_code: row.code,
+                      label_fr: row.label_fr,
+                      label_ar: row.label_ar,
+                      is_chronic_ald: row.is_chronic_ald,
+                      is_notifiable: row.is_notifiable,
+                    });
+                  }
+                  icdSearchInput.value = '';
+                  clear(icdDropdown);
+                  renderSelectedDiagnoses();
+                },
+              },
+              h('span', {}, h('strong', {}, `[${row.code}] `), isAr ? row.label_ar || row.label_fr : row.label_fr),
+              h(
+                'span',
+                { class: 'row', style: { gap: '4px' } },
+                row.is_chronic_ald ? h('span', { class: 'badge ok' }, t('icd.aldBadge')) : null,
+                row.is_notifiable ? h('span', { class: 'badge danger' }, t('icd.notifiableBadge')) : null,
+              ),
+            ),
+          );
+        }
+      }, 100);
+    });
+
     const bpInput = input({ value: draft.vitals_bp, placeholder: '120/80' });
     const hrInput = input({ value: draft.vitals_hr, placeholder: '72' });
     const tempInput = input({ value: draft.vitals_temp, placeholder: '37.0' });
@@ -260,20 +436,175 @@
     spo2Input.addEventListener('input', () => { draft.vitals_spo2 = spo2Input.value; });
     glyInput.addEventListener('input', () => { draft.vitals_glycemia = glyInput.value; });
 
-    // Allergy alerts container
+    // Pre-visit intake banner (never auto-copies unverified intake without explicit doctor click)
+    const intakeBannerHost = h('div', {});
+    if (draft.patient_id) {
+      window.API.invoke('intake:latest', { patient_id: draft.patient_id })
+        .then((latestIntake) => {
+          if (!latestIntake || !intakeBannerHost.isConnected) return;
+          const parts = [];
+          if (latestIntake.effective_age_years !== null && latestIntake.effective_age_years !== undefined) {
+            parts.push(
+              latestIntake.effective_age_years < 2
+                ? t('intake.ageUnitMonths', { n: Math.round(latestIntake.effective_age_years * 12) })
+                : t('intake.ageUnitYears', { n: Math.round(latestIntake.effective_age_years * 10) / 10 }),
+            );
+          }
+          if (latestIntake.weight_kg) parts.push(`${latestIntake.weight_kg} kg`);
+          if (latestIntake.known_allergies) parts.push(`⚠ ${latestIntake.known_allergies}`);
+          if (latestIntake.is_pregnant === 1) parts.push(t('intake.alertPregnancy'));
+          if (latestIntake.current_medications) parts.push(latestIntake.current_medications);
+          const summary = parts.join(' · ') || latestIntake.chief_complaint || '—';
+          const isPending = latestIntake.status !== 'applied';
+
+          const applyToDraft = (prefill, updatedPatient) => {
+            if (prefill.patient_age && !draft.patient_age) draft.patient_age = prefill.patient_age;
+            if (prefill.patient_weight) draft.patient_weight = prefill.patient_weight;
+            if (updatedPatient?.allergies) draft.patient_allergies = updatedPatient.allergies;
+            if (updatedPatient?.chronic_conditions) draft.patient_chronic = updatedPatient.chronic_conditions;
+            if (prefill.vitals_bp && !draft.vitals_bp) draft.vitals_bp = prefill.vitals_bp;
+            if (prefill.vitals_glycemia && !draft.vitals_glycemia) draft.vitals_glycemia = prefill.vitals_glycemia;
+            if (prefill.chief_complaint && !draft.diagnosis) draft.diagnosis = prefill.chief_complaint;
+            ctx.refresh();
+          };
+
+          intakeBannerHost.replaceChildren(
+            h(
+              'div',
+              {
+                class: 'card row wrap between',
+                style: {
+                  padding: '10px 14px',
+                  border: isPending ? '1.5px solid var(--warn, #d97706)' : '1px solid var(--teal-700)',
+                  background: isPending ? 'rgba(245, 158, 11, 0.08)' : 'rgba(13, 148, 136, 0.06)',
+                  gap: '10px',
+                },
+              },
+              h(
+                'div',
+                { class: 'row wrap', style: { gap: '8px' } },
+                window.Icons ? window.Icons.el('clipboard', { size: 17 }) : '',
+                h('span', { class: 'small strong' }, t(isPending ? 'intake.rxBannerPending' : 'intake.rxBannerApplied', { summary })),
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  class: `btn sm ${isPending ? 'primary' : 'soft'}`,
+                  onClick: async () => {
+                    try {
+                      if (isPending) {
+                        const res = await window.API.invoke('intake:confirm', {
+                          id: latestIntake.id,
+                          reviewed_by: window.App?.settings?.doctor_name || 'doctor',
+                        });
+                        toast(t('intake.appliedToast'), 'ok');
+                        applyToDraft(res.prescription_prefill || {}, res.patient);
+                      } else {
+                        applyToDraft(
+                          {
+                            patient_age:
+                              latestIntake.effective_age_years !== null && latestIntake.effective_age_years !== undefined
+                                ? latestIntake.effective_age_years < 2
+                                  ? `${Math.round(latestIntake.effective_age_years * 12)} mois`
+                                  : `${Math.round(latestIntake.effective_age_years)} ans`
+                                : '',
+                            patient_weight: latestIntake.weight_kg ? `${latestIntake.weight_kg} kg` : '',
+                            vitals_bp: latestIntake.last_blood_pressure || '',
+                            vitals_glycemia: latestIntake.last_glycemia || '',
+                            chief_complaint: latestIntake.chief_complaint || '',
+                          },
+                          null,
+                        );
+                      }
+                    } catch (err) {
+                      toast(errorMessage(err), 'error');
+                    }
+                  },
+                },
+                t(isPending ? 'intake.rxConfirmImportBtn' : 'intake.rxImportBtn'),
+              ),
+            ),
+          );
+        })
+        .catch(() => {});
+    }
+
+    // Clinical safety & allergy alerts container (Phase 2 decision-support engine)
+    let latestSafetyEval = { alerts: [], blocking: false, requires_override: false, has_unverified_rules: false };
     const allergyAlertHost = h('div', { class: 'col', style: { gap: '8px' } });
-    const refreshAllergyWarnings = () => {
+
+    const severityLabel = (sev) => {
+      if (sev === 'contraindicated') return t('safety.sevContraindicated');
+      if (sev === 'avoid') return t('safety.sevAvoid');
+      if (sev === 'caution') return t('safety.sevCaution');
+      return t('safety.sevMonitor');
+    };
+
+    const refreshAllergyWarnings = async () => {
       clear(allergyAlertHost);
       if (draft.patient_allergies) {
         allergyAlertHost.append(
           h('div', { class: 'allergy-alert' }, '⚠️ ', t('rx.allergyBanner', { allergies: draft.patient_allergies })),
         );
       }
-      const conflicts = detectClientAllergyConflicts(draft.patient_allergies, draft.items);
-      for (const c of conflicts) {
-        allergyAlertHost.append(
-          h('div', { class: 'allergy-alert' }, '🚫 ', t('rx.allergyConflict', { drug: c.drug, allergy: c.allergy })),
-        );
+      if (draft.items.length === 0) {
+        latestSafetyEval = { alerts: [], blocking: false, requires_override: false, has_unverified_rules: false };
+        return;
+      }
+      try {
+        const res = await window.API.invoke('safety:evaluate', {
+          patient_id: draft.patient_id,
+          patient_weight: draft.patient_weight,
+          patient_age: draft.patient_age,
+          patient_allergies: draft.patient_allergies,
+          patient_chronic: draft.patient_chronic,
+          items: draft.items,
+        });
+        latestSafetyEval = res;
+        if (!allergyAlertHost.isConnected) return;
+        const isAr = window.App?.language === 'ar';
+        if (res.alerts.length > 0) {
+          allergyAlertHost.append(
+            h(
+              'div',
+              { class: 'small muted', style: { padding: '4px 8px' } },
+              window.Icons ? window.Icons.el('shield', { size: 14 }) : '',
+              ' ',
+              t('safety.disclaimerBanner'),
+            ),
+          );
+        }
+        for (const a of res.alerts) {
+          const isSevere = a.severity === 'contraindicated' || a.severity === 'avoid';
+          allergyAlertHost.append(
+            h(
+              'div',
+              {
+                class: isSevere ? 'allergy-alert' : 'card row wrap between',
+                style: isSevere
+                  ? { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }
+                  : { padding: '8px 12px', border: '1px solid var(--warn, #d97706)', gap: '8px' },
+              },
+              h(
+                'div',
+                { class: 'row wrap', style: { gap: '8px' } },
+                h('span', { class: `badge ${isSevere ? 'danger' : 'warn'}` }, severityLabel(a.severity)),
+                h('span', {}, isAr ? a.message_ar || a.message_fr : a.message_fr),
+              ),
+              !a.verified
+                ? h('span', { class: 'badge warn' }, t('safety.unverifiedRuleTag'))
+                : null,
+            ),
+          );
+        }
+      } catch (_err) {
+        const conflicts = detectClientAllergyConflicts(draft.patient_allergies, draft.items);
+        for (const c of conflicts) {
+          allergyAlertHost.append(
+            h('div', { class: 'allergy-alert' }, '🚫 ', t('rx.allergyConflict', { drug: c.drug, allergy: c.allergy })),
+          );
+        }
       }
     };
 
@@ -302,8 +633,77 @@
         formField.addEventListener('input', () => { item.form_strength = formField.value; });
         dosageField.addEventListener('input', () => { item.dosage = dosageField.value; });
         timingField.addEventListener('input', () => { item.timing = timingField.value; });
-        durationField.addEventListener('input', () => { item.duration = durationField.value; });
+        durationField.addEventListener('input', () => { item.duration = durationField.value; refreshAllergyWarnings(); });
         qtyField.addEventListener('input', () => { item.quantity = qtyField.value; });
+
+        const doseCalcBox = h('div', {});
+        const calcBtn = h(
+          'button',
+          {
+            type: 'button',
+            class: 'btn sm soft',
+            onClick: async () => {
+              clear(doseCalcBox);
+              try {
+                const calc = await window.API.invoke('safety:pediatric-dose', {
+                  dci: item.dci || item.drug_name,
+                  drug_name: item.drug_name,
+                  form_strength: item.form_strength,
+                  weight_kg: weightInput.value || draft.patient_weight,
+                  patient_age: ageInput.value || draft.patient_age,
+                });
+                if (!calc.matched) {
+                  doseCalcBox.append(h('div', { class: 'muted small', style: { marginTop: '6px' } }, t('safety.noDoseRule')));
+                  return;
+                }
+                const isAr = window.App?.language === 'ar';
+                doseCalcBox.append(
+                  h(
+                    'div',
+                    {
+                      class: 'card row wrap between',
+                      style: { padding: '8px 12px', marginTop: '6px', background: 'rgba(13, 148, 136, 0.06)', gap: '8px' },
+                    },
+                    h(
+                      'div',
+                      { class: 'col', style: { gap: '3px' } },
+                      h('div', { class: 'small strong' }, isAr ? calc.formula_ar : calc.formula_fr),
+                      h(
+                        'div',
+                        { class: 'row wrap', style: { gap: '6px' } },
+                        h('span', { class: `badge ${calc.verified ? 'ok' : 'warn'}` }, t(calc.verified ? 'safety.verifiedRuleTag' : 'safety.unverifiedRuleTag')),
+                        calc.notes_fr || calc.notes_ar
+                          ? h('span', { class: 'muted small' }, isAr ? calc.notes_ar || calc.notes_fr : calc.notes_fr)
+                          : null,
+                      ),
+                    ),
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        class: 'btn sm primary',
+                        onClick: () => {
+                          item.dosage = calc.suggested_dosage_fr;
+                          dosageField.value = calc.suggested_dosage_fr;
+                          if (calc.max_duration_days && !item.duration) {
+                            item.duration = `${calc.max_duration_days} jours`;
+                            durationField.value = item.duration;
+                          }
+                        },
+                      },
+                      t('safety.applyCalcBtn'),
+                    ),
+                  ),
+                );
+              } catch (err) {
+                toast(errorMessage(err), 'error');
+              }
+            },
+          },
+          window.Icons ? window.Icons.el('scale', { size: 14 }) : '',
+          ' ',
+          t('safety.pediatricBtn'),
+        );
 
         const timingChips = [
           t('rx.timingAfterMeal'),
@@ -341,6 +741,92 @@
           ),
         );
 
+        const subBtn = h(
+          'button',
+          {
+            type: 'button',
+            class: 'btn sm ghost',
+            onClick: async () => {
+              try {
+                const { substitutes = [] } = await window.API.invoke('medications:substitutes', {
+                  medication_id: item.medication_id,
+                  dci: item.dci,
+                });
+                const subDialog = modal({
+                  title: `${t('nom.substituteModalTitle')} — ${item.dci || item.drug_name}`,
+                  wide: true,
+                  body:
+                    substitutes.length === 0
+                      ? h('div', { class: 'muted small' }, t('nom.noSubstitutes'))
+                      : h(
+                          'div',
+                          { class: 'col', style: { gap: '8px' } },
+                          substitutes.map((med) =>
+                            h(
+                              'div',
+                              { class: 'card row wrap between', style: { padding: '8px 12px', gap: '8px' } },
+                              h(
+                                'div',
+                                { class: 'col', style: { gap: '2px' } },
+                                h(
+                                  'div',
+                                  { class: 'row wrap', style: { gap: '6px' } },
+                                  h('strong', {}, `${med.brand}${med.strength ? ` · ${med.strength}` : ''}`),
+                                  med.is_generic ? h('span', { class: 'badge ok' }, t('nom.genericBadge')) : null,
+                                  med.reimbursable
+                                    ? h('span', { class: 'badge ok' }, t('nom.reimbBadge', { rate: med.reimbursement_rate || 80 }))
+                                    : null,
+                                ),
+                                h(
+                                  'div',
+                                  { class: 'muted small' },
+                                  [
+                                    med.form,
+                                    med.laboratory,
+                                    med.ppa ? t('nom.ppaLabel', { v: med.ppa }) : '',
+                                    med.reference_price ? t('nom.refPriceLabel', { v: med.reference_price }) : '',
+                                  ]
+                                    .filter(Boolean)
+                                    .join(' · '),
+                                ),
+                              ),
+                              h(
+                                'button',
+                                {
+                                  type: 'button',
+                                  class: 'btn sm primary',
+                                  onClick: () => {
+                                    item.medication_id = med.id;
+                                    item.drug_name = med.brand;
+                                    item.dci = med.dci || item.dci;
+                                    item.form_strength = [med.form, med.strength].filter(Boolean).join(' · ');
+                                    item.schedule = med.schedule || '';
+                                    subDialog.close();
+                                    renderItemsList();
+                                  },
+                                },
+                                t('nom.replaceBtn'),
+                              ),
+                            ),
+                          ),
+                        ),
+                  actions: [{ label: t('common.close'), kind: 'ghost' }],
+                });
+              } catch (err) {
+                toast(errorMessage(err), 'error');
+              }
+            },
+          },
+          window.Icons ? window.Icons.el('repeat', { size: 14 }) : '',
+          ' ',
+          t('nom.substituteBtn'),
+        );
+
+        const nonSubChk = h('input', { type: 'checkbox', checked: item.substitutable === 0 || item.substitutable === false });
+        nonSubChk.addEventListener('change', () => {
+          item.substitutable = nonSubChk.checked ? 0 : 1;
+        });
+
         itemsHost.append(
           h(
             'div',
@@ -355,24 +841,32 @@
                 h('strong', {}, item.drug_name || t('rx.drugName')),
                 item.dci ? h('span', { class: 'muted small' }, `(${item.dci})`) : null,
               ),
-              h(
-                'button',
-                {
-                  type: 'button',
-                  class: 'btn icon sm ghost',
-                  title: t('common.delete'),
-                  onClick: () => {
-                    draft.items.splice(index, 1);
-                    renderItemsList();
+              h('div', { class: 'row wrap', style: { gap: '6px' } }, subBtn, calcBtn,
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    class: 'btn icon sm ghost',
+                    title: t('common.delete'),
+                    onClick: () => {
+                      draft.items.splice(index, 1);
+                      renderItemsList();
+                    },
                   },
-                },
-                '✕',
+                  '✕',
+                ),
               ),
             ),
+            doseCalcBox,
             h('div', { class: 'grid two' }, field(t('rx.drugName'), drugField), field(t('rx.formStrength'), formField)),
             h('div', { class: 'grid three' }, field(t('rx.dosage'), dosageField), field(t('rx.timing'), timingField), field(t('rx.duration'), durationField)),
             h('div', { class: 'row wrap between', style: { gap: '8px' } }, h('div', { class: 'chip-row' }, timingChips), h('div', { class: 'chip-row' }, durationChips)),
-            field(t('rx.quantity'), qtyField),
+            h(
+              'div',
+              { class: 'grid two', style: { alignItems: 'end' } },
+              field(t('rx.quantity'), qtyField),
+              h('label', { class: 'row', style: { gap: '6px', cursor: 'pointer', paddingBottom: '8px' } }, nonSubChk, h('span', { class: 'small' }, t('nom.nonSubstitutable'))),
+            ),
           ),
         );
       });
@@ -413,6 +907,8 @@
                     duration: med.default_duration || '',
                     quantity: '',
                     note: '',
+                    substitutable: 1,
+                    schedule: med.schedule || '',
                   });
                   renderItemsList();
                 },
@@ -420,8 +916,24 @@
               h(
                 'div',
                 {},
-                h('div', { class: 'drug-brand' }, `${med.brand} ${med.strength ? `· ${med.strength}` : ''}`),
-                h('div', { class: 'drug-sub' }, `${med.form}${med.dci ? ` — DCI : ${med.dci}` : ''}`),
+                h(
+                  'div',
+                  { class: 'drug-brand' },
+                  `${med.brand} ${med.strength ? `· ${med.strength}` : ''}`,
+                  med.is_generic ? ` [${t('nom.genericBadge')}]` : '',
+                  med.reimbursable ? ` [CNAS ${med.reimbursement_rate || 80}%]` : '',
+                ),
+                h(
+                  'div',
+                  { class: 'drug-sub' },
+                  [
+                    `${med.form}${med.dci ? ` — DCI : ${med.dci}` : ''}`,
+                    med.laboratory || '',
+                    med.ppa ? t('nom.ppaLabel', { v: med.ppa }) : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' · '),
+                ),
               ),
               h('span', { class: 'btn sm soft' }, '＋ ' + t('common.add')),
             ),
@@ -501,32 +1013,107 @@
       ),
     );
 
-    // Save / Print handlers
+    // Save / Print handlers (with Phase 2 blocking override modal for contraindicated/avoid alerts)
+    const executeSavePrescription = async (andPrint, overrideReason = '') => {
+      const created = await window.API.invoke('prescriptions:create', {
+        patient_id: draft.patient_id,
+        department_id: draft.department_id,
+        day: draft.day,
+        patient_name: draft.patient_name.trim(),
+        patient_age: draft.patient_age.trim(),
+        patient_weight: draft.patient_weight.trim(),
+        patient_allergies: draft.patient_allergies,
+        patient_chronic: draft.patient_chronic,
+        diagnosis: draft.diagnosis.trim(),
+        diagnoses: draft.diagnoses || [],
+        vitals_bp: draft.vitals_bp.trim(),
+        vitals_hr: draft.vitals_hr.trim(),
+        vitals_temp: draft.vitals_temp.trim(),
+        vitals_spo2: draft.vitals_spo2.trim(),
+        vitals_glycemia: draft.vitals_glycemia.trim(),
+        exams_requested: draft.exams_requested.trim(),
+        advice: draft.advice.trim(),
+        print_mode: draft.print_mode || 'both',
+        items: draft.items,
+        safety_override_reason: overrideReason,
+      });
+      toast(t('rx.savedToast'), 'ok');
+      draft = createEmptyDraft();
+      if (andPrint) {
+        await window.Components.printPrescription(created.id, { previewFirst: true });
+      }
+      ctx.refresh();
+    };
+
     const submitPrescription = async (andPrint) => {
       try {
-        const created = await window.API.invoke('prescriptions:create', {
-          patient_id: draft.patient_id,
-          department_id: draft.department_id,
-          day: draft.day,
-          patient_name: draft.patient_name.trim(),
-          patient_age: draft.patient_age.trim(),
-          patient_weight: draft.patient_weight.trim(),
-          diagnosis: draft.diagnosis.trim(),
-          vitals_bp: draft.vitals_bp.trim(),
-          vitals_hr: draft.vitals_hr.trim(),
-          vitals_temp: draft.vitals_temp.trim(),
-          vitals_spo2: draft.vitals_spo2.trim(),
-          vitals_glycemia: draft.vitals_glycemia.trim(),
-          exams_requested: draft.exams_requested.trim(),
-          advice: draft.advice.trim(),
-          items: draft.items,
-        });
-        toast(t('rx.savedToast'), 'ok');
-        draft = createEmptyDraft();
-        if (andPrint) {
-          await window.Components.printPrescription(created.id, { previewFirst: true });
+        const evalRes =
+          draft.items.length > 0
+            ? await window.API.invoke('safety:evaluate', {
+                patient_id: draft.patient_id,
+                patient_weight: draft.patient_weight,
+                patient_age: draft.patient_age,
+                patient_allergies: draft.patient_allergies,
+                patient_chronic: draft.patient_chronic,
+                items: draft.items,
+              })
+            : { alerts: [], blocking: false, requires_override: false };
+
+        if (evalRes.blocking || evalRes.requires_override) {
+          const isAr = window.App?.language === 'ar';
+          const reasonIn = textarea({ placeholder: t('safety.overridePrompt'), autofocus: true });
+          const errNode = h('div', { class: 'error-text' });
+          const majorAlerts = evalRes.alerts.filter(
+            (a) => a.severity === 'contraindicated' || a.severity === 'avoid',
+          );
+          modal({
+            title: t('safety.overrideModalTitle'),
+            wide: true,
+            body: h(
+              'div',
+              { class: 'col' },
+              h('div', { class: 'small muted' }, t('safety.disclaimerBanner')),
+              h(
+                'div',
+                { class: 'col', style: { gap: '6px' } },
+                majorAlerts.map((a) =>
+                  h(
+                    'div',
+                    { class: 'allergy-alert' },
+                    `[${severityLabel(a.severity)}] `,
+                    isAr ? a.message_ar || a.message_fr : a.message_fr,
+                  ),
+                ),
+              ),
+              field(t('safety.overridePrompt'), reasonIn),
+              errNode,
+            ),
+            actions: [
+              { label: t('common.cancel'), kind: 'ghost' },
+              {
+                label: t('safety.overrideConfirmBtn'),
+                kind: 'primary',
+                onClick: async () => {
+                  const reason = reasonIn.value.trim();
+                  if (reason.length < 5) {
+                    errNode.textContent = t('safety.overrideReasonRequired');
+                    return false;
+                  }
+                  try {
+                    await executeSavePrescription(andPrint, reason);
+                    return true;
+                  } catch (e) {
+                    errNode.textContent = errorMessage(e);
+                    return false;
+                  }
+                },
+              },
+            ],
+          });
+          return;
         }
-        ctx.refresh();
+
+        await executeSavePrescription(andPrint, '');
       } catch (err) {
         toast(errorMessage(err), 'error');
       }
@@ -572,11 +1159,25 @@
       '⭐ ' + t('rx.saveAsTemplate'),
     );
 
+    const printModeSelect = select(
+      [
+        { value: 'both', label: t('nom.printBoth') },
+        { value: 'dci', label: t('nom.printDci') },
+        { value: 'brand', label: t('nom.printBrand') },
+      ],
+      { value: draft.print_mode || 'both' },
+    );
+    printModeSelect.addEventListener('change', () => {
+      draft.print_mode = printModeSelect.value;
+    });
+
+    renderSelectedDiagnoses();
     renderItemsList();
     runDrugSearch();
 
     host.append(
       headerStrip,
+      intakeBannerHost,
       allergyAlertHost,
       h(
         'div',
@@ -596,7 +1197,9 @@
             draft.patient_chronic
               ? h('div', { class: 'badge warn' }, `${t('patients.chronic')} : ${draft.patient_chronic}`)
               : null,
+            field(t('icd.searchLabel'), h('div', {}, icdSearchInput, icdDropdown, icdChipsHost, icdAlertsHost)),
             field(t('rx.diagnosis'), diagInput),
+            field(t('nom.printModeLabel'), printModeSelect),
             h('div', { class: 'small strong muted' }, t('rx.vitals')),
             h(
               'div',
@@ -1051,6 +1654,320 @@
   }
 
   /* ======================================================================== */
+  /*  TAB 5: Clinical Safety Rules & CSV/JSON Importer                        */
+  /* ======================================================================== */
+  async function renderSafetyRules(host, ctx) {
+    const TABLE_OPTIONS = [
+      { value: 'dose_rules', label: 'dose_rules (mg/kg)' },
+      { value: 'interaction_pairs', label: 'interaction_pairs' },
+      { value: 'contraindications', label: 'contraindications' },
+      { value: 'allergy_class_rules', label: 'allergy_class_rules' },
+      { value: 'controlled_rules', label: 'controlled_rules' },
+    ];
+    let selectedTable = 'dose_rules';
+    const tableSel = select(TABLE_OPTIONS, { value: selectedTable });
+    const formatSel = select([
+      { value: 'json', label: 'JSON' },
+      { value: 'csv', label: 'CSV' },
+    ]);
+    const verifiedChk = h('input', { type: 'checkbox' });
+    const contentArea = textarea({ placeholder: '[{"dci":"paracetamol", ...}]' });
+    const fileInput = h('input', { type: 'file', accept: '.csv,.json,.txt', style: { display: 'none' } });
+    const rulesHost = h('div', { class: 'col' });
+
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) return;
+      if (file.name.toLowerCase().endsWith('.csv')) formatSel.value = 'csv';
+      else formatSel.value = 'json';
+      contentArea.value = await file.text();
+    });
+
+    async function loadRules() {
+      const rows = await window.API.invoke('safety:rules-list', { table: selectedTable, limit: 150 }).catch(() => []);
+      clear(rulesHost);
+      const isAr = window.App?.language === 'ar';
+      for (const r of rows) {
+        const title = r.dci
+          ? `${r.dci}${r.condition_type ? ` · ${r.condition_type}` : ''}${r.mg_per_kg_per_day ? ` · ${r.mg_per_kg_per_day} mg/kg/j` : ''}`
+          : r.dci_a
+            ? `${r.dci_a} × ${r.dci_b} (${r.severity})`
+            : r.class_name_fr || r.class_code;
+        const desc = isAr
+          ? r.notes_ar || r.mechanism_ar || r.message_ar || r.class_name_ar || r.notes_fr || ''
+          : r.notes_fr || r.mechanism_fr || r.message_fr || r.trigger_terms || '';
+        rulesHost.append(
+          h(
+            'div',
+            { class: 'row wrap between', style: { padding: '8px 0', borderBottom: '1px solid var(--line)', gap: '8px' } },
+            h(
+              'div',
+              { class: 'col', style: { gap: '2px' } },
+              h(
+                'div',
+                { class: 'row wrap', style: { gap: '6px' } },
+                h('strong', {}, title),
+                h('span', { class: `badge ${r.verified ? 'ok' : 'warn'}` }, t(r.verified ? 'safety.verifiedRuleTag' : 'safety.unverifiedRuleTag')),
+                h('span', { class: 'muted small' }, r.source || 'starter'),
+              ),
+              desc ? h('div', { class: 'small muted' }, desc) : null,
+            ),
+            h(
+              'button',
+              {
+                type: 'button',
+                class: `btn sm ${r.verified ? 'ghost' : 'soft'}`,
+                onClick: async () => {
+                  try {
+                    await window.API.invoke('safety:rule-verify', {
+                      table: selectedTable,
+                      id: r.id,
+                      verified: !r.verified,
+                    });
+                    await loadRules();
+                  } catch (e) {
+                    toast(errorMessage(e), 'error');
+                  }
+                },
+              },
+              t(r.verified ? 'safety.unverifyBtn' : 'safety.verifyBtn'),
+            ),
+          ),
+        );
+      }
+    }
+
+    tableSel.addEventListener('change', () => {
+      selectedTable = tableSel.value;
+      loadRules();
+    });
+
+    host.append(
+      h('div', { class: 'card small', style: { border: '1px solid var(--warn, #d97706)' } }, '⚠️ ', t('safety.disclaimerBanner')),
+      h(
+        'div',
+        { class: 'grid two', style: { alignItems: 'start' } },
+        h(
+          'div',
+          { class: 'card col' },
+          h('h2', { class: 'card-title' }, t('safety.importTitle')),
+          h('div', { class: 'grid two' }, field(t('safety.tableSelect'), tableSel), field(t('safety.formatSelect'), formatSel)),
+          h(
+            'div',
+            { class: 'row wrap between' },
+            h('label', { class: 'row', style: { gap: '8px', cursor: 'pointer' } }, verifiedChk, h('span', { class: 'small' }, t('safety.markVerified'))),
+            h('button', { type: 'button', class: 'btn sm soft', onClick: () => fileInput.click() }, fileInput, t('safety.chooseFile')),
+          ),
+          field(t('safety.pasteData'), contentArea),
+          h(
+            'button',
+            {
+              type: 'button',
+              class: 'btn primary',
+              onClick: async () => {
+                try {
+                  const res = await window.API.invoke('safety:rules-import', {
+                    table: tableSel.value,
+                    format: formatSel.value,
+                    content: contentArea.value,
+                    mark_verified: verifiedChk.checked,
+                  });
+                  toast(t('safety.importedToast', { n: res.imported }), 'ok');
+                  contentArea.value = '';
+                  await loadRules();
+                } catch (e) {
+                  toast(errorMessage(e), 'error');
+                }
+              },
+            },
+            t('safety.importBtn'),
+          ),
+        ),
+        h('div', { class: 'card col' }, rulesHost),
+      ),
+    );
+
+    await loadRules();
+  }
+
+  /* ======================================================================== */
+  /*  TAB 6: ICD-10 (CIM-10) & Editable Clinical Protocols                    */
+  /* ======================================================================== */
+  async function renderProtocols(host, ctx, shared) {
+    const [summary, icdList] = await Promise.all([
+      window.API.invoke('icd10:summary').catch(() => ({ total: 0, ald_count: 0, notifiable_count: 0 })),
+      window.API.invoke('icd10:search', { query: '', limit: 60 }).catch(() => []),
+    ]);
+
+    const icdFileIn = h('input', { type: 'file', accept: '.csv,.tsv,.json', style: { display: 'none' } });
+    icdFileIn.addEventListener('change', async () => {
+      const f = icdFileIn.files?.[0];
+      if (!f) return;
+      try {
+        const text = await f.text();
+        const fmt = f.name.toLowerCase().endsWith('.json') ? 'json' : 'csv';
+        const res = await window.API.invoke('icd10:import', { format: fmt, content: text });
+        toast(t('icd.importedToast', { inserted: res.inserted, updated: res.updated }), 'ok');
+        ctx.refresh();
+      } catch (e) {
+        toast(errorMessage(e), 'error');
+      } finally {
+        icdFileIn.value = '';
+      }
+    });
+
+    const isAr = window.App.language === 'ar';
+
+    host.append(
+      h(
+        'div',
+        { class: 'card row between wrap', style: { gap: '10px' } },
+        h(
+          'div',
+          { class: 'col', style: { gap: '2px' } },
+          h('strong', {}, t('icd.protocolsTitle')),
+          h(
+            'span',
+            { class: 'muted small' },
+            t('icd.summaryLine', {
+              total: summary.total || 0,
+              ald: summary.ald_count || 0,
+              mdo: summary.notifiable_count || 0,
+            }),
+          ),
+        ),
+        h(
+          'button',
+          { type: 'button', class: 'btn primary', onClick: () => icdFileIn.click() },
+          icdFileIn,
+          '📥 ',
+          t('icd.importBtn'),
+        ),
+      ),
+      h(
+        'div',
+        { class: 'grid two', style: { alignItems: 'start' } },
+        h(
+          'div',
+          { class: 'card col' },
+          h('h2', { class: 'card-title' }, t('rx.templates')),
+          shared.templates.map((tpl) =>
+            h(
+              'div',
+              {
+                class: 'col',
+                style: { padding: '10px', border: '1px solid var(--line)', borderRadius: '10px', gap: '6px' },
+              },
+              h(
+                'div',
+                { class: 'row between wrap', style: { gap: '6px' } },
+                h(
+                  'div',
+                  { class: 'row wrap', style: { gap: '6px' } },
+                  h('strong', {}, isAr ? tpl.title_ar || tpl.title_fr : tpl.title_fr),
+                  tpl.icd10_code ? h('span', { class: 'badge info' }, tpl.icd10_code) : null,
+                  h(
+                    'span',
+                    { class: `badge ${tpl.verified ? 'ok' : 'warn'}` },
+                    t(tpl.verified ? 'icd.verifiedProtocol' : 'icd.unverifiedProtocol'),
+                  ),
+                ),
+                h(
+                  'div',
+                  { class: 'row', style: { gap: '6px' } },
+                  !tpl.verified
+                    ? h(
+                        'button',
+                        {
+                          type: 'button',
+                          class: 'btn sm soft',
+                          onClick: async () => {
+                            await window.API.invoke('prescriptions:template-update', { id: tpl.id, verified: 1 });
+                            toast(t('common.saved'), 'ok');
+                            ctx.refresh();
+                          },
+                        },
+                        '✓ ',
+                        t('icd.verifyBtn'),
+                      )
+                    : null,
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      class: 'btn sm ghost',
+                      onClick: () => {
+                        const titleFrIn = input({ value: tpl.title_fr });
+                        const titleArIn = input({ value: tpl.title_ar || '' });
+                        const icdIn = input({ value: tpl.icd10_code || '', placeholder: 'I10 / J02.9…' });
+                        const examsIn = textarea({ value: tpl.exams_requested || '' });
+                        const adviceIn = textarea({ value: tpl.advice || '' });
+                        modal({
+                          title: t('icd.editProtocolBtn'),
+                          body: h(
+                            'div',
+                            { class: 'col' },
+                            field(t('common.french'), titleFrIn),
+                            field(t('common.arabic'), titleArIn),
+                            field(t('icd.codeLabel'), icdIn),
+                            field(t('rx.exams'), examsIn),
+                            field(t('rx.advice'), adviceIn),
+                          ),
+                          actions: [
+                            { label: t('common.cancel'), class: 'btn' },
+                            {
+                              label: t('common.save'),
+                              class: 'btn primary',
+                              onClick: async () => {
+                                await window.API.invoke('prescriptions:template-update', {
+                                  id: tpl.id,
+                                  title_fr: titleFrIn.value,
+                                  title_ar: titleArIn.value,
+                                  icd10_code: icdIn.value,
+                                  exams_requested: examsIn.value,
+                                  advice: adviceIn.value,
+                                  verified: 1,
+                                });
+                                toast(t('common.saved'), 'ok');
+                                ctx.refresh();
+                              },
+                            },
+                          ],
+                        });
+                      },
+                    },
+                    '✎ ',
+                    t('icd.editProtocolBtn'),
+                  ),
+                ),
+              ),
+              h('div', { class: 'muted small' }, (tpl.items || []).map((it) => it.drug_name).join(' · ')),
+            ),
+          ),
+        ),
+        h(
+          'div',
+          { class: 'card col', style: { maxHeight: '520px', overflowY: 'auto' } },
+          h('h2', { class: 'card-title' }, t('icd.searchLabel')),
+          icdList.map((row) =>
+            h(
+              'div',
+              { class: 'row between wrap', style: { padding: '6px 0', borderBottom: '1px solid var(--line)', gap: '6px' } },
+              h('span', {}, h('strong', {}, `[${row.code}] `), isAr ? row.label_ar || row.label_fr : row.label_fr),
+              h(
+                'span',
+                { class: 'row', style: { gap: '4px' } },
+                row.is_chronic_ald ? h('span', { class: 'badge ok' }, t('icd.aldBadge')) : null,
+                row.is_notifiable ? h('span', { class: 'badge danger' }, t('icd.notifiableBadge')) : null,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /* ======================================================================== */
   /*  Public entry & deep-link helper from Patient File / Agenda              */
   /* ======================================================================== */
   window.openPrescriptionComposer = function openPrescriptionComposer(prefill = {}) {
@@ -1064,6 +1981,8 @@
       patient_chronic: prefill.patient?.chronic_conditions || prefill.patient_chronic || '',
       department_id: prefill.department_id || null,
       diagnosis: prefill.diagnosis || '',
+      vitals_bp: prefill.vitals_bp || '',
+      vitals_glycemia: prefill.vitals_glycemia || '',
       exams_requested: prefill.exams_requested || '',
       advice: prefill.advice || '',
       items: Array.isArray(prefill.items) ? prefill.items.map((it) => ({ ...it })) : [],
@@ -1077,20 +1996,25 @@
       ctx.setHeader(t('rx.title'), t('rx.subtitle'));
       root.append(h('div', { class: 'empty' }, t('common.loading')));
 
-      const [patientsList, depts, templates, medStats, historyPreview] = await Promise.all([
+      const [patientsList, depts, templates, medStats, historyPreview, safetyStats] = await Promise.all([
         window.API.invoke('patients:list', { limit: 800 }).catch(() => []),
         window.API.invoke('departments:list').catch(() => []),
         window.API.invoke('prescriptions:templates').catch(() => []),
         window.API.invoke('medications:stats').catch(() => ({ total: 0 })),
         window.API.invoke('prescriptions:list', { limit: 200 }).catch(() => []),
+        window.API.invoke('safety:stats').catch(() => ({})),
       ]);
       if (!root.isConnected) return;
+
+      const totalSafetyRules = Object.values(safetyStats || {}).reduce((acc, s) => acc + (s?.total || 0), 0);
 
       const tabs = [
         ['compose', 'prescription', t('rx.tabCompose')],
         ['history', 'clock', t('rx.tabHistory', { n: historyPreview.length })],
         ['catalog', 'pill', t('rx.tabCatalog', { n: medStats.total })],
+        ['protocols', 'clipboard', t('icd.tabProtocols', { n: templates.length })],
         ['certificates', 'certificate', t('rx.tabCertificates')],
+        ['safety_rules', 'shield', t('safety.tabRules', { n: totalSafetyRules })],
       ];
 
       const tabBar = h(
@@ -1120,7 +2044,9 @@
       const shared = { patientsList, depts, templates, medStats };
       if (activeTab === 'history') await renderHistory(bodyHost, ctx);
       else if (activeTab === 'catalog') await renderCatalog(bodyHost, ctx);
+      else if (activeTab === 'protocols') await renderProtocols(bodyHost, ctx, shared);
       else if (activeTab === 'certificates') await renderCertificates(bodyHost, ctx, shared);
+      else if (activeTab === 'safety_rules') await renderSafetyRules(bodyHost, ctx);
       else await renderCompose(bodyHost, ctx, shared);
     },
   };

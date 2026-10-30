@@ -40,6 +40,15 @@
       ],
       { value: patient?.gender || '' },
     );
+    const bloodGroup = select(
+      ['', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((bg) => ({
+        value: bg,
+        label: bg || '—',
+      })),
+      { value: patient?.blood_group || '' },
+    );
+    const allergies = input({ value: patient?.allergies || '', placeholder: t('patients.allergies') });
+    const chronic = input({ value: patient?.chronic_conditions || '', placeholder: t('patients.chronic') });
     const notes = textarea({ value: patient?.notes || '', placeholder: t('patients.notes') });
     const error = inlineError();
 
@@ -56,6 +65,9 @@
           phone: phone.value.trim(),
           birth_date: birth.value,
           gender: gender.value || null,
+          blood_group: bloodGroup.value || '',
+          allergies: allergies.value.trim(),
+          chronic_conditions: chronic.value.trim(),
           notes: notes.value.trim(),
         };
         const saved = isEdit
@@ -77,7 +89,9 @@
         { class: 'col' },
         field(t('patients.name'), name),
         field(t('common.phone'), phone),
-        h('div', { class: 'grid two' }, field(t('patients.birth'), birth), field(t('patients.gender'), gender)),
+        h('div', { class: 'grid three' }, field(t('patients.birth'), birth), field(t('patients.gender'), gender), field(t('patients.bloodGroup'), bloodGroup)),
+        field(t('patients.allergies'), allergies),
+        field(t('patients.chronic'), chronic),
         field(t('patients.notes'), notes),
         error,
       ),
@@ -117,7 +131,8 @@
       if (!dateInput.value) return;
       try {
         const info = await window.API.invoke('appointments:day-info', { day: dateInput.value });
-        if (!info.working) dayInfo.textContent = t('agenda.notWorking');
+        if (info.holiday) dayInfo.textContent = '🏖️ ' + t('agenda.doctorOnLeave');
+        else if (!info.working) dayInfo.textContent = t('agenda.notWorking');
         else if (info.left <= 0) dayInfo.textContent = t('agenda.dayFull', { cap: info.capacity });
         else dayInfo.textContent = t('dash.capacityLeft', { n: info.left, cap: info.capacity });
       } catch (err) {
@@ -480,10 +495,120 @@
     }
   };
 
+  /* ------------------------ doctor holiday / sick day ---------------------- */
+  C.openHolidayModal = function openHolidayModal({ defaultDay, onSaved } = {}) {
+    const baseDay = defaultDay || todayISO();
+    const startInput = input({ type: 'date', value: baseDay, min: todayISO() });
+    const endInput = input({ type: 'date', value: baseDay, min: todayISO() });
+    startInput.addEventListener('change', () => {
+      if (!endInput.value || endInput.value < startInput.value) {
+        endInput.value = startInput.value;
+      }
+      endInput.min = startInput.value;
+    });
+
+    const reasonSelect = select(
+      [
+        { value: 'vacation', label: '🏖️ ' + t('holidays.reasonVacation') },
+        { value: 'sick', label: '🩺 ' + t('holidays.reasonSick') },
+        { value: 'other', label: '🔒 ' + t('holidays.reasonOther') },
+      ],
+      { value: 'vacation' },
+    );
+
+    const noteInput = input({ placeholder: t('holidays.noteLabel') });
+    const blockWaBox = input({ type: 'checkbox', checked: false });
+    const error = inlineError();
+
+    modal({
+      title: '🏖️ ' + t('holidays.title'),
+      body: h(
+        'div',
+        { class: 'col' },
+        h(
+          'div',
+          { class: 'grid two' },
+          field(t('holidays.startDay'), startInput),
+          field(t('holidays.endDay'), endInput),
+        ),
+        field(t('holidays.reason'), reasonSelect, t('holidays.privacyHint')),
+        field(t('holidays.noteLabel'), noteInput),
+        h(
+          'div',
+          { class: 'row between', style: { gap: '12px', paddingTop: '4px' } },
+          h('span', { class: 'small' }, t('holidays.blockAllWa')),
+          h('label', { class: 'switch' }, blockWaBox, h('span', {})),
+        ),
+        error,
+      ),
+      actions: [
+        { label: t('common.cancel'), kind: 'ghost' },
+        {
+          label: t('common.save'),
+          kind: 'primary',
+          onClick: async () => {
+            error.textContent = '';
+            try {
+              const saved = await window.API.invoke('holidays:create', {
+                start_day: startInput.value,
+                end_day: endInput.value || startInput.value,
+                reason_type: reasonSelect.value,
+                label: noteInput.value.trim(),
+                block_all_wa: blockWaBox.checked,
+              });
+              toast(t('holidays.added'), 'ok');
+              if (onSaved) onSaved(saved);
+              return true;
+            } catch (err) {
+              error.textContent = errorMessage(err);
+              return false;
+            }
+          },
+        },
+      ],
+    });
+  };
+
   /* --------------------------- live clinic queue --------------------------- */
+  C.rescheduleDialog = function rescheduleDialog(appointment, onDone) {
+    const day = input({ type: 'date', value: appointment.day, min: todayISO() });
+    const error = h('div', { class: 'error-text' });
+    modal({
+      title: t('agenda.reschedule'),
+      body: h('div', { class: 'col' }, field(t('agenda.chooseDay'), day), error),
+      actions: [
+        { label: t('common.cancel'), kind: 'ghost' },
+        {
+          label: t('common.confirm'),
+          kind: 'primary',
+          onClick: async () => {
+            try {
+              await window.API.invoke('appointments:reschedule', { id: appointment.id, day: day.value });
+              toast(t('agenda.rescheduled'), 'ok');
+              if (onDone) onDone();
+            } catch (err) {
+              error.textContent = errorMessage(err);
+              return false;
+            }
+            return true;
+          },
+        },
+      ],
+    });
+  };
+
   C.completeAppointment = async function completeAppointment(appointment, onChanged) {
     try {
-      const isToday = appointment.day === todayISO();
+      const today = todayISO();
+      if (appointment.day > today) {
+        toast(t('error.APPOINTMENT_FUTURE_DAY'), 'error');
+        return;
+      }
+      const isToday = appointment.day === today;
+      if (isToday && appointment.is_current_turn === false) {
+        toast(t('error.QUEUE_OUT_OF_TURN'), 'error');
+        return;
+      }
       if (isToday) {
         const res = await window.API.invoke('appointments:complete', { id: appointment.id });
         if (window.MiniChat) window.MiniChat.refresh({ scrollBottom: true });
@@ -612,6 +737,103 @@
       ),
       h('div', { class: 'row wrap', style: { gap: '8px' } }, openChatBtn, finishBtn),
     );
+  };
+
+  /* ------------------------ license & activation -------------------------- */
+  C.openLicenseModal = async function openLicenseModal({ onActivated } = {}) {
+    let status = window.App?.licenseStatus || null;
+    try {
+      status = await window.API.invoke('license:status');
+      if (window.App) window.App.licenseStatus = status;
+    } catch (_e) {
+      status = status || { state: 'trial', machineCode: '—', daysRemaining: 7 };
+    }
+
+    const machineCode = status?.machineCode || '—';
+    const keyInput = textarea({
+      placeholder: t('lic.keyPlaceholder'),
+      style: { fontFamily: 'monospace', minHeight: '78px', direction: 'ltr', textAlign: 'left' },
+    });
+    const error = inlineError();
+
+    const statusBadgeNode =
+      status?.state === 'activated'
+        ? h(
+            'div',
+            { class: 'callout', style: { borderColor: 'var(--ok)', background: 'var(--ok-soft)' } },
+            '✅ ',
+            status.plan === 'LIFE'
+              ? t('lic.lifetimeBanner')
+              : t('lic.activatedBanner', {
+                  plan: status.plan || 'PRO',
+                  date: window.I18N.formatDate((status.expiresAt || '').slice(0, 10)),
+                }),
+          )
+        : status?.state === 'expired'
+          ? h('div', { class: 'allergy-alert' }, '🔒 ', t('lic.expiredBanner'))
+          : h(
+              'div',
+              { class: 'callout' },
+              '⏳ ',
+              t('lic.trialBanner', { d: status?.daysRemaining ?? 7 }),
+            );
+
+    modal({
+      title: t('lic.title'),
+      body: h(
+        'div',
+        { class: 'col' },
+        statusBadgeNode,
+        h(
+          'div',
+          { class: 'card row wrap between', style: { padding: '12px 14px', gap: '10px' } },
+          h(
+            'div',
+            {},
+            h('div', { class: 'small muted' }, t('lic.machineCode')),
+            h('strong', { style: { fontFamily: 'monospace', fontSize: '1.05rem', letterSpacing: '0.04em' }, dir: 'ltr' }, machineCode),
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              class: 'btn sm soft',
+              onClick: async () => {
+                const ok = await window.API.copyText(machineCode);
+                if (ok) toast(t('lic.copiedMachine'), 'ok');
+              },
+            },
+            window.Icons ? window.Icons.el('copy', { size: 15 }) : '',
+            ' ',
+            t('lic.copyMachine'),
+          ),
+        ),
+        h('div', { class: 'muted small' }, t('lic.instructions')),
+        field(t('lic.enterKey'), keyInput),
+        error,
+      ),
+      actions: [
+        { label: t('common.close'), kind: 'ghost' },
+        {
+          label: t('lic.activateNow'),
+          kind: 'primary',
+          onClick: async () => {
+            error.textContent = '';
+            try {
+              const nextStatus = await window.API.invoke('license:activate', { code: keyInput.value });
+              if (window.App) window.App.licenseStatus = nextStatus;
+              toast(t('lic.activatedToast'), 'ok');
+              if (onActivated) onActivated(nextStatus);
+              if (window.App?.rerender) await window.App.rerender();
+              return true;
+            } catch (err) {
+              error.textContent = errorMessage(err);
+              return false;
+            }
+          },
+        },
+      ],
+    });
   };
 
   C.methodOptions = methodOptions;

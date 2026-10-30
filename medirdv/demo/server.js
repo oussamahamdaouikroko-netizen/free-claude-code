@@ -17,6 +17,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const db = require('../src/main/db');
 const auth = require('../src/main/services/auth');
+const license = require('../src/main/services/license');
 const backup = require('../src/main/services/backup');
 const appointments = require('../src/main/services/appointments');
 const settings = require('../src/main/services/settings');
@@ -111,6 +112,7 @@ async function startDemo(options = {}) {
   const dbFile = path.join(dataDir, 'demo.sqlite');
   fs.mkdirSync(dataDir, { recursive: true });
 
+  license.configure({ storageDir: dataDir, demoMode: true });
   db.open(dbFile);
   backup.init(dataDir);
   seedDemoData();

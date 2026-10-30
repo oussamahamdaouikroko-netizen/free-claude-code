@@ -1,14 +1,18 @@
 'use strict';
 /**
- * Preload bridge. Exposes a *single* narrow API to the renderer:
- * `dentardv.invoke(method, payload)` plus two event subscriptions.
- * No Node API, no filesystem, no remote code in the UI layer.
+ * Preload bridge. Exposes a narrow API to the renderer:
+ * `dentardv.invoke(method, payload)`, `dentardv.invokeRaw(method, payload)`
+ * (preserves `.code`/`.details` across Electron's contextBridge), and event subscriptions.
  */
 
 const { contextBridge, ipcRenderer } = require('electron');
 
+const invokeRaw = async (method, payload) => {
+  return ipcRenderer.invoke('dentardv:invoke', method, payload);
+};
+
 const invoke = async (method, payload) => {
-  const result = await ipcRenderer.invoke('dentardv:invoke', method, payload);
+  const result = await invokeRaw(method, payload);
   if (!result || result.ok !== true) {
     const info = (result && result.error) || { code: 'INTERNAL_ERROR', message: 'Unknown error' };
     const error = new Error(info.message || info.code);
@@ -28,6 +32,7 @@ const subscribe = (channel, callback) => {
 
 contextBridge.exposeInMainWorld('dentardv', {
   invoke,
+  invokeRaw,
   onWhatsAppStatus: (callback) => subscribe('dentardv:wa-status', callback),
   onEvent: (callback) => subscribe('dentardv:event', callback),
   platform: process.platform,

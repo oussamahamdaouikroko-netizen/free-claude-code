@@ -24,11 +24,86 @@
           window.API.invoke('patients:get', { id: patientId }),
           window.API.invoke('payments:by-patient', { patient_id: patientId }),
         ]);
-        const { patient, history } = data;
+        const { patient, history, prescriptions = [], certificates = [], pending_intake: pendingIntake } = data;
         const upcoming = history.find(
           (row) => row.day >= todayISO() && (row.status === 'booked' || row.status === 'done'),
         );
         const balance = Number(patient.balance) || 0;
+
+        const clinicalTags = h(
+          'div',
+          { class: 'row wrap mt-s', style: { gap: '6px' } },
+          patient.blood_group ? h('span', { class: 'badge soft' }, `🩸 ${patient.blood_group}`) : null,
+          patient.allergies ? h('span', { class: 'badge danger' }, t('patients.allergyTag', { v: patient.allergies })) : null,
+          patient.chronic_conditions ? h('span', { class: 'badge warn' }, patient.chronic_conditions) : null,
+        );
+
+        const intakeCard = pendingIntake
+          ? h(
+              'div',
+              {
+                class: 'card row wrap between mt',
+                style: {
+                  padding: '12px 14px',
+                  border: '1.5px solid var(--warn)',
+                  background: 'var(--warn-soft)',
+                  gap: '10px',
+                },
+              },
+              h(
+                'div',
+                { class: 'col', style: { gap: '4px' } },
+                h('strong', { class: 'small' }, '📋 ', t('intake.cardTitle')),
+                h(
+                  'div',
+                  { class: 'small' },
+                  [
+                    pendingIntake.effective_age_years ? `${Math.round(pendingIntake.effective_age_years)} ans` : '',
+                    pendingIntake.weight_kg ? `${pendingIntake.weight_kg} kg` : '',
+                    pendingIntake.chief_complaint || '',
+                  ]
+                    .filter(Boolean)
+                    .join(' · '),
+                ),
+              ),
+              h(
+                'div',
+                { class: 'row wrap', style: { gap: '6px' } },
+                h(
+                  'button',
+                  {
+                    class: 'btn sm primary',
+                    onClick: async () => {
+                      try {
+                        await window.API.invoke('intake:confirm', { id: pendingIntake.id });
+                        toast(t('intake.appliedToast'), 'ok');
+                        load();
+                      } catch (err) {
+                        toast(errorMessage(err), 'error');
+                      }
+                    },
+                  },
+                  t('intake.confirmBtn'),
+                ),
+                h(
+                  'button',
+                  {
+                    class: 'btn sm ghost',
+                    onClick: async () => {
+                      try {
+                        await window.API.invoke('intake:reject', { id: pendingIntake.id });
+                        toast(t('intake.rejectedToast'), 'ok');
+                        load();
+                      } catch (err) {
+                        toast(errorMessage(err), 'error');
+                      }
+                    },
+                  },
+                  t('intake.rejectBtn'),
+                ),
+              ),
+            )
+          : null;
 
         host.replaceChildren(
           h(
@@ -39,6 +114,7 @@
               {},
               h('div', { style: { fontSize: '1.25rem', fontWeight: '700' } }, patient.full_name),
               h('div', { class: 'muted small' }, [patient.phone, patient.birth_date ? formatDate(patient.birth_date) : ''].filter(Boolean).join(' · ') || '—'),
+              clinicalTags,
               patient.notes ? h('div', { class: 'muted small mt-s' }, '📝 ' + patient.notes) : null,
             ),
             h(
@@ -47,7 +123,7 @@
               h('span', { class: `badge ${balance > 0.009 ? 'danger' : 'ok'}` }, `${t('patients.debt')} : ${formatMoney(Math.max(0, balance), currency())}`),
               h(
                 'div',
-                { class: 'row' },
+                { class: 'row wrap' },
                 h(
                   'button',
                   {
@@ -59,6 +135,18 @@
                       }),
                   },
                   '✏️ ' + t('common.edit'),
+                ),
+                h(
+                  'button',
+                  {
+                    class: 'btn sm soft',
+                    onClick: () => {
+                      if (window.openPrescriptionComposer) window.openPrescriptionComposer(patient);
+                    },
+                  },
+                  window.Icons ? window.Icons.el('prescription', { size: 15 }) : '',
+                  ' ',
+                  t('rx.newPrescription'),
                 ),
                 h(
                   'button',
@@ -89,6 +177,7 @@
               ),
             ),
           ),
+          intakeCard,
           upcoming
             ? section(
                 t('patients.upcoming'),
@@ -265,6 +354,66 @@
                   ),
                 ),
           ),
+          section(
+            `${t('patients.prescriptions')} (${prescriptions.length})`,
+            prescriptions.length === 0
+              ? h('div', { class: 'muted small' }, t('rx.historyEmpty'))
+              : h(
+                  'div',
+                  { class: 'table-wrap' },
+                  h(
+                    'table',
+                    { class: 'list' },
+                    h('thead', {}, h('tr', {}, h('th', {}, 'N°'), h('th', {}, t('common.date')), h('th', {}, t('rx.toothRef')), h('th', {}, t('rx.diagnosis')), h('th', { class: 'actions' }, ''))),
+                    h(
+                      'tbody',
+                      {},
+                      prescriptions.map((rx) =>
+                        h(
+                          'tr',
+                          {},
+                          h('td', { class: 'num' }, `#${rx.id}`),
+                          h('td', {}, formatDate(rx.day)),
+                          h('td', {}, rx.tooth_ref || '—'),
+                          h('td', {}, rx.diagnosis || '—'),
+                          h(
+                            'td',
+                            { class: 'actions' },
+                            h(
+                              'button',
+                              {
+                                class: 'btn icon sm',
+                                title: t('rx.previewTitle'),
+                                onClick: () => window.openRxPreviewModal && window.openRxPreviewModal(rx.id, 'A4', rx.print_mode || 'both'),
+                              },
+                              '🖨️',
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+          ),
+          certificates.length > 0
+            ? section(
+                `${t('patients.certificates')} (${certificates.length})`,
+                h(
+                  'div',
+                  { class: 'row wrap', style: { gap: '8px' } },
+                  certificates.map((cert) =>
+                    h(
+                      'button',
+                      {
+                        class: 'btn sm soft',
+                        onClick: () => window.openCertPreviewModal && window.openCertPreviewModal(cert.id),
+                      },
+                      `🖨️ #${cert.id} · ${t(`cert.${cert.kind}`)} (${formatDate(cert.day)})`,
+                    ),
+                  ),
+                ),
+              )
+            : null,
         );
       } catch (error) {
         host.replaceChildren(h('div', { class: 'error-text' }, errorMessage(error)));

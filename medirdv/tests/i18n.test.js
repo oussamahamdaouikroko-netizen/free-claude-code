@@ -38,21 +38,44 @@ function loadDictionary() {
   return dict;
 }
 
-test('French and Arabic dictionaries have the same keys', () => {
+test('French, Arabic, and English dictionaries have the same keys and placeholders', () => {
   const dict = loadDictionary();
   const fr = Object.keys(dict.fr).sort();
   const ar = Object.keys(dict.ar).sort();
+  const en = Object.keys(dict.en || {}).sort();
   const missingInArabic = fr.filter((key) => !(key in dict.ar));
   const missingInFrench = ar.filter((key) => !(key in dict.fr));
+  const missingInEnglish = fr.filter((key) => !(key in dict.en));
+  const extraInEnglish = en.filter((key) => !(key in dict.fr));
   assert.deepEqual(missingInArabic, [], 'missing Arabic translations');
   assert.deepEqual(missingInFrench, [], 'missing French translations');
+  assert.deepEqual(missingInEnglish, [], 'missing English translations');
+  assert.deepEqual(extraInEnglish, [], 'extra English keys missing in French');
   assert.ok(fr.length > 150, `dictionary looks too small: ${fr.length}`);
+
+  const extractPlaceholders = (str) =>
+    [...new Set((String(str).match(/\{[a-zA-Z0-9_]+\}/g) || []))].sort();
+  const placeholderMismatches = [];
+  for (const key of fr) {
+    const pFr = extractPlaceholders(dict.fr[key]);
+    const pAr = extractPlaceholders(dict.ar[key]);
+    const pEn = extractPlaceholders(dict.en[key]);
+    if (JSON.stringify(pFr) !== JSON.stringify(pAr)) placeholderMismatches.push(`ar:${key}`);
+    if (JSON.stringify(pFr) !== JSON.stringify(pEn)) placeholderMismatches.push(`en:${key}`);
+  }
+  assert.deepEqual(placeholderMismatches, [], 'placeholder mismatches across fr/ar/en');
 });
 
 test('no French text is left in the Arabic dictionary', () => {
   const dict = loadDictionary();
   // Keys allowed to stay in Latin script (brand, example numbers, language names).
-  const allowed = new Set(['app.name', 'common.french', 'common.arabic', 'auth.clinicPlaceholder']);
+  const allowed = new Set([
+    'app.name',
+    'common.french',
+    'common.arabic',
+    'common.english',
+    'auth.clinicPlaceholder',
+  ]);
   const suspicious = [];
   for (const [key, value] of Object.entries(dict.ar)) {
     if (allowed.has(key)) continue;
@@ -103,7 +126,9 @@ test('error codes returned by services have a translation', () => {
   };
   walk(servicesDir);
 
-  const missing = [...codes].filter((code) => !(`error.${code}` in dict.fr));
-  assert.deepEqual(missing, [], `error codes without a French message: ${missing.join(', ')}`);
+  const missing = [...codes].filter(
+    (code) => !(`error.${code}` in dict.fr) || !(`error.${code}` in dict.ar) || !(`error.${code}` in dict.en),
+  );
+  assert.deepEqual(missing, [], `error codes without fr/ar/en messages: ${missing.join(', ')}`);
   assert.ok(codes.size >= 15, `expected several error codes, got ${codes.size}`);
 });

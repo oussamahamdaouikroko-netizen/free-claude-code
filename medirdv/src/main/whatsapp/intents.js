@@ -1,14 +1,123 @@
 'use strict';
 /**
- * Intent detection for incoming WhatsApp messages.
+ * Intent detection, greeting detection, and person-name validation for
+ * incoming WhatsApp messages.
  *
- * Kept 100% pure (no DB, no network) so it can be unit-tested. Arabic is
- * normalized first: diacritics removed, letter variants unified, so "إلغاء",
- * "الغاء" and "لغاء" all match the same keyword list.
+ * Kept 100% pure (no DB, no network) so it can be unit-tested independently.
  */
 
-/** Arabic diacritics + tatweel. */
+const { isValidISODate, addDays, weekday, diffDays, toISODate } = require('../utils/dates');
+
+/* -------------------------------------------------------------------------- */
+/*  Configurable Person-Name & Greeting Constants (edit here as needed)       */
+/* -------------------------------------------------------------------------- */
+
+const NAME_RULES = {
+  MIN_WORDS: 2,
+  MAX_WORDS: 5,
+  MIN_WORD_LENGTH: 2,
+  MAX_WORD_LENGTH: 20,
+  MAX_TOTAL_LENGTH: 60,
+  EXAMPLE_AR: 'أسامة حمداوي',
+  EXAMPLE_FR: 'Oussama Hamdaoui',
+};
+
+/** Whole-word starters that classify any message starting with them as a greeting. */
+const GREETING_START_WORDS = new Set([
+  'السلام',
+  'سلام',
+  'مرحبا',
+  'اهلا',
+  'هلا',
+  'صباح',
+  'مساء',
+  'hello',
+  'hi',
+  'hey',
+  'salut',
+  'bonjour',
+  'bonsoir',
+  '/start',
+]);
+
+/** Multi-word greeting prefixes matched on full word boundaries. */
+const GREETING_PHRASE_PREFIXES = [
+  'وعليكم السلام',
+  'عسلامه',
+  'يا مرحبا',
+  'يا هلا',
+  'يا اهلا',
+  'as salam',
+  'assalam alikoum',
+  'salam alikoum',
+  'salam aleykoum',
+  'good morning',
+  'good afternoon',
+  'good evening',
+];
+
+/** Exact single/short greeting expressions. */
+const GREETING_EXACT_SET = new Set([
+  ...GREETING_START_WORDS,
+  'اهلين',
+  'سهلا',
+  'اهلا وسهلا',
+  'مرحبا بك',
+  'مرحبا بكم',
+  'السلام عليكم',
+  'سلام عليكم',
+  'صباح الخير',
+  'صباح النور',
+  'مساء الخير',
+  'مساء النور',
+  'عسلامه',
+  'صحا',
+  'صحيت',
+  'ابدا',
+  'start',
+  'bjr',
+  'bj',
+  'bsr',
+  'slt',
+  'cc',
+  'coucou',
+  'salam',
+  'slm',
+  'saha',
+  'marhba',
+  'marhaba',
+  'ahlan',
+]);
+
+/** Common words / commands that must never be accepted inside a person's name. */
+const NON_NAME_WORDS = new Set([
+  'نعم', 'لا', 'اوكي', 'اوك', 'شكرا', 'ابدا', 'تمام', 'حسنا', 'صافي',
+  'موعد', 'موعدي', 'مواعيد', 'حجز', 'احجز', 'نحجز', 'الغاء', 'الغي', 'تاكيد',
+  'عياده', 'طبيب', 'دكتور', 'فحص', 'استماره', 'معلومات', 'ملفي',
+  'اريد', 'بغيت', 'نحب', 'ممكن', 'هل', 'كيف', 'كيفاش', 'متي', 'وقتاش', 'وين', 'اين',
+  'بكم', 'شحال', 'سعر', 'اسمي', 'مساعده',
+  'متاحه', 'متوفره', 'شاغره', 'تواريخ', 'ايام',
+  'ok', 'oui', 'non', 'si', 'yes', 'no', 'merci', 'thanks', 'daccord',
+  'start', 'help', 'aide', 'menu', 'info', 'information',
+  'rdv', 'rendez', 'reserver', 'reservation', 'annuler', 'annule', 'cancel', 'confirmer', 'confirm',
+  'appointment', 'appointments', 'booking', 'bookings', 'schedule', 'available', 'days', 'dates',
+  'disponible', 'disponibles', 'disponibilite', 'disponibilites', 'creneau', 'creneaux',
+  'svp', 'stp', 'please', 'docteur', 'doctor', 'cabinet', 'clinique', 'clinic',
+  'combien', 'prix', 'tarif', 'price', 'cost', 'quand', 'comment', 'when', 'where', 'how',
+]);
+
+/** Arabic diacritics (tashkeel) + tatweel ("ـ"). */
 const AR_DIACRITICS = /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g;
+
+/**
+ * Allowed letters in person names:
+ *  - Arabic letters (\u0621-\u063A, \u0641-\u064A, \u0671-\u06D3, \u06D5) — excludes Arabic digits & punctuation
+ *  - Latin ASCII + accented Latin letters (\u00C0-\u024F minus × \u00D7 and ÷ \u00F7)
+ *  - Single internal '-' or "'" between letter groups (e.g. Ait-Ahmed, O'Brien)
+ */
+const ALLOWED_LETTERS = 'A-Za-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u024F\\u0621-\\u063A\\u0641-\\u064A\\u0671-\\u06D3\\u06D5';
+const VALID_NAME_WORD_RE = new RegExp(`^[${ALLOWED_LETTERS}]+(?:[-'][${ALLOWED_LETTERS}]+)*$`);
+const URL_LIKE_RE = /(?:https?:\/\/|www\.|\b[a-z0-9-]+\.(?:com|net|org|dz|fr|io|me|co|ly|info|app)\b)/i;
 
 function normalize(text) {
   return String(text ?? '')
@@ -25,24 +134,260 @@ function normalize(text) {
     .trim();
 }
 
+/**
+ * Normalize text specifically for greeting comparison:
+ * lowercase, strip tashkeel & tatweel, unify (إأآٱ -> ا), (ى -> ي), (ة -> ه), collapse spaces.
+ */
+function normalizeGreeting(text) {
+  return String(text ?? '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(AR_DIACRITICS, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/[^\p{L}\p{N}\s/]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Detect whether rawText is a greeting (exact match or whole-word greeting starter,
+ * including /start), without falsely matching lookalike names such as "سلامة" or "هلال".
+ */
+function isGreeting(rawText) {
+  const trimmed = String(rawText ?? '').trim();
+  if (!trimmed) return false;
+  if (/^\/start(?:\s|$|@)/i.test(trimmed)) return true;
+
+  const norm = normalizeGreeting(trimmed);
+  if (!norm) return false;
+  const collapsed = norm.replace(/(.)\1{2,}/gu, '$1');
+
+  if (GREETING_EXACT_SET.has(norm) || GREETING_EXACT_SET.has(collapsed)) return true;
+  if (GREETING_PHRASE_PREFIXES.some((p) => norm === p || norm.startsWith(`${p} `))) return true;
+
+  const firstWord = norm.split(' ')[0];
+  const firstCollapsed = collapsed.split(' ')[0];
+  if (GREETING_START_WORDS.has(firstWord) || GREETING_START_WORDS.has(firstCollapsed)) return true;
+
+  return false;
+}
+
+/** Clean a candidate name: strip tashkeel & tatweel, normalize apostrophes, collapse spaces. */
+function cleanPersonName(rawText) {
+  return String(rawText ?? '')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(AR_DIACRITICS, '')
+    .replace(/[ \t\u00A0]+/g, ' ')
+    .trim();
+}
+
+/** Format a validated cleaned name: preserve Arabic, title-case Latin segments (e.g. Ait-Ahmed). */
+function formatPersonName(cleanedName) {
+  return cleanedName
+    .split(' ')
+    .map((word) => {
+      if (!/[A-Za-z\u00C0-\u024F]/.test(word)) return word;
+      return word
+        .split(/([-'])/)
+        .map((seg) => {
+          if (seg === '-' || seg === "'") return seg;
+          if (!seg) return seg;
+          return seg.charAt(0).toUpperCase() + seg.slice(1).toLowerCase();
+        })
+        .join('');
+    })
+    .join(' ');
+}
+
 const CANCEL_WORDS = [
   'annuler', 'annule', 'annulation', 'annulez', 'cancel', 'supprimer', 'effacer',
   'الغاء', 'الغي', 'الغاء الموعد', 'الغاء الحجز', 'نلغي', 'لغي', 'لالغاء', 'الغي الموعد',
 ];
 
+const CONFIRM_WORDS = [
+  'confirmer', 'confirme', 'confirmation', 'confirm',
+  'تاكيد', 'اكد', 'ماكد', 'مءكد', 'تاكيد الموعد',
+];
+
 const MY_APPOINTMENT_WORDS = [
   'mon rdv', 'mon rendez', 'mon rendez vous', 'rdv', 'rendez vous', 'rendez',
   'mes rdv', 'ma reservation', 'reservation', 'consulter', 'quand est mon rdv',
+  'my appointment', 'my booking', 'check appointment', 'when is my appointment',
   'موعدي', 'الموعد', 'موعد', 'حجزي', 'الحجز', 'متي موعدي', 'وقتاش موعدي', 'وقتاش موعد',
   'وين موعدي', 'اشوف موعدي', 'موعدي وين',
 ];
 
 const HELP_WORDS = [
-  'aide', 'help', 'menu', 'info', 'information', 'bonjour', 'salut', 'bjr', 'bj',
-  'bonsoir', 'cc', 'salam', 'salam alikoum', 'salam aleykoum', 'as salam alikoum',
-  'saha', 'marhba', 'مرحبا', 'اهلا', 'سلام', 'السلام عليكم', 'صباح الخير', 'مساء الخير',
+  'aide', 'help', 'menu', 'info', 'information', '/help', '/menu',
   'مساعدة', 'مساعده', 'كيفاش', 'كيف',
 ];
+
+const INTAKE_WORDS = [
+  'fiche', 'ma fiche', 'fiche medicale', 'pre consultation', 'preconsultation', 'poids',
+  'intake', 'medical form', 'weight',
+  'معلومات', 'معلوماتي', 'وزن', 'الوزن', 'استماره', 'ملفي', 'ملف طبي',
+];
+
+const BOOK_WORDS = [
+  '/book', 'book', 'book appointment', 'new appointment', 'reserver', 'prendre rdv', 'prendre rendez vous', 'nouveau rdv',
+  'حجز', 'حجز موعد', 'حجز جديد', 'اريد حجز', 'اريد موعد', 'نحجز',
+];
+
+const DATES_WORDS = [
+  'jours disponibles', 'dates disponibles', 'disponibilites', 'disponibilite',
+  'creneaux disponibles', 'creneaux', 'prochains jours', 'quelles dates', 'quels jours',
+  'available days', 'available dates', 'open dates', 'open days', 'free days', 'next available',
+  'الايام المتاحه', 'المواعيد المتاحه', 'التواريخ المتاحه',
+  'الايام المتوفره', 'المواعيد المتوفره', 'التواريخ المتوفره',
+  'الايام الشاغره', 'المواعيد الشاغره', 'الايام الفارغه',
+  'ايام الحجز', 'تواريخ الحجز', 'وشمن نهار', 'واش من نهار', 'وقتاش كاين موعد',
+];
+
+const MORE_DAYS_WORDS = new Set([
+  '0', 'المزيد', 'مزيد', 'ايام اخري', 'ايام اخرى', 'تواريخ اخري', 'تواريخ اخرى',
+  'مواعيد اخري', 'مواعيد اخرى', 'التالي', 'plus', 'autres', 'autres jours',
+  'autres dates', 'suivant', 'more', 'more days', 'more dates', 'next',
+]);
+
+const WEEKDAY_SYNONYMS = [
+  { wd: 0, words: ['الاحد', 'احد', 'لحد', 'يوم الاحد', 'نهار الاحد', 'نهار لحد', 'dimanche', 'sunday'] },
+  { wd: 1, words: ['الاثنين', 'اثنين', 'الاتنين', 'لتنين', 'يوم الاثنين', 'نهار الاثنين', 'نهار لتنين', 'lundi', 'monday'] },
+  { wd: 2, words: ['الثلاثاء', 'ثلاثاء', 'التلاتاء', 'لتلات', 'الثلاثا', 'يوم الثلاثاء', 'نهار الثلاثاء', 'نهار لتلات', 'mardi', 'tuesday'] },
+  { wd: 3, words: ['الاربعاء', 'اربعاء', 'الاربعا', 'لاربع', 'لاربعا', 'يوم الاربعاء', 'نهار الاربعاء', 'نهار لاربع', 'mercredi', 'wednesday'] },
+  { wd: 4, words: ['الخميس', 'خميس', 'لخميس', 'يوم الخميس', 'نهار الخميس', 'نهار لخميس', 'jeudi', 'thursday'] },
+  { wd: 5, words: ['الجمعه', 'جمعه', 'لجمعه', 'يوم الجمعه', 'نهار الجمعه', 'vendredi', 'friday'] },
+  { wd: 6, words: ['السبت', 'سبت', 'لسبت', 'يوم السبت', 'نهار السبت', 'samedi', 'saturday'] },
+];
+
+/** Convert Eastern Arabic / Persian digits to ASCII 0-9. */
+function normalizeDigits(text) {
+  return String(text ?? '')
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)));
+}
+
+/**
+ * Parse a patient's reply while choosing an available booking day.
+ * Supports:
+ *  - '0' / 'المزيد' / 'plus' -> { type: 'more' }
+ *  - '1'..'N' (or Arabic digits '١'..'٩', 'رقم 2', 'choix 2') -> { type: 'index', index: n - 1 }
+ *  - 'YYYY-MM-DD', 'DD/MM/YYYY', 'DD-MM-YYYY', 'DD/MM', 'DD-MM' -> { type: 'date', day }
+ *  - 'اليوم'/'aujourd\'hui', 'غدا'/'غدوة'/'demain', 'بعد غد'/'après-demain', or weekday name -> { type: 'date', day }
+ */
+function parseDaySelection(rawText, choicesLength = 0, options = {}) {
+  const today = options.fromDate || toISODate();
+  const allowSameDay = options.allowSameDay !== false;
+  const ascii = normalizeDigits(rawText).trim();
+  if (!ascii) return { type: 'unknown' };
+
+  const norm = normalize(ascii);
+  if (MORE_DAYS_WORDS.has(norm)) {
+    return { type: 'more' };
+  }
+
+  // 1. Explicit ISO date: YYYY-MM-DD or YYYY/MM/DD
+  const isoMatch = ascii.match(/^(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})$/);
+  if (isoMatch) {
+    const day = `${isoMatch[1]}-${isoMatch[2].padStart(2, '0')}-${isoMatch[3].padStart(2, '0')}`;
+    return isValidISODate(day) ? { type: 'date', day } : { type: 'invalid_date' };
+  }
+
+  // 2. Explicit DD/MM/YYYY or DD-MM-YYYY (4-digit or 2-digit year)
+  const dmyMatch = ascii.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2}|\d{4})$/);
+  if (dmyMatch) {
+    const yearStr = dmyMatch[3].length === 2 ? `20${dmyMatch[3]}` : dmyMatch[3];
+    const day = `${yearStr}-${dmyMatch[2].padStart(2, '0')}-${dmyMatch[1].padStart(2, '0')}`;
+    return isValidISODate(day) ? { type: 'date', day } : { type: 'invalid_date' };
+  }
+
+  // 3. Short DD/MM or DD-MM (resolves to current year, or next year near year-end)
+  const dmMatch = ascii.match(/^(\d{1,2})[/-](\d{1,2})$/);
+  if (dmMatch) {
+    const todayYear = Number.parseInt(today.slice(0, 4), 10);
+    const mm = dmMatch[2].padStart(2, '0');
+    const dd = dmMatch[1].padStart(2, '0');
+    let candidate = `${todayYear}-${mm}-${dd}`;
+    if (!isValidISODate(candidate)) {
+      candidate = `${todayYear + 1}-${mm}-${dd}`;
+      if (!isValidISODate(candidate)) return { type: 'invalid_date' };
+    } else if (diffDays(today, candidate) < -30) {
+      const nextYearCandidate = `${todayYear + 1}-${mm}-${dd}`;
+      if (isValidISODate(nextYearCandidate)) candidate = nextYearCandidate;
+    }
+    return { type: 'date', day: candidate };
+  }
+
+  // 4. Numbered menu choice (1..N, including "2.", "1️⃣", "رقم 2", "choix 2")
+  const cleanedChoice = ascii
+    .replace(/[\uFE0F\u20E3]/g, '')
+    .replace(/^[#•*-\s]+|[.):\s]+$/g, '')
+    .trim();
+  const numMatch =
+    cleanedChoice.match(/^(\d{1,2})$/) ||
+    norm.match(/^(?:رقم|الرقم|خيار|اختيار|يوم رقم|choix|option|numero|n)\s*(\d{1,2})$/);
+  if (numMatch) {
+    const n = Number.parseInt(numMatch[1], 10);
+    if (n === 0) return { type: 'more' };
+    if (choicesLength > 0 && n >= 1 && n <= choicesLength) {
+      return { type: 'index', index: n - 1 };
+    }
+    if (choicesLength > 0 && n > choicesLength) {
+      return { type: 'out_of_range', number: n };
+    }
+  }
+
+  // 5. Relative day expressions (Arabic / Darija / French / English)
+  if (
+    norm === 'بعد غد' ||
+    norm === 'بعد غدا' ||
+    norm === 'غير غدوه' ||
+    norm === 'بعدد غدوه' ||
+    norm === 'apres demain' ||
+    norm === 'apres-demain' ||
+    norm === 'day after tomorrow'
+  ) {
+    return { type: 'date', day: addDays(today, 2) };
+  }
+  if (
+    norm === 'غدا' ||
+    norm === 'غد' ||
+    norm === 'غدوه' ||
+    norm === 'بكره' ||
+    norm === 'اليوم الموالي' ||
+    norm === 'demain' ||
+    norm === 'tomorrow' ||
+    norm === 'ghodwa' ||
+    norm === 'ghedwa'
+  ) {
+    return { type: 'date', day: addDays(today, 1) };
+  }
+  if (
+    norm === 'اليوم' ||
+    norm === 'نهار اليوم' ||
+    norm === 'هاد النهار' ||
+    norm === 'هذا اليوم' ||
+    norm === 'aujourd hui' ||
+    norm === "aujourd'hui" ||
+    norm === 'aujourdhui' ||
+    norm === 'ce jour' ||
+    norm === 'today'
+  ) {
+    return { type: 'date', day: today };
+  }
+
+  // 6. Weekday name -> nearest upcoming date matching that weekday
+  for (const entry of WEEKDAY_SYNONYMS) {
+    if (entry.words.includes(norm)) {
+      let delta = (entry.wd - weekday(today) + 7) % 7;
+      if (delta === 0 && !allowSameDay) delta = 7;
+      return { type: 'date', day: addDays(today, delta) };
+    }
+  }
+
+  return { type: 'unknown' };
+}
 
 /** Short acknowledgements must never be mistaken for a patient name. */
 const STOP_WORDS = new Set([
@@ -51,9 +396,62 @@ const STOP_WORDS = new Set([
 ]);
 
 /**
+ * Validate whether rawText is a real full person name according to NAME_RULES.
+ * @param {string} rawText
+ * @param {Partial<typeof NAME_RULES>} [ruleOverrides]
+ * @returns {{ valid: boolean, reason?: string, name?: string }}
+ */
+function validatePersonName(rawText, ruleOverrides = {}) {
+  const rules = { ...NAME_RULES, ...ruleOverrides };
+  if (typeof rawText !== 'string') return { valid: false, reason: 'empty' };
+  if (/[\r\n\u2028\u2029]/.test(rawText)) return { valid: false, reason: 'multiline' };
+
+  const cleaned = cleanPersonName(rawText);
+  if (!cleaned) return { valid: false, reason: 'empty' };
+  if (cleaned.length > rules.MAX_TOTAL_LENGTH) return { valid: false, reason: 'too_long' };
+  if (URL_LIKE_RE.test(rawText) || URL_LIKE_RE.test(cleaned)) return { valid: false, reason: 'url' };
+  if (/\p{N}/u.test(cleaned)) return { valid: false, reason: 'digits' };
+  if (isGreeting(rawText)) return { valid: false, reason: 'greeting' };
+
+  const normPhrase = normalize(rawText);
+  if (
+    STOP_WORDS.has(normPhrase) ||
+    HELP_WORDS.includes(normPhrase) ||
+    CANCEL_WORDS.some((w) => normPhrase === w || normPhrase.startsWith(`${w} `)) ||
+    CONFIRM_WORDS.some((w) => normPhrase === w || normPhrase.startsWith(`${w} `)) ||
+    MY_APPOINTMENT_WORDS.some((w) => normPhrase === w || normPhrase.startsWith(`${w} `)) ||
+    INTAKE_WORDS.some((w) => normPhrase === w || normPhrase.startsWith(`${w} `)) ||
+    DATES_WORDS.some((w) => normPhrase === w || normPhrase.startsWith(`${w} `))
+  ) {
+    return { valid: false, reason: 'common_word' };
+  }
+
+  const words = cleaned.split(' ');
+  if (words.length < rules.MIN_WORDS || words.length > rules.MAX_WORDS) {
+    return { valid: false, reason: 'word_count' };
+  }
+
+  for (const word of words) {
+    if (word.length < rules.MIN_WORD_LENGTH || word.length > rules.MAX_WORD_LENGTH) {
+      return { valid: false, reason: 'word_length' };
+    }
+    if (!VALID_NAME_WORD_RE.test(word)) {
+      return { valid: false, reason: 'invalid_chars' };
+    }
+    const wordNorm = normalizeGreeting(word);
+    if (NON_NAME_WORDS.has(wordNorm)) {
+      return { valid: false, reason: 'common_word' };
+    }
+  }
+
+  return { valid: true, name: formatPersonName(cleaned) };
+}
+
+/**
  * @param {string} rawText
  * @param {{currentLanguage?: 'fr'|'ar'}} [options]
- * @returns {{intent:'cancel'|'my_appointment'|'help'|'name'|'unsupported',
+ * @returns {{intent:'cancel'|'confirm'|'my_appointment'|'intake'|'help'|'name'|'unsupported',
+ *            isGreeting?: boolean, isStopWord?: boolean,
  *            text:string, isArabic:boolean, language:'fr'|'ar', name?:string}}
  */
 function detect(rawText, options = {}) {
@@ -64,41 +462,68 @@ function detect(rawText, options = {}) {
   const isArabic = arabicChars > latinChars;
   const language = isArabic ? 'ar' : 'fr';
 
+  if (isGreeting(original)) {
+    return { intent: 'help', isGreeting: true, text: original, isArabic, language };
+  }
   if (!normalized) return { intent: 'unsupported', text: original, isArabic, language };
 
   if (CANCEL_WORDS.some((word) => normalized === word || normalized.startsWith(`${word} `))) {
     return { intent: 'cancel', text: original, isArabic, language };
   }
+  if (CONFIRM_WORDS.some((word) => normalized === word || normalized.startsWith(`${word} `))) {
+    return { intent: 'confirm', text: original, isArabic, language };
+  }
   if (MY_APPOINTMENT_WORDS.some((word) => normalized === word || normalized.startsWith(`${word} `))) {
     return { intent: 'my_appointment', text: original, isArabic, language };
+  }
+  if (INTAKE_WORDS.some((word) => normalized === word || normalized.startsWith(`${word} `))) {
+    return { intent: 'intake', text: original, isArabic, language };
+  }
+  if (DATES_WORDS.some((word) => normalized === word || normalized.startsWith(`${word} `))) {
+    return { intent: 'dates', text: original, isArabic, language };
+  }
+  if (BOOK_WORDS.some((word) => normalized === word || normalized.startsWith(`${word} `))) {
+    return { intent: 'book', text: original, isArabic, language };
   }
   if (HELP_WORDS.some((word) => normalized === word)) {
     return { intent: 'help', text: original, isArabic, language };
   }
   if (STOP_WORDS.has(normalized)) {
-    return { intent: 'help', text: original, isArabic, language };
+    return { intent: 'help', isStopWord: true, text: original, isArabic, language };
   }
 
-  // Anything else that looks like a human name becomes a booking request.
-  const letters = (original.match(/\p{L}/gu) || []).length;
-  const hasDigits = /\d{4,}/.test(original);
-  if (letters >= 2 && letters <= 80 && !hasDigits) {
+  const nameCheck = validatePersonName(rawText);
+  if (nameCheck.valid) {
     return {
       intent: 'name',
       text: original,
       isArabic,
       language,
-      name: original.replace(/\s+/g, ' ').trim().slice(0, 80),
+      name: nameCheck.name,
     };
   }
   return { intent: 'unsupported', text: original, isArabic, language };
 }
 
 module.exports = {
+  NAME_RULES,
+  GREETING_START_WORDS,
+  GREETING_EXACT_SET,
+  NON_NAME_WORDS,
   normalize,
+  normalizeDigits,
+  normalizeGreeting,
+  isGreeting,
+  cleanPersonName,
+  formatPersonName,
+  validatePersonName,
+  parseDaySelection,
   detect,
   CANCEL_WORDS,
   MY_APPOINTMENT_WORDS,
+  INTAKE_WORDS,
+  BOOK_WORDS,
+  DATES_WORDS,
   HELP_WORDS,
   STOP_WORDS,
 };

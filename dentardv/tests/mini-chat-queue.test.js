@@ -42,6 +42,8 @@ test('WhatsApp booking & cancellation populate Mini Chat and auto-remove from ac
   const ctx = setupClinic();
   t.after(() => ctx.cleanup());
 
+  settings.set('intake_enabled', '0');
+
   const b1 = bot.handle({ phone: '213555100001', text: 'أحمد بن علي', delivery: 'local' });
   const b2 = bot.handle({ phone: '213555100002', text: 'سارة قادري', delivery: 'local' });
   const b3 = bot.handle({ phone: '213555100003', text: 'ياسين بلقاسم', delivery: 'local' });
@@ -53,8 +55,10 @@ test('WhatsApp booking & cancellation populate Mini Chat and auto-remove from ac
   const day = b1.appointment.day;
   assert.equal(appointments.agenda(day).length, 3, 'all three patients are on the list');
 
-  // Patient #2 cancels via WhatsApp → automatically removed from the list!
-  const cancelled = bot.handle({ phone: '213555100002', text: 'إلغاء', delivery: 'local' });
+  // Patient #2 cancels via WhatsApp (2-step confirmation) → automatically removed from the list!
+  const askCancel = bot.handle({ phone: '213555100002', text: 'إلغاء', delivery: 'local' });
+  assert.equal(askCancel.action, 'cancel_confirm');
+  const cancelled = bot.handle({ phone: '213555100002', text: 'نعم', delivery: 'local' });
   assert.equal(cancelled.action, 'cancelled');
 
   const afterCancel = appointments.agenda(day);
@@ -228,11 +232,24 @@ test('handlers expose appointments:complete and enforce DEMO_ONLY on chat:simula
     assert.equal(appointments.agenda(toISODate()).filter((r) => r.status === 'booked').length, 0);
   }
 
-  // Completing an appointment on another day marks done without sending "come now" alerts.
+  // Completing a future-day appointment is strictly blocked (`APPOINTMENT_FUTURE_DAY`),
+  // whereas completing a past-day historical appointment marks done without sending "come now" alerts.
   const tomorrow = addDays(toISODate(), 1);
   const futureP = patients.create({ full_name: 'مريض الغد', phone: '0555400001' });
   const futureAppt = prodHandlers['appointments:create']({ patient_id: futureP.id, day: tomorrow });
-  const futureDone = prodHandlers['appointments:complete']({ id: futureAppt.id });
-  assert.equal(futureDone.appointment.status, 'done');
-  assert.equal(futureDone.notifications.length, 0);
+  assert.throws(
+    () => prodHandlers['appointments:complete']({ id: futureAppt.id }),
+    (err) => err && err.code === 'APPOINTMENT_FUTURE_DAY',
+  );
+
+  const yesterday = addDays(toISODate(), -1);
+  const pastP = patients.create({ full_name: 'مريض الأمس', phone: '0555400002' });
+  const pastAppt = prodHandlers['appointments:create']({
+    patient_id: pastP.id,
+    day: yesterday,
+    historical: true,
+  });
+  const pastDone = prodHandlers['appointments:complete']({ id: pastAppt.id });
+  assert.equal(pastDone.appointment.status, 'done');
+  assert.equal(pastDone.notifications.length, 0);
 });

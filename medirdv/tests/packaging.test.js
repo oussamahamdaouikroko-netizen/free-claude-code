@@ -243,3 +243,37 @@ test('the GitHub Actions workflow builds the Windows installer', () => {
   assert.ok(release, 'release step exists');
   assert.match(release.if, /refs\/tags\/medirdv-v/);
 });
+
+test('packaging & gitignore strictly exclude developer keygen, private keys, and license CSV ledger', () => {
+  for (const cfgFile of ['electron-builder.yml', 'electron-builder.demo.yml']) {
+    const cfg = yaml.load(fs.readFileSync(path.join(ROOT, cfgFile), 'utf8'));
+    const rules = cfg.files.map(String);
+    assert.ok(rules.includes('!tools/**'), `${cfgFile} must exclude tools/**`);
+    assert.ok(rules.includes('!**/*keygen*'), `${cfgFile} must exclude *keygen*`);
+    assert.ok(rules.includes('!**/*.pem'), `${cfgFile} must exclude *.pem`);
+    assert.ok(rules.includes('!**/*.key'), `${cfgFile} must exclude *.key`);
+    assert.ok(rules.includes('!**/issued_licenses.csv'), `${cfgFile} must exclude issued_licenses.csv`);
+  }
+
+  for (const gi of [path.join(ROOT, '.gitignore'), path.join(ROOT, '..', '.gitignore')]) {
+    const content = fs.readFileSync(gi, 'utf8');
+    assert.match(content, /tools\//, `${gi} ignores tools/`);
+    assert.match(content, /\*\.pem/, `${gi} ignores *.pem`);
+    assert.match(content, /issued_licenses\.csv/, `${gi} ignores issued_licenses.csv`);
+  }
+
+  // Ensure nothing inside shipped `src/` contains an Ed25519 private key or signing logic
+  function walkSrc(dir) {
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory()) walkSrc(full);
+      else if (ent.isFile() && /\.(js|json|html|css)$/.test(ent.name)) {
+        const text = fs.readFileSync(full, 'utf8');
+        assert.doesNotMatch(text, /BEGIN PRIVATE KEY/, `${full} must never contain a private key`);
+        assert.doesNotMatch(text, /crypto\.sign\s*\(/, `${full} must only verify, never sign`);
+      }
+    }
+  }
+  walkSrc(path.join(ROOT, 'src'));
+});
+

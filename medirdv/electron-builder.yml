@@ -11,11 +11,17 @@ directories:
 
 files:
   - src/**/*
+  - assets/icon.png
   - package.json
   - "!**/*.map"
   - "!**/README*"
   - "!**/.github/**"
   - "!**/test/**"
+  - "!tools/**"
+  - "!**/*keygen*"
+  - "!**/*.pem"
+  - "!**/*.key"
+  - "!**/issued_licenses.csv"
 
 asar: true
 

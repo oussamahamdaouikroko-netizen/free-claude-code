@@ -36,6 +36,12 @@ const SEEN_LIMIT = 800;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const randomBetween = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
+/** Exponential retry backoff (`3s -> 6s -> 12s -> 24s -> 48s -> 60s`). */
+function computeBackoffDelayMs(attempt, baseMs = 3000, maxMs = 60000) {
+  const step = Math.max(0, Math.min(Number(attempt || 1) - 1, 5));
+  return Math.min(maxMs, baseMs * Math.pow(2, step));
+}
+
 /** Convert any local number to a WhatsApp JID (Algeria by default). */
 function toJid(phone) {
   let digits = String(phone ?? '').replace(/\D/g, '');
@@ -174,7 +180,30 @@ class WhatsAppService {
     return this.baileys;
   }
 
-  async start() {
+  /**
+   * Schedule an automatic exponential-backoff reconnect (`3s -> 6s -> 12s -> 24s -> 48s -> 60s`)
+   * so offline Windows boot or temporary router drop never permanently kills the bot.
+   */
+  scheduleReconnect(reason = 'Connexion perdue') {
+    if (this.stopping || !this.botEnabled) return null;
+    this.attempts += 1;
+    const delay = computeBackoffDelayMs(this.attempts);
+    this.setState('connecting', { error: reason });
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = setTimeout(() => {
+      if (this.stopping || !this.botEnabled) return;
+      this.connect().catch((error) => {
+        console.warn('[wa] retry connect failed, scheduling next backoff:', error.message);
+        this.scheduleReconnect(error.message);
+      });
+    }, delay);
+    if (this.reconnectTimer && typeof this.reconnectTimer.unref === 'function') {
+      this.reconnectTimer.unref();
+    }
+    return delay;
+  }
+
+  async start({ background = false } = {}) {
     if (this.starting || this.state === 'connected' || this.state === 'connecting') {
       return this.publicStatus();
     }
@@ -186,8 +215,12 @@ class WhatsAppService {
       await this.connect();
     } catch (error) {
       this.lastError = error.message;
-      this.setState('error', { error: error.message });
-      throw error;
+      if (!this.stopping && this.botEnabled) {
+        this.scheduleReconnect(error.message);
+      } else {
+        this.setState('error', { error: error.message });
+      }
+      if (!background) throw error;
     } finally {
       this.starting = false;
     }
@@ -289,15 +322,7 @@ class WhatsAppService {
         settings.set('bot_enabled', '0');
         return;
       }
-      this.attempts += 1;
-      const delay = Math.min(60000, 3000 * this.attempts);
-      this.setState('connecting', { error: lastDisconnect?.error?.message || 'Connexion perdue' });
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = setTimeout(() => {
-        this.connect().catch((error) => {
-          this.setState('error', { error: error.message });
-        });
-      }, delay);
+      this.scheduleReconnect(lastDisconnect?.error?.message || 'Connexion perdue');
     }
   }
 
@@ -377,7 +402,10 @@ class WhatsAppService {
     if (key.fromMe) return this.skip('own_message', tag);
     // Receipts, reactions, deletions and edits are not patient questions and
     // must never trigger a reply (replying to a reaction looks like spam).
-    if (['protocolMessage', 'reactionMessage', 'senderKeyDistributionMessage'].includes(kind)) {
+    if (
+      !kind ||
+      ['protocolMessage', 'reactionMessage', 'senderKeyDistributionMessage'].includes(kind)
+    ) {
       return this.skip('not_a_question', tag);
     }
     // Only private chats, never groups, statuses or channels. `@lid`
@@ -400,7 +428,7 @@ class WhatsAppService {
     this.stats.received += 1;
     this.stats.lastAt = nowLocal();
     this.stats.lastFrom = phone;
-    console.log(`[wa] message from ${phone}${viaLid ? ` (lid ${lid})` : ''}: ${text || `[${kind || 'media'}]`}`);
+    console.log(`[wa] incoming message received (${kind || 'text'})`);
 
     // Store every incoming message, even when it is not answered: this is the
     // only proof for the dentist that the bot received something.
@@ -408,20 +436,45 @@ class WhatsAppService {
 
     if (!this.canReply(phone)) return this.skip('rate_limit', tag);
 
-    if (!text) {
-      const lang = settings.get('bot_language');
-      const { message: tpl } = require('./messages');
-      const answer = tpl(lang, 'unsupported', {
-        clinic: settings.get('clinic_name'),
-        phone: settings.get('clinic_phone'),
-        currency: settings.get('currency'),
-      });
-      if (await this.reply(phone, replyJid, answer)) this.stats.replied += 1;
-      return;
+    // Acknowledge interactive button / list callback queries immediately so client spinner clears.
+    if (
+      [
+        'buttonsResponseMessage',
+        'listResponseMessage',
+        'templateButtonReplyMessage',
+      ].includes(kind) &&
+      typeof this.sock?.readMessages === 'function'
+    ) {
+      await this.sock.readMessages([key]).catch(() => {});
     }
 
-    const result = bot.handle({ phone, text, delivery: 'queued' });
+    const result = !text
+      ? bot.handle({ phone, text: '', isMedia: true, delivery: 'queued' })
+      : bot.handle({ phone, text, delivery: 'queued' });
     if (!result || !result.reply) return this.skip('no_reply', tag);
+
+    // Broadcast database state changes IMMEDIATELY (before anti-ban typing delay)
+    // so cancelled/booked appointments & intake updates reflect in the UI instantly
+    // without any manual refresh by clinic staff.
+    if (
+      [
+        'booked',
+        'cancelled',
+        'confirmed',
+        'intake_completed',
+        'intake_ask_weight',
+        'intake_ask_complaint',
+      ].includes(result.action)
+    ) {
+      this.onEvent({
+        type: 'appointment_changed',
+        payload: {
+          phone,
+          action: result.action,
+          appointment: result.appointment || null,
+        },
+      });
+    }
 
     const sent = await this.reply(phone, replyJid, result.reply);
     if (sent) {
@@ -440,6 +493,21 @@ class WhatsAppService {
         chat_event_id: result.chatEvent?.id || null,
       },
     });
+
+    // If a patient cancelled today's appointment via WhatsApp, automatically
+    // notify booked patients waiting behind them that their turn is closer.
+    if (result.action === 'cancelled' && result.appointment) {
+      const queueUpdates = appointments.advanceNotificationsAfterRemoval(result.appointment, {
+        waConnected: this.state === 'connected',
+        resolveLanguage: (ph, fullName) => bot.preferredLanguage(ph, fullName),
+      });
+      if (queueUpdates.length > 0) {
+        this.notifyQueueAdvance(queueUpdates).catch((error) => {
+          console.error('[wa] post-cancel queue advance failed:', error.message);
+        });
+      }
+    }
+
     // Live counters in Réglages → WhatsApp: the dentist sees, message by
     // message, that the bot is receiving and answering.
     this.onStatus(this.publicStatus());
@@ -737,4 +805,4 @@ class WhatsAppService {
   }
 }
 
-module.exports = { WhatsAppService, toJid, fromJid, extractText };
+module.exports = { WhatsAppService, toJid, fromJid, extractText, computeBackoffDelayMs };

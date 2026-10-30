@@ -68,14 +68,14 @@ test('the full UI boots and every screen renders', async (t) => {
 
   // Demo mode auto-unlocks, so we land on the dashboard.
   await waitFor(() => $('.sidebar'), { label: 'application shell' });
-  assert.equal($$('.nav-item').length, 8, 'all navigation entries are rendered');
+  assert.equal($$('.nav-item').length, 9, 'all navigation entries are rendered');
   await waitFor(() => $('.kpi'), { label: 'dashboard KPIs' });
   assert.ok($$('.kpi').length >= 4);
   assert.match($('.page-title').textContent, /Bonjour|مرحبا/);
   assert.ok($('.appt'), 'seeded agenda is visible');
 
-  // Visit every screen and check that its header is set and no crash happened.
-  const screens = ['agenda', 'patients', 'treatments', 'expenses', 'reports', 'whatsapp', 'settings', 'dashboard'];
+  // Visit every screen (including the new Dental Prescriptions page) and check that its header is set and no crash happened.
+  const screens = ['agenda', 'patients', 'prescriptions', 'treatments', 'expenses', 'reports', 'whatsapp', 'settings', 'dashboard'];
   for (const screen of screens) {
     const button = $(`[data-page="${screen}"]`);
     assert.ok(button, `nav button for ${screen}`);
@@ -100,25 +100,34 @@ test('the full UI boots and every screen renders', async (t) => {
   $('.modal-foot .btn').click();
   await waitFor(() => !$('.modal'), { label: 'modal closed' });
 
-  // Debtors filter: only the patients who still owe money are listed.
+  // Patients page: 4 filter tabs ('Par jours & dates', 'Patients d’aujourd’hui', 'Tous', 'Débiteurs').
   $('[data-page="patients"]').click();
-  await waitFor(() => $('.content .tabs'), { label: 'patients filters' });
+  await waitFor(() => $('[data-ready-mode="by_day"]') && $$('table.list tbody tr').length > 0, {
+    label: 'initial patients by_day view',
+  });
   const filters = $$('.content .tabs button');
-  assert.equal(filters.length, 2, 'two patient filters');
-  filters[1].click();
-  await waitFor(() => $$('table.list tbody tr').length > 0, { label: 'debtor rows' });
+  assert.equal(filters.length, 4, 'four patient filters (by_day, today, all, debtors)');
+  filters[3].click();
+  await waitFor(() => $('[data-ready-mode="debtors"]') && $$('table.list tbody tr').length > 0, {
+    label: 'debtor rows',
+  });
   const debtorRows = $$('table.list tbody tr');
   assert.ok(debtorRows.length >= 1, 'the demo data has patients with debts');
   for (const row of debtorRows) {
     assert.ok(row.querySelector('.badge.danger'), 'a listed patient must still owe money');
   }
+  filters[2].click();
+  await waitFor(
+    () => $('[data-ready-mode="all"]') && $$('table.list tbody tr').length > debtorRows.length,
+    { label: 'full list restored' },
+  );
   filters[0].click();
-  await waitFor(() => $$('table.list tbody tr').length > debtorRows.length, {
-    label: 'full list restored',
+  await waitFor(() => $('[data-ready-mode="by_day"]') && $$('table.list tbody tr').length > 0, {
+    label: 'grouped by-day view restored',
   });
 
   // Navigation uses real SVG icons, not emoji.
-  assert.equal($$('.nav-item svg').length, 8, 'one icon per navigation entry');
+  assert.equal($$('.nav-item svg').length, 9, 'one icon per navigation entry');
   assert.doesNotMatch($$('.nav-item .label').map((node) => node.textContent).join(''), /[\u{1F300}-\u{1FAFF}]/u);
 
   // Reports: daily then monthly, with the Google Sheets export card.

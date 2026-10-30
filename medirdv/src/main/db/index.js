@@ -16,9 +16,52 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { migrate, SCHEMA_VERSION } = require('./schema');
 const { seedDefaults } = require('./seed');
+const { normalizeSearch } = require('../utils/common');
 
 let db = null;
 let dbPath = null;
+
+/** Backfill `name_normalized` & `folded_search` on existing upgraded DB rows. */
+function backfillNormalizedMedications(conn) {
+  const needsBackfill = conn
+    .prepare("SELECT 1 FROM medications WHERE name_normalized = '' LIMIT 1")
+    .get();
+  if (!needsBackfill) return 0;
+
+  const rows = conn
+    .prepare(
+      `SELECT id, brand, dci, strength, form, laboratory, registration_number, specialty, keywords_ar
+       FROM medications
+       WHERE name_normalized = ''`,
+    )
+    .all();
+  if (rows.length === 0) return 0;
+
+  const updateStmt = conn.prepare(
+    'UPDATE medications SET name_normalized = ?, folded_search = ? WHERE id = ?',
+  );
+  const tx = conn.transaction(() => {
+    conn.exec('DROP TRIGGER IF EXISTS trg_medications_au;');
+    for (const r of rows) {
+      const nameNorm = normalizeSearch(r.brand);
+      const folded = normalizeSearch(
+        `${r.brand} ${r.dci} ${r.strength} ${r.form} ${r.laboratory} ${r.registration_number} ${r.specialty} ${r.keywords_ar}`,
+      );
+      updateStmt.run(nameNorm, folded, r.id);
+    }
+    conn.exec(`
+      CREATE TRIGGER IF NOT EXISTS trg_medications_au AFTER UPDATE ON medications BEGIN
+        INSERT INTO medications_fts(medications_fts, rowid, brand, dci, strength, form, laboratory, keywords_ar, folded_search)
+        VALUES ('delete', old.id, old.brand, old.dci, old.strength, old.form, old.laboratory, old.keywords_ar, old.folded_search);
+        INSERT INTO medications_fts(rowid, brand, dci, strength, form, laboratory, keywords_ar, folded_search)
+        VALUES (new.id, new.brand, new.dci, new.strength, new.form, new.laboratory, new.keywords_ar, new.folded_search);
+      END;
+      INSERT INTO medications_fts(medications_fts) VALUES('rebuild');
+    `);
+  });
+  tx();
+  return rows.length;
+}
 
 /** Directory holding the SQLite file and its `backups/` folder. */
 function defaultDataDir(userDataDir) {
@@ -51,6 +94,7 @@ function open(filePath, options = {}) {
 
   migrate(db);
   if (seed) seedDefaults(db);
+  backfillNormalizedMedications(db);
   return db;
 }
 
@@ -133,6 +177,7 @@ module.exports = {
   reopen,
   backupTo,
   checkIntegrity,
+  backfillNormalizedMedications,
   defaultDataDir,
   SCHEMA_VERSION,
 };

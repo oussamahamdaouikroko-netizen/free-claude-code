@@ -101,6 +101,10 @@
       '<path d="M19.5 12.6 12 20l-7.5-7.4A5 5 0 1 1 12 6a5 5 0 1 1 7.5 6.6Z"/><path d="M3.5 12h4l1.8-3 2.6 6 1.8-3h4.8"/>',
     certificate:
       '<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 8h10M7 12h5"/><circle cx="16.5" cy="14.5" r="2.5"/><path d="m15.2 16.8-.7 4.2 2-1.2 2 1.2-.7-4.2"/>',
+    clipboard:
+      '<rect x="9" y="2.5" width="6" height="4" rx="1"/><path d="M9 4.5H7A2 2 0 0 0 5 6.5v13A2 2 0 0 0 7 21.5h10a2 2 0 0 0 2-2v-13a2 2 0 0 0-2-2h-2"/><path d="M9 11h6M9 15h4"/>',
+    scale:
+      '<rect x="4" y="3.5" width="16" height="17" rx="3"/><path d="M8 8.5a4 4 0 0 1 8 0"/><path d="m12 9 1.6-2.2"/><circle cx="12" cy="9" r="0.8"/>',
   };
 
   const SIZE_DEFAULT = 20;

@@ -11,6 +11,7 @@
 
 const { getDb } = require('../db');
 const settings = require('./settings');
+const holidays = require('./holidays');
 const { message } = require('../whatsapp/messages');
 const { cleanText, nowLocal } = require('../utils/common');
 const { toISODate } = require('../utils/dates');
@@ -18,7 +19,7 @@ const { toISODate } = require('../utils/dates');
 const VALID_KINDS = new Set(['booked', 'cancelled', 'turn_now', 'queue_ahead', 'incoming']);
 const VALID_DELIVERY = new Set(['local', 'queued', 'sent', 'failed']);
 
-function clinicSettings() {
+function clinicSettings(departmentId = null) {
   return {
     clinic: settings.get('clinic_name'),
     phone: settings.get('clinic_phone'),
@@ -26,14 +27,27 @@ function clinicSettings() {
     doctor: settings.get('doctor_name'),
     specialty: settings.get('doctor_specialty'),
     currency: settings.get('currency'),
+    darija: settings.getBool('bot_darija_mode'),
+    is24h: settings.is24hClinic(),
+    schedule: settings.getWorkSchedule(),
+    scheduleTextFr: settings.formatScheduleSummary('fr'),
+    scheduleTextAr: settings.formatScheduleSummary('ar'),
+    scheduleTextEn: settings.formatScheduleSummary('en'),
+    breakTextFr: settings.formatBreakSummary('fr'),
+    breakTextAr: settings.formatBreakSummary('ar'),
+    breakTextEn: settings.formatBreakSummary('en'),
+    holidayCtx: holidays.getWhatsAppHolidayContext(toISODate(), departmentId, 14),
   };
 }
 
 function detectLanguage(name, explicitLang) {
-  if (explicitLang === 'ar' || explicitLang === 'fr') return explicitLang;
+  if (explicitLang === 'ar' || explicitLang === 'fr' || explicitLang === 'en') return explicitLang;
   if (/[\u0600-\u06FF]/.test(String(name || ''))) return 'ar';
-  if (settings.get('language') === 'ar') return 'ar';
-  return settings.get('bot_language') === 'ar' ? 'ar' : 'fr';
+  const uiLang = settings.get('language');
+  const botLang = settings.get('bot_language');
+  if (botLang === 'ar' || botLang === 'en') return botLang;
+  if (uiLang === 'ar' || uiLang === 'en') return uiLang;
+  return 'fr';
 }
 
 function getById(id) {

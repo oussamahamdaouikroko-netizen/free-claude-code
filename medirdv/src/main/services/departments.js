@@ -86,7 +86,7 @@ function normalize(input = {}, { partial = false } = {}) {
   if (!partial || input.daily_capacity !== undefined) {
     const cap = Number.parseInt(input.daily_capacity, 10);
     out.daily_capacity = Number.isFinite(cap)
-      ? Math.min(200, Math.max(1, cap))
+      ? Math.min(500, Math.max(1, cap))
       : settings.getInt('daily_capacity') || 15;
   }
   if (!partial || input.working_days !== undefined) {
@@ -98,6 +98,22 @@ function normalize(input = {}, { partial = false } = {}) {
   }
   if (!partial || input.instructions !== undefined) {
     out.instructions = cleanText(input.instructions, 300);
+  }
+  if (!partial || input.scheduling_mode !== undefined) {
+    out.scheduling_mode = input.scheduling_mode === 'slots' ? 'slots' : 'queue';
+  }
+  if (!partial || input.slot_start_time !== undefined) {
+    out.slot_start_time = cleanText(input.slot_start_time, 8) || '08:30';
+  }
+  if (!partial || input.slot_end_time !== undefined) {
+    out.slot_end_time = cleanText(input.slot_end_time, 8) || '16:30';
+  }
+  if (!partial || input.slot_duration_min !== undefined) {
+    const dur = Number.parseInt(input.slot_duration_min, 10);
+    out.slot_duration_min = Number.isFinite(dur) ? Math.min(180, Math.max(5, dur)) : 20;
+  }
+  if (!partial || input.equipment_list !== undefined) {
+    out.equipment_list = cleanText(input.equipment_list, 400);
   }
   if (input.active !== undefined) {
     out.active = input.active ? 1 : 0;
@@ -111,10 +127,12 @@ function create(input = {}) {
     .prepare(
       `INSERT INTO departments
         (name_fr, name_ar, specialty, doctor_name, room, consultation_fee,
-         daily_capacity, working_days, instructions, active)
+         daily_capacity, working_days, instructions,
+         scheduling_mode, slot_start_time, slot_end_time, slot_duration_min, equipment_list, active)
        VALUES
         (@name_fr, @name_ar, @specialty, @doctor_name, @room, @consultation_fee,
-         @daily_capacity, @working_days, @instructions, 1)`,
+         @daily_capacity, @working_days, @instructions,
+         @scheduling_mode, @slot_start_time, @slot_end_time, @slot_duration_min, @equipment_list, 1)`,
     )
     .run({
       name_fr: data.name_fr,
@@ -126,6 +144,11 @@ function create(input = {}) {
       daily_capacity: data.daily_capacity ?? 15,
       working_days: data.working_days || settings.get('working_days'),
       instructions: data.instructions || '',
+      scheduling_mode: data.scheduling_mode || 'queue',
+      slot_start_time: data.slot_start_time || '08:30',
+      slot_end_time: data.slot_end_time || '16:30',
+      slot_duration_min: data.slot_duration_min || 20,
+      equipment_list: data.equipment_list || '',
     });
   return get(info.lastInsertRowid);
 }
@@ -141,7 +164,8 @@ function update(input = {}) {
       `UPDATE departments SET
          name_fr = ?, name_ar = ?, specialty = ?, doctor_name = ?, room = ?,
          consultation_fee = ?, daily_capacity = ?, working_days = ?,
-         instructions = ?, active = ?
+         instructions = ?, scheduling_mode = ?, slot_start_time = ?,
+         slot_end_time = ?, slot_duration_min = ?, equipment_list = ?, active = ?
        WHERE id = ?`,
     )
     .run(
@@ -154,6 +178,11 @@ function update(input = {}) {
       data.daily_capacity ?? current.daily_capacity,
       data.working_days ?? current.working_days,
       data.instructions ?? current.instructions,
+      data.scheduling_mode ?? current.scheduling_mode ?? 'queue',
+      data.slot_start_time ?? current.slot_start_time ?? '08:30',
+      data.slot_end_time ?? current.slot_end_time ?? '16:30',
+      data.slot_duration_min ?? current.slot_duration_min ?? 20,
+      data.equipment_list ?? current.equipment_list ?? '',
       data.active ?? current.active,
       id,
     );
@@ -185,6 +214,16 @@ function remove(id) {
 }
 
 function isWorkingDay(departmentId, isoDate) {
+  const dId = departmentId ? Number.parseInt(departmentId, 10) : null;
+  const closed = getDb()
+    .prepare(
+      `SELECT id FROM clinic_closures
+       WHERE start_day <= ? AND end_day >= ?
+         AND (department_id IS NULL OR (? IS NOT NULL AND department_id = ?))
+       LIMIT 1`,
+    )
+    .get(isoDate, isoDate, dId, dId);
+  if (closed) return false;
   const dept = getOptional(departmentId);
   if (!dept) return settings.isWorkingDay(isoDate);
   return dept.working_days_list.includes(weekday(isoDate));

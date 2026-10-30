@@ -1,11 +1,7 @@
 'use strict';
 /**
  * Sample clinic data, shared by the browser preview (`npm run demo`) and by the
- * portable DentaRDV-Demo build handed to a prospect during a sales visit.
- *
- * One source of truth: what a dentist sees in the demo is exactly what they
- * will see after buying. Nothing here is imported by the real app unless demo
- * mode is on (see src/main/index.js).
+ * portable DentaRDV-Demo build handed to a dentist during a sales visit.
  */
 
 const patients = require('../services/patients');
@@ -13,20 +9,22 @@ const appointments = require('../services/appointments');
 const treatments = require('../services/treatments');
 const payments = require('../services/payments');
 const expenses = require('../services/expenses');
+const prescriptions = require('../services/prescriptions');
+const intake = require('../services/intake');
 const settings = require('../services/settings');
 const chat = require('../services/chat');
 const { message } = require('../whatsapp/messages');
 const { toISODate, addDays } = require('../utils/dates');
 
 const SAMPLE_PATIENTS = [
-  ['Mohamed Ben Ali', '0555111001'],
-  ['Amina Kaddour', '0661222002'],
-  ['Yacine Belkacem', '0770333003'],
-  ['Fatima Zohra Saidi', '0555444004'],
-  ['Karim Bouziane', '0661555005'],
-  ['Nadia Meziane', '0770666006'],
-  ['Sofiane Haddad', '0555777007'],
-  ['Imane Cherif', '0661888008'],
+  ['Mohamed Ben Ali', '0555111001', 'Pénicilline', 'HTA'],
+  ['Amina Kaddour', '0661222002', '', ''],
+  ['Yacine Belkacem', '0770333003', '', 'Diabète type 2'],
+  ['Fatima Zohra Saidi', '0555444004', '', ''],
+  ['Karim Bouziane', '0661555005', '', ''],
+  ['Nadia Meziane', '0770666006', '', ''],
+  ['Sofiane Haddad', '0555777007', '', ''],
+  ['Imane Cherif', '0661888008', '', ''],
 ];
 
 const isSeeded = () => patients.list('', { limit: 1 }).length > 0;
@@ -38,15 +36,20 @@ function seedDemoData(options = {}) {
   settings.set('clinic_name', clinicName);
   settings.set('clinic_phone', '0555 12 34 56');
   settings.set('clinic_address', 'Rue des Martyrs, El Oued');
+  settings.set('doctor_name', 'Dr. Amine Bensalem');
+  settings.set('doctor_specialty', 'Chirurgien-Dentiste');
+  settings.set('doctor_ordre', 'OMD-39-1420');
   settings.set('daily_capacity', '8');
 
   const catalog = treatments.list();
-  const created = SAMPLE_PATIENTS.map(([name, phone]) => patients.create({ full_name: name, phone }));
+  const created = SAMPLE_PATIENTS.map(([name, phone, allergies, chronic]) =>
+    patients.create({ full_name: name, phone, allergies, chronic_conditions: chronic }),
+  );
 
   const today = toISODate();
   const yesterday = addDays(today, -1);
 
-  // Today: a busy numbered queue, half of it paid.
+  const todayAppointments = [];
   created.slice(0, 5).forEach((patient, index) => {
     const treatment = catalog[index % catalog.length];
     const appointment = appointments.create({
@@ -55,10 +58,9 @@ function seedDemoData(options = {}) {
       treatment_id: treatment.id,
       price: treatment.default_price,
       source: index % 2 === 0 ? 'whatsapp' : 'manual',
-      // Sample data, so it must exist even when "today" is a closed day
-      // (Friday): the demo is also a preview used on weekends.
       historical: !settings.isWorkingDay(today),
     });
+    todayAppointments.push(appointment);
     if (index < 3) {
       payments.add({
         patient_id: patient.id,
@@ -71,7 +73,71 @@ function seedDemoData(options = {}) {
     }
   });
 
-  // Yesterday: completed visits + expenses, so the reports page is not empty.
+  // Add a sample pre-visit WhatsApp intake on the active waiting patient
+  if (todayAppointments[2]) {
+    intake.create({
+      patient_id: todayAppointments[2].patient_id,
+      appointment_id: todayAppointments[2].id,
+      source: 'whatsapp',
+      consent: true,
+      age_years: 34,
+      weight_kg: 76,
+      chief_complaint: 'Douleur aiguë molaire inférieure droite (46) sensible au froid',
+    });
+  }
+
+  // Add a sample dental prescription
+  if (created[1]) {
+    prescriptions.create({
+      patient_id: created[1].id,
+      day: today,
+      patient_name: created[1].full_name,
+      patient_age: '29 ans',
+      patient_weight: '64 kg',
+      tooth_ref: '38 (Dent de sagesse)',
+      diagnosis: 'Post-extraction chirurgicale dent 38',
+      items: [
+        {
+          drug_name: 'Augmentin Adulte',
+          dci: 'Amoxicilline + Acide clavulanique',
+          form_strength: 'Sachet-dose 1 g / 125 mg',
+          dosage: '1 sachet matin et soir',
+          timing: 'Au début des repas',
+          duration: '6 jours',
+          quantity: '1 boîte',
+        },
+        {
+          drug_name: 'Solupred',
+          dci: 'Prednisolone',
+          form_strength: 'Comprimé orodispersible 20 mg',
+          dosage: '2 comprimés en 1 prise le matin',
+          timing: 'Au petit-déjeuner',
+          duration: '3 jours',
+          quantity: '1 boîte',
+        },
+        {
+          drug_name: 'Doliprane',
+          dci: 'Paracétamol',
+          form_strength: 'Comprimé 1000 mg',
+          dosage: '1 comprimé toutes les 6 à 8 h si douleur',
+          timing: 'Max 3 g/jour',
+          duration: '5 jours',
+          quantity: '1 boîte',
+        },
+        {
+          drug_name: 'Paroex (GUM)',
+          dci: 'Chlorhexidine digluconate',
+          form_strength: 'Bain de bouche 0,12%',
+          dosage: '1 bain de bouche passif × 2 / jour',
+          timing: 'À débuter 24 h après extraction',
+          duration: '10 jours',
+          quantity: '1 flacon',
+        },
+      ],
+      advice: 'Vessie de glace sur la joue · Alimentation tiède/froide 48 h · Ne pas cracher ni fumer pendant 24 h.',
+    });
+  }
+
   created.slice(5).forEach((patient, index) => {
     const treatment = catalog[(index + 2) % catalog.length];
     const appointment = appointments.create({
@@ -108,8 +174,6 @@ function seedDemoData(options = {}) {
     });
   });
 
-  // Sample appointment confirmations, cancellation and live queue calls so the
-  // Mini Chat window showcases the real receptionist flow immediately.
   const todayAgenda = appointments.agenda(today);
   const third = todayAgenda[2];
   const fourth = todayAgenda[3];

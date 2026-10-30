@@ -89,6 +89,16 @@
     chat:
       '<path d="M21 12a8 8 0 0 1-8 8H7l-4 3v-6.5A8 8 0 1 1 21 12Z"/><path d="M8 11h8M8 14.5h5"/>',
     send: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
+    prescription:
+      '<path d="M6 3h9l4 4v14H6Z"/><path d="M15 3v4h4"/><path d="M9 11h4a2 2 0 0 1 0 4H9V9"/><path d="m12 15 4 4M16 15l-4 4"/>',
+    clipboard:
+      '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4.5h6v3H9z"/><path d="M9 11h6M9 15h4"/>',
+    scale:
+      '<path d="M12 3v18"/><path d="M5 7h14"/><path d="m5 7-2.5 6a2.5 2.5 0 0 0 5 0Z"/><path d="m19 7-2.5 6a2.5 2.5 0 0 0 5 0Z"/><path d="M8 21h8"/>',
+    key:
+      '<circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.3-9.3"/><path d="m17 6 3 3M14.5 8.5l2.5 2.5"/>',
+    certificate:
+      '<rect x="3" y="4" width="18" height="14" rx="2"/><circle cx="16" cy="15" r="3"/><path d="m14.8 17.5-.8 4.5 2-1.2 2 1.2-.8-4.5"/><path d="M7 9h7M7 13h4"/>',
   };
 
   const SIZE_DEFAULT = 20;
