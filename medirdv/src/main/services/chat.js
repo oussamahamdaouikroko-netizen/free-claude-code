@@ -32,17 +32,22 @@ function clinicSettings(departmentId = null) {
     schedule: settings.getWorkSchedule(),
     scheduleTextFr: settings.formatScheduleSummary('fr'),
     scheduleTextAr: settings.formatScheduleSummary('ar'),
+    scheduleTextEn: settings.formatScheduleSummary('en'),
     breakTextFr: settings.formatBreakSummary('fr'),
     breakTextAr: settings.formatBreakSummary('ar'),
+    breakTextEn: settings.formatBreakSummary('en'),
     holidayCtx: holidays.getWhatsAppHolidayContext(toISODate(), departmentId, 14),
   };
 }
 
 function detectLanguage(name, explicitLang) {
-  if (explicitLang === 'ar' || explicitLang === 'fr') return explicitLang;
+  if (explicitLang === 'ar' || explicitLang === 'fr' || explicitLang === 'en') return explicitLang;
   if (/[\u0600-\u06FF]/.test(String(name || ''))) return 'ar';
-  if (settings.get('language') === 'ar') return 'ar';
-  return settings.get('bot_language') === 'ar' ? 'ar' : 'fr';
+  const uiLang = settings.get('language');
+  const botLang = settings.get('bot_language');
+  if (botLang === 'ar' || botLang === 'en') return botLang;
+  if (uiLang === 'ar' || uiLang === 'en') return uiLang;
+  return 'fr';
 }
 
 function getById(id) {

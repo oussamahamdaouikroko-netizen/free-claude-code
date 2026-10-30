@@ -23,6 +23,13 @@ function formatDuration(minutes, lang = 'fr') {
       hours === 1 ? 'ساعة' : hours === 2 ? 'ساعتين' : hours <= 10 ? `${hours} ساعات` : `${hours} ساعة`;
     return rem === 0 ? hourText : `${hourText} و${rem} دقيقة`;
   }
+  if (lang === 'en') {
+    if (m <= 0) return 'now';
+    if (m < 60) return `${m} min`;
+    const hours = Math.floor(m / 60);
+    const rem = m % 60;
+    return rem === 0 ? `${hours} hr` : `${hours} hr ${rem} min`;
+  }
   if (m <= 0) return 'maintenant';
   if (m < 60) return `${m} min`;
   const hours = Math.floor(m / 60);
@@ -39,6 +46,10 @@ function formatPatientsAhead(ahead, lang = 'fr') {
     if (n === 2) return 'مريضان (2)';
     if (n <= 10) return `${n} مرضى`;
     return `${n} مريضا`;
+  }
+  if (lang === 'en') {
+    if (n === 0) return 'no patients';
+    return n === 1 ? '1 patient' : `${n} patients`;
   }
   if (n === 0) return 'aucun patient';
   return n === 1 ? '1 patient' : `${n} patients`;
@@ -65,6 +76,9 @@ function formatPlacesLeft(left, lang = 'fr') {
     if (n >= 3 && n <= 10) return `${n} أماكن متاحة`;
     return `${n} مكاناً متاحاً`;
   }
+  if (lang === 'en') {
+    return n === 1 ? '1 slot available' : `${n} slots available`;
+  }
   return n === 1 ? '1 place disponible' : `${n} places disponibles`;
 }
 
@@ -83,16 +97,22 @@ function formatAvailableDaysList(days = [], lang = 'fr') {
 function formatHoursBlock(s, lang = 'fr') {
   if (!s) return '';
   if (s.is24h) {
-    return lang === 'ar'
-      ? `🕒 أوقات العمل: 24/24 ساعة بدون توقف\n`
-      : `🕒 Horaires : Ouvert 24h/24 sans interruption\n`;
+    if (lang === 'ar') return `🕒 أوقات العمل: 24/24 ساعة بدون توقف\n`;
+    if (lang === 'en') return `🕒 Hours: Open 24/7 non-stop\n`;
+    return `🕒 Horaires : Ouvert 24h/24 sans interruption\n`;
   }
-  const schedText = lang === 'ar' ? s.scheduleTextAr : s.scheduleTextFr;
-  const breakText = lang === 'ar' ? s.breakTextAr : s.breakTextFr;
+  const schedText =
+    lang === 'ar' ? s.scheduleTextAr : lang === 'en' ? s.scheduleTextEn || s.scheduleTextFr : s.scheduleTextFr;
+  const breakText =
+    lang === 'ar' ? s.breakTextAr : lang === 'en' ? s.breakTextEn || s.breakTextFr : s.breakTextFr;
   if (!schedText) return '';
-  return lang === 'ar'
-    ? `🕒 أوقات العمل: ${schedText}${breakText ? ` (☕ ${breakText})` : ''}\n`
-    : `🕒 Horaires : ${schedText}${breakText ? ` (☕ ${breakText})` : ''}\n`;
+  if (lang === 'ar') {
+    return `🕒 أوقات العمل: ${schedText}${breakText ? ` (☕ ${breakText})` : ''}\n`;
+  }
+  if (lang === 'en') {
+    return `🕒 Hours: ${schedText}${breakText ? ` (☕ ${breakText})` : ''}\n`;
+  }
+  return `🕒 Horaires : ${schedText}${breakText ? ` (☕ ${breakText})` : ''}\n`;
 }
 
 function formatHolidayBanner(s, lang = 'fr') {
@@ -106,6 +126,13 @@ function formatHolidayBanner(s, lang = 'fr') {
       : `من ${formatLong(h.start_day, 'ar')} إلى ${formatLong(h.end_day, 'ar')}`;
     const resumeText = resume ? ` — يستأنف العمل يوم ${formatLong(resume, 'ar')}` : '';
     return `🏖️ تنبيه: الطبيب في عطلة ${period}${resumeText}.\n\n`;
+  }
+  if (lang === 'en') {
+    const period = single
+      ? `on ${formatLong(h.start_day, 'en')} (${formatFR(h.start_day)})`
+      : `from ${formatLong(h.start_day, 'en')} to ${formatLong(h.end_day, 'en')}`;
+    const resumeText = resume ? ` — resuming on ${formatLong(resume, 'en')}` : '';
+    return `🏖️ Notice: The doctor is on leave ${period}${resumeText}.\n\n`;
   }
   const period = single
     ? `le ${formatLong(h.start_day, 'fr')} (${formatFR(h.start_day)})`
@@ -136,6 +163,28 @@ function formatUnavailableReason({ day, reason, closureLabel }, lang = 'fr') {
         return `⚠️ عذراً، التاريخ ${dateText} يقع خارج فترة الحجز المتاحة حالياً.`;
       default:
         return `⚠️ التاريخ المدخل غير صالح. يرجى اختيار رقم من القائمة أو كتابة التاريخ بصيغة يوم/شهر (مثلاً: 05/11).`;
+    }
+  }
+  if (lang === 'en') {
+    switch (reason) {
+      case 'holiday':
+        return `🏖️ Sorry, the doctor is on leave on ${dateText}. Bookings are closed on this date.`;
+      case 'full':
+        return `⚠️ Sorry, ${dateText} is fully booked.`;
+      case 'closed':
+        return (
+          `⚠️ Sorry, the clinic is closed on ${dateText}` +
+          (closureLabel ? ` (${closureLabel})` : ' (outside working days)') +
+          `.`
+        );
+      case 'today_disabled':
+        return `⚠️ Sorry, same-day booking is currently closed. Please choose one of the upcoming available dates.`;
+      case 'past':
+        return `⚠️ Sorry, the entered date (${dateText || day}) has already passed.`;
+      case 'beyond_horizon':
+        return `⚠️ Sorry, ${dateText} is beyond the current booking window.`;
+      default:
+        return `⚠️ Invalid date. Please reply with a number from the list or type a date as DD/MM (e.g. 05/11).`;
     }
   }
   switch (reason) {
@@ -690,6 +739,273 @@ const t = {
       );
     },
   },
+
+  en: {
+    help: (s, { departments } = {}) =>
+      formatHolidayBanner(s, 'en') +
+      `Hello and welcome to ${s.clinic}. 👋\n` +
+      (s.doctor ? `${s.doctor}${s.specialty ? ` — ${s.specialty}` : ''}\n` : '') +
+      (s.address ? `📍 ${s.address}\n` : '') +
+      formatHoursBlock(s, 'en') +
+      `\n` +
+      (Array.isArray(departments) && departments.length >= 2
+        ? `Available departments:\n${formatDepartmentList(departments, 'en', s.currency)}\n\n` +
+          `To book an appointment, send your full name (or the department number).\n\n`
+        : `To book an appointment, simply send your full name (first and last name).\n\n`) +
+      `Commands:\n` +
+      `• AVAILABLE DAYS — view open booking dates\n` +
+      `• MY APPOINTMENT — check your appointment\n` +
+      `• CANCEL — cancel your appointment\n\n` +
+      `Thank you.`,
+
+    doctorOnLeave: (s, { holiday, resumeDay, department } = {}) =>
+      `🏖️ Notice — ${s.clinic}${department ? ` (${department})` : ''}\n\n` +
+      (holiday && holiday.start_day !== holiday.end_day
+        ? `Please note that the doctor is currently on leave from ${formatLong(holiday.start_day, 'en')} to ${formatLong(holiday.end_day, 'en')}.\n`
+        : holiday
+          ? `Please note that the doctor is on leave on ${formatLong(holiday.start_day, 'en')} (${formatFR(holiday.start_day)}).\n`
+          : `Please note that the doctor is currently on leave.\n`) +
+      (resumeDay
+        ? `📅 Consultations and bookings will resume starting ${formatLong(resumeDay, 'en')} (${formatFR(resumeDay)}).\n\n`
+        : `\n`) +
+      `Thank you for your understanding 🙏`,
+
+    askName: (s) =>
+      formatHolidayBanner(s, 'en') +
+      `Welcome to ${s.clinic}. 🙏\nSend your full name (first + last name, e.g. Oussama Hamdaoui) ` +
+      `to book the next available appointment.`,
+
+    welcomeAskName: (s) =>
+      formatHolidayBanner(s, 'en') +
+      `Welcome to ${s.clinic} 👋\n` +
+      formatHoursBlock(s, 'en') +
+      `Please enter your full name (example: Oussama Hamdaoui).`,
+
+    invalidName: () =>
+      `The name entered is not valid 🙏\n` +
+      `Please enter your full name using letters only, without numbers or symbols (example: Oussama Hamdaoui).`,
+
+    nonTextAskName: () =>
+      `I only understand text messages 🙂\n` +
+      `Please send your full name as text (example: Oussama Hamdaoui).`,
+
+    chooseDepartment: (s, { name, departments }) =>
+      `🏥 Hello ${name}, please select your medical department by sending its number:\n\n` +
+      `${formatDepartmentList(departments, 'en', s.currency)}\n\n` +
+      `Reply with the department number only (e.g. 1).`,
+
+    askNameForDepartment: (_s, { department }) =>
+      `🏥 Selected department: ${department}.\n` +
+      `Now send your full name (example: Oussama Hamdaoui) to confirm your appointment.`,
+
+    invalidDepartmentChoice: (s, { departments }) =>
+      `Invalid department number. Please send a number between 1 and ${departments.length}:\n\n` +
+      `${formatDepartmentList(departments, 'en', s.currency)}`,
+
+    chooseDay: (s, { name, department, days = [], hasMore = false }) =>
+      formatHolidayBanner(s, 'en') +
+      `📅 Hello${name ? ` ${name}` : ''}` +
+      (department ? ` (${department})` : '') +
+      `, please choose your preferred day and date from the available options:\n\n` +
+      `${formatAvailableDaysList(days, 'en')}\n\n` +
+      `👉 Reply with the number of the desired day (1 to ${days.length}) or type a date (e.g. ${days[0] ? formatFR(days[0].day).slice(0, 5) : '05/11'}).` +
+      (hasMore ? `\n🔄 Send 0 or MORE to view additional available dates.` : ''),
+
+    dayUnavailable: (_s, { day, reason, closureLabel, department, days = [], hasMore = false }) =>
+      `${formatUnavailableReason({ day, reason, closureLabel }, 'en')}\n\n` +
+      `📅 Available dates${department ? ` (${department})` : ''}:\n` +
+      `${formatAvailableDaysList(days, 'en')}\n\n` +
+      `👉 Reply with a number between 1 and ${days.length}` +
+      (hasMore ? ` (or 0 for more dates).` : `.`),
+
+    invalidDayChoice: (_s, { department, days = [], hasMore = false }) =>
+      `Choice not recognized 🙏\n` +
+      `Please send a number between 1 and ${days.length} (or a date in DD/MM format) to choose your appointment` +
+      (department ? ` (${department})` : '') +
+      `:\n\n` +
+      `${formatAvailableDaysList(days, 'en')}` +
+      (hasMore ? `\n\n🔄 Send 0 or MORE to view later dates.` : ''),
+
+    availableDaysPreview: (s, { department, days = [], hasMore = false }) =>
+      formatHolidayBanner(s, 'en') +
+      `📅 Next available dates at ${s.clinic}` +
+      (department ? ` (${department})` : '') +
+      `:\n` +
+      formatHoursBlock(s, 'en') +
+      `\n${formatAvailableDaysList(days, 'en')}` +
+      (hasMore ? `\n(and more upcoming dates…)` : '') +
+      `\n\n✍️ To book one of these dates, first send your full name (example: Oussama Hamdaoui).`,
+
+    booked: (s, { name, day, queue, slotTime, department, doctor, room, instructions }) =>
+      `✅ Appointment confirmed\n\n` +
+      `Patient: ${name}\n` +
+      (department ? `Department: ${department}\n` : '') +
+      (doctor ? `Doctor: ${doctor}\n` : '') +
+      (room ? `Room: ${room}\n` : '') +
+      `Date: ${formatLong(day, 'en')}\n` +
+      (slotTime ? `Time: ${slotTime}\n` : '') +
+      `Queue number: ${queue}\n` +
+      formatHoursBlock(s, 'en') +
+      (instructions ? `\n📌 Instructions: ${instructions}\n` : '') +
+      `\n${s.clinic}` +
+      (s.address ? `\n📍 ${s.address}` : '') +
+      `\nTo cancel, send: CANCEL\n\n` +
+      `📋 To help the doctor prepare your consultation (age, weight, and optional symptoms):\n` +
+      `🔒 Stored locally and strictly confidential at the clinic (Law 18-07).\n` +
+      `Reply YES (or send your age directly, e.g. 32 years) — or NO to skip.`,
+
+    alreadyBooked: (_s, { day, queue, department }) =>
+      `You already have an appointment` +
+      (department ? ` (${department})` : '') +
+      ` on ${formatLong(day, 'en')} (queue #${queue}).\n\nTo cancel it, send: CANCEL`,
+
+    myAppointment: (_s, { day, queue, department, room, treatment, ahead, etaMinutes }) =>
+      `📅 Your appointment\n\n` +
+      (department ? `Department: ${department}\n` : '') +
+      (room ? `Room: ${room}\n` : '') +
+      `Date: ${formatLong(day, 'en')}\n` +
+      `Queue number: ${queue}\n` +
+      (treatment ? `Service: ${treatment}\n` : '') +
+      (ahead === 0
+        ? `Status: It is your turn now.\n`
+        : ahead > 0
+          ? `Ahead of you: ${formatPatientsAhead(ahead, 'en')} (~${formatDuration(etaMinutes, 'en')})\n`
+          : '') +
+      `\nTo cancel, send: CANCEL`,
+
+    noAppointment: () =>
+      `You have no active appointment.\nSend your full name to book one.`,
+
+    cancelConfirm: (_s, { day, slotTime, queue, department, cooldownMinutes = 30 }) =>
+      `⚠️ Are you sure you want to cancel your appointment on ${formatLong(day, 'en')}` +
+      (slotTime ? ` at ${slotTime}` : queue ? ` (queue #${queue})` : '') +
+      (department ? ` — ${department}` : '') +
+      `?\n` +
+      `Please note: after cancellation, you can book a new appointment only after ${cooldownMinutes} minutes.\n\n` +
+      `• ✅ Yes, cancel the appointment (reply YES)\n` +
+      `• ❌ No, keep the appointment (reply NO)`,
+
+    cancelAborted: () => `Your appointment has been kept.`,
+
+    cancelStale: () => `This appointment no longer exists or has already been cancelled.`,
+
+    cancelForbidden: () => `Action denied: this appointment does not belong to your number.`,
+
+    bookingCooldown: (_s, { minutes, time }) =>
+      `⏳ You cannot book a new appointment right now. You may try again in ${minutes} minute${minutes > 1 ? 's' : ''} (at ${time}).`,
+
+    serviceSuspended: () =>
+      `Booking service is temporarily unavailable, please contact the clinic.`,
+
+    cancelled: (_s, { day, rebookTime, cooldownMinutes }) =>
+      `✅ Your appointment on ${formatLong(day, 'en')} has been cancelled.\n` +
+      (rebookTime
+        ? `⏳ You can book a new appointment in ${cooldownMinutes || 30} minutes (starting at ${rebookTime}).`
+        : `Send your full name whenever you wish to book a new appointment.`),
+
+    nothingToCancel: () => `You have no appointment to cancel.`,
+
+    full: (s, { department } = {}) =>
+      `The schedule${department ? ` for "${department}"` : ''} is currently full. 📋\n` +
+      `We have recorded your request and the clinic will contact you as soon as a slot opens.\n\n` +
+      `${s.clinic}`,
+
+    unsupported: () =>
+      `I only understand text messages. 🙂\n` +
+      `Send your full name to book, or type HELP.`,
+
+    error: () =>
+      `Sorry, an error occurred. Please try again in a moment.`,
+
+    reminder: (s, { name, day, queue, department }) =>
+      `🔔 Appointment reminder\n\n` +
+      `Hello ${name}, we look forward to seeing you on ${formatLong(day, 'en')}.\n` +
+      (department ? `Department: ${department}\n` : '') +
+      `Queue number: ${queue}\n\n` +
+      `${s.clinic}` +
+      (s.address ? `\n📍 ${s.address}` : '') +
+      (s.phone ? `\nTel: ${s.phone}` : '') +
+      `\n\nTo cancel, send: CANCEL`,
+
+    turnNow: (s, { name, queue, department, room }) =>
+      `🔔 It is your turn now!\n\n` +
+      `Hello ${name}, the previous patient has finished their consultation.\n` +
+      `It is now your turn (queue #${queue})` +
+      (department ? ` — ${department}` : '') +
+      (room ? ` (${room})` : '') +
+      ` — please proceed to the clinic.\n\n` +
+      `${s.clinic}` +
+      (s.phone ? `\nTel: ${s.phone}` : ''),
+
+    queueAhead: (s, { name, queue, ahead, etaMinutes, department }) =>
+      (Number(ahead) <= 2
+        ? `⏳ Your turn is approaching!\n\n` +
+          `Hello ${name} (queue #${queue}${department ? ` · ${department}` : ''}),\n` +
+          `• Your turn is very close — ahead of you: ${formatPatientsAhead(ahead, 'en')}\n` +
+          `• Estimated wait time: about ${formatDuration(etaMinutes, 'en')}\n\n` +
+          `Please get ready to head to ${s.clinic}.\n` +
+          `If you cannot attend, send: CANCEL`
+        : `⏳ Queue update\n\n` +
+          `Hello ${name} (queue #${queue}${department ? ` · ${department}` : ''}),\n` +
+          `• Patients ahead of you: ${formatPatientsAhead(ahead, 'en')}\n` +
+          `• Estimated wait time: about ${formatDuration(etaMinutes, 'en')}\n\n` +
+          `${s.clinic}\n` +
+          `If you cannot attend, send: CANCEL`),
+
+    tooFast: () =>
+      `You have sent several messages. Please wait a few minutes. 🙏`,
+
+    price: (s, { treatment, price }) =>
+      `The fee for "${treatment}" is ${money(price, s.currency)}. ` +
+      `Send your full name to book.`,
+
+    intakeInvite: (s) =>
+      `📋 Quick pre-visit info for the doctor — ${s.clinic}\n` +
+      `🔒 Under Law 18-07, your answers (age, weight, and optional symptoms) stay strictly confidential inside the clinic.\n` +
+      `Reply YES (or send your age directly, e.g. 32 years) — or NO to skip.`,
+
+    intakeDeclined: () =>
+      `Noted, your appointment remains confirmed. See you soon at the clinic! 🙏`,
+
+    intakeAskAge: (_s, { isChild } = {}) =>
+      isChild
+        ? `1️⃣ What is the child's age? (e.g. 4 years or 18 months — send 0 to skip)`
+        : `1️⃣ What is the patient's age? (e.g. 32 years or 18 months — send 0 to skip)`,
+
+    intakeRetryAge: () =>
+      `Age not recognized. Please enter age in years or months (e.g. 32 or 18 months), or send 0 to skip.`,
+
+    intakeAskWeight: (_s, { isChild } = {}) =>
+      isChild
+        ? `2️⃣ What is the child's weight in kg? (e.g. 14.5 kg — send 0 to skip)`
+        : `2️⃣ What is your approximate weight in kg? (e.g. 72 or 72.5 — send 0 to skip)`,
+
+    intakeRetryWeight: () =>
+      `Weight not recognized. Please send a number between 0.3 and 400 kg (e.g. 72 or 14.5), or send 0 to skip.`,
+
+    intakeAskComplaint: (_s, { isChild } = {}) =>
+      isChild
+        ? `3️⃣ Would you like to briefly mention any symptoms for the child? (optional — send 0 or NO to finish):`
+        : `3️⃣ Would you like to briefly mention any symptoms for the doctor? (optional — send 0 or NO to finish):`,
+
+    intakeCompleted: (_s, { draft } = {}) => {
+      const details = [];
+      if (draft?.age_years !== null && draft?.age_years !== undefined) {
+        details.push(
+          draft.age_years < 2
+            ? `Age: ${Math.round(draft.age_years * 12)} months`
+            : `Age: ${Math.round(draft.age_years * 10) / 10} yrs`,
+        );
+      }
+      if (draft?.weight_kg) details.push(`Weight: ${draft.weight_kg} kg`);
+      if (draft?.chief_complaint) details.push(`Symptoms: ${draft.chief_complaint}`);
+      return (
+        `✅ Thank you! Your information has been saved to assist the doctor` +
+        (details.length ? ` (${details.join(' · ')})` : '') +
+        `.`
+      );
+    },
+  },
 };
 
 const DARIJA_TEMPLATES = {
@@ -768,7 +1084,7 @@ const DARIJA_TEMPLATES = {
 
 /** @returns {string} localized template output */
 function message(lang, key, settings, vars = {}) {
-  if (settings && settings.darija) {
+  if (settings && settings.darija && (lang === 'ar' || lang === 'fr')) {
     const djDict = DARIJA_TEMPLATES[lang] || DARIJA_TEMPLATES.fr;
     if (djDict && djDict[key]) return djDict[key](settings, vars);
   }

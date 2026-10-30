@@ -273,7 +273,7 @@ function prescriptionHtml({ prescription, clinic = {} }) {
     rx.verification_hash || buildVerificationToken('RX', rx.id || 0, `${rx.day || ''}|${(rx.items || []).length}`);
 
   return `<!DOCTYPE html>
-<html lang="${rx.lang === 'ar' ? 'ar' : 'fr'}" dir="${rx.lang === 'ar' ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><title>Ordonnance #${escapeHtml(rx.id || '')} — ${escapeHtml(rx.patient_name)}</title>
+<html lang="${rx.lang === 'ar' ? 'ar' : rx.lang === 'en' ? 'en' : 'fr'}" dir="${rx.lang === 'ar' ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><title>Ordonnance #${escapeHtml(rx.id || '')} — ${escapeHtml(rx.patient_name)}</title>
 <style>${pageStyleFor(clinic, rx.paper_size)}</style></head>
 <body><div class="sheet">
   ${medicalHeaderHtml(clinic, {

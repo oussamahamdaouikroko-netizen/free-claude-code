@@ -1,4 +1,14 @@
-# MediRDV v2.5.0 — Suite Clinique Complète Hors-Ligne pour Cabinets & Polycliniques (Algérie)
+# MediRDV v2.6.0 — Suite Clinique Complète Hors-Ligne pour Cabinets & Polycliniques (Algérie)
+
+## Nouveautés de la version 2.6.0 / What's New in v2.6.0 (تحديثات الإصدار 2.6.0 — 2026-10-30)
+
+1. **Prise en charge complète de la langue Anglaise (`English — en`) aux côtés du Français (`fr`) et de l'Arabe (`ar`)** :
+   - **Interface trilingue instantanée (`Français` ↔ `العربية` ↔ `English`)** : dictionnaire médical complet de **945 clés** traduites en anglais clinique (`DICT.en`) avec parité intégrale `100 %` des clés, variables `{placeholder}` et messages d'erreur, bascule directe depuis la barre latérale, l'écran de connexion et **Réglages → Langue de l'interface** (`LTR` pour `en`/`fr`, `RTL` pour `ar`).
+   - **Bot WhatsApp complet en Anglais (`bot_language = 'en'`)** : les **41 modèles** de messages WhatsApp (`messages.js`), boutons interactifs (`More dates`, `Yes, cancel appointment` / `No, keep appointment`), détection des intentions et commandes en anglais (`AVAILABLE DAYS`, `MY APPOINTMENT`, `CANCEL`, `CONFIRM`, `HELP`, `TODAY`, `TOMORROW`, `DAY AFTER TOMORROW`, jours de la semaine `Sunday`–`Saturday`), sélection dynamique des dates disponibles, formulaire pré-visite Loi 18-07 (âge, poids et symptômes facultatifs uniquement), horaires `24/7`, système à deux périodes (`2nd shift`), pause médecin (`Doctor break`) et notification de congé confidentielle (`doctor on leave`).
+   - **Dates, rapports & impressions** : formatage complet des dates et jours en anglais (`Friday, 30 October 2026`), résumés d'horaires et de pauses en anglais, et attribut `<html lang="en" dir="ltr">` sur les ordonnances générées en mode anglais.
+   - **Compatibilité totale des licences existantes (`MRDV-LIC-V1:`)** et conservation intégrale des **5 381 médicaments de la Nomenclature Nationale Algérienne**.
+
+---
 
 ## Nouveautés de la version 2.5.0 (تحديثات الإصدار 2.5.0 — 2026-10-28)
 

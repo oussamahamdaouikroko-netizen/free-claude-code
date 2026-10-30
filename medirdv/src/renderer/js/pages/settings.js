@@ -215,6 +215,7 @@
       const language = select([
         { value: 'fr', label: t('common.french') },
         { value: 'ar', label: t('common.arabic') },
+        { value: 'en', label: t('common.english') },
       ], { value: window.App.language });
 
       /* ------------------------------- agenda ----------------------------- */
@@ -496,6 +497,7 @@
       const botLanguage = select([
         { value: 'fr', label: t('common.french') },
         { value: 'ar', label: t('common.arabic') },
+        { value: 'en', label: t('common.english') },
       ], { value: settings.bot_language });
       const chooseDayEnabled = input({ type: 'checkbox', checked: settings.bot_choose_day_enabled !== '0' });
       const availableDaysCount = input({

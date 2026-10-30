@@ -51,6 +51,9 @@ const GREETING_PHRASE_PREFIXES = [
   'assalam alikoum',
   'salam alikoum',
   'salam aleykoum',
+  'good morning',
+  'good afternoon',
+  'good evening',
 ];
 
 /** Exact single/short greeting expressions. */
@@ -97,8 +100,10 @@ const NON_NAME_WORDS = new Set([
   'ok', 'oui', 'non', 'si', 'yes', 'no', 'merci', 'thanks', 'daccord',
   'start', 'help', 'aide', 'menu', 'info', 'information',
   'rdv', 'rendez', 'reserver', 'reservation', 'annuler', 'annule', 'cancel', 'confirmer', 'confirm',
+  'appointment', 'appointments', 'booking', 'bookings', 'schedule', 'available', 'days', 'dates',
   'disponible', 'disponibles', 'disponibilite', 'disponibilites', 'creneau', 'creneaux',
-  'svp', 'stp', 'docteur', 'cabinet', 'clinique', 'combien', 'prix', 'tarif', 'quand', 'comment',
+  'svp', 'stp', 'please', 'docteur', 'doctor', 'cabinet', 'clinique', 'clinic',
+  'combien', 'prix', 'tarif', 'price', 'cost', 'quand', 'comment', 'when', 'where', 'how',
 ]);
 
 /** Arabic diacritics (tashkeel) + tatweel ("ـ"). */
@@ -209,6 +214,7 @@ const CONFIRM_WORDS = [
 const MY_APPOINTMENT_WORDS = [
   'mon rdv', 'mon rendez', 'mon rendez vous', 'rdv', 'rendez vous', 'rendez',
   'mes rdv', 'ma reservation', 'reservation', 'consulter', 'quand est mon rdv',
+  'my appointment', 'my booking', 'check appointment', 'when is my appointment',
   'موعدي', 'الموعد', 'موعد', 'حجزي', 'الحجز', 'متي موعدي', 'وقتاش موعدي', 'وقتاش موعد',
   'وين موعدي', 'اشوف موعدي', 'موعدي وين',
 ];
@@ -220,17 +226,19 @@ const HELP_WORDS = [
 
 const INTAKE_WORDS = [
   'fiche', 'ma fiche', 'fiche medicale', 'pre consultation', 'preconsultation', 'poids',
+  'intake', 'medical form', 'weight',
   'معلومات', 'معلوماتي', 'وزن', 'الوزن', 'استماره', 'ملفي', 'ملف طبي',
 ];
 
 const BOOK_WORDS = [
-  '/book', 'book', 'reserver', 'prendre rdv', 'prendre rendez vous', 'nouveau rdv',
+  '/book', 'book', 'book appointment', 'new appointment', 'reserver', 'prendre rdv', 'prendre rendez vous', 'nouveau rdv',
   'حجز', 'حجز موعد', 'حجز جديد', 'اريد حجز', 'اريد موعد', 'نحجز',
 ];
 
 const DATES_WORDS = [
   'jours disponibles', 'dates disponibles', 'disponibilites', 'disponibilite',
   'creneaux disponibles', 'creneaux', 'prochains jours', 'quelles dates', 'quels jours',
+  'available days', 'available dates', 'open dates', 'open days', 'free days', 'next available',
   'الايام المتاحه', 'المواعيد المتاحه', 'التواريخ المتاحه',
   'الايام المتوفره', 'المواعيد المتوفره', 'التواريخ المتوفره',
   'الايام الشاغره', 'المواعيد الشاغره', 'الايام الفارغه',
@@ -240,17 +248,17 @@ const DATES_WORDS = [
 const MORE_DAYS_WORDS = new Set([
   '0', 'المزيد', 'مزيد', 'ايام اخري', 'ايام اخرى', 'تواريخ اخري', 'تواريخ اخرى',
   'مواعيد اخري', 'مواعيد اخرى', 'التالي', 'plus', 'autres', 'autres jours',
-  'autres dates', 'suivant', 'more',
+  'autres dates', 'suivant', 'more', 'more days', 'more dates', 'next',
 ]);
 
 const WEEKDAY_SYNONYMS = [
-  { wd: 0, words: ['الاحد', 'احد', 'لحد', 'يوم الاحد', 'نهار الاحد', 'نهار لحد', 'dimanche'] },
-  { wd: 1, words: ['الاثنين', 'اثنين', 'الاتنين', 'لتنين', 'يوم الاثنين', 'نهار الاثنين', 'نهار لتنين', 'lundi'] },
-  { wd: 2, words: ['الثلاثاء', 'ثلاثاء', 'التلاتاء', 'لتلات', 'الثلاثا', 'يوم الثلاثاء', 'نهار الثلاثاء', 'نهار لتلات', 'mardi'] },
-  { wd: 3, words: ['الاربعاء', 'اربعاء', 'الاربعا', 'لاربع', 'لاربعا', 'يوم الاربعاء', 'نهار الاربعاء', 'نهار لاربع', 'mercredi'] },
-  { wd: 4, words: ['الخميس', 'خميس', 'لخميس', 'يوم الخميس', 'نهار الخميس', 'نهار لخميس', 'jeudi'] },
-  { wd: 5, words: ['الجمعه', 'جمعه', 'لجمعه', 'يوم الجمعه', 'نهار الجمعه', 'vendredi'] },
-  { wd: 6, words: ['السبت', 'سبت', 'لسبت', 'يوم السبت', 'نهار السبت', 'samedi'] },
+  { wd: 0, words: ['الاحد', 'احد', 'لحد', 'يوم الاحد', 'نهار الاحد', 'نهار لحد', 'dimanche', 'sunday'] },
+  { wd: 1, words: ['الاثنين', 'اثنين', 'الاتنين', 'لتنين', 'يوم الاثنين', 'نهار الاثنين', 'نهار لتنين', 'lundi', 'monday'] },
+  { wd: 2, words: ['الثلاثاء', 'ثلاثاء', 'التلاتاء', 'لتلات', 'الثلاثا', 'يوم الثلاثاء', 'نهار الثلاثاء', 'نهار لتلات', 'mardi', 'tuesday'] },
+  { wd: 3, words: ['الاربعاء', 'اربعاء', 'الاربعا', 'لاربع', 'لاربعا', 'يوم الاربعاء', 'نهار الاربعاء', 'نهار لاربع', 'mercredi', 'wednesday'] },
+  { wd: 4, words: ['الخميس', 'خميس', 'لخميس', 'يوم الخميس', 'نهار الخميس', 'نهار لخميس', 'jeudi', 'thursday'] },
+  { wd: 5, words: ['الجمعه', 'جمعه', 'لجمعه', 'يوم الجمعه', 'نهار الجمعه', 'vendredi', 'friday'] },
+  { wd: 6, words: ['السبت', 'سبت', 'لسبت', 'يوم السبت', 'نهار السبت', 'samedi', 'saturday'] },
 ];
 
 /** Convert Eastern Arabic / Persian digits to ASCII 0-9. */
@@ -330,14 +338,15 @@ function parseDaySelection(rawText, choicesLength = 0, options = {}) {
     }
   }
 
-  // 5. Relative day expressions (Arabic / Darija / French)
+  // 5. Relative day expressions (Arabic / Darija / French / English)
   if (
     norm === 'بعد غد' ||
     norm === 'بعد غدا' ||
     norm === 'غير غدوه' ||
     norm === 'بعدد غدوه' ||
     norm === 'apres demain' ||
-    norm === 'apres-demain'
+    norm === 'apres-demain' ||
+    norm === 'day after tomorrow'
   ) {
     return { type: 'date', day: addDays(today, 2) };
   }
@@ -348,6 +357,7 @@ function parseDaySelection(rawText, choicesLength = 0, options = {}) {
     norm === 'بكره' ||
     norm === 'اليوم الموالي' ||
     norm === 'demain' ||
+    norm === 'tomorrow' ||
     norm === 'ghodwa' ||
     norm === 'ghedwa'
   ) {
@@ -361,7 +371,8 @@ function parseDaySelection(rawText, choicesLength = 0, options = {}) {
     norm === 'aujourd hui' ||
     norm === "aujourd'hui" ||
     norm === 'aujourdhui' ||
-    norm === 'ce jour'
+    norm === 'ce jour' ||
+    norm === 'today'
   ) {
     return { type: 'date', day: today };
   }

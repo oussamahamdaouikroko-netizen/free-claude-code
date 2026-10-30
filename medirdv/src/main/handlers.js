@@ -419,7 +419,9 @@ function createHandlers(context) {
       if (!demo) throw new AppError('DEMO_ONLY');
       const mode = payload?.mode || 'custom';
       const today = toISODate();
-      const isAr = settings.get('language') === 'ar';
+      const curLang = settings.get('language');
+      const isAr = curLang === 'ar';
+      const isEn = curLang === 'en';
 
       if (mode === 'cancel_next') {
         const bookedToday = appointments.agenda(today).filter((a) => a.status === 'booked');
@@ -428,12 +430,12 @@ function createHandlers(context) {
         if (target.phone) {
           bot.handle({
             phone: target.phone,
-            text: isAr ? 'إلغاء' : 'ANNULER',
+            text: isAr ? 'إلغاء' : isEn ? 'CANCEL' : 'ANNULER',
             delivery: 'local',
           });
           const sim = bot.handle({
             phone: target.phone,
-            text: isAr ? 'نعم' : 'OUI',
+            text: isAr ? 'نعم' : isEn ? 'YES' : 'OUI',
             delivery: 'local',
           });
           emit({ type: 'chat', payload: { kind: 'cancelled', appointment_id: target.id } });
@@ -473,7 +475,7 @@ function createHandlers(context) {
         });
         const event = chat.recordBooked(created, {
           phone,
-          lang: isAr ? 'ar' : 'fr',
+          lang: isAr ? 'ar' : isEn ? 'en' : 'fr',
           delivery: 'local',
         });
         emit({ type: 'chat', payload: { kind: 'booked', appointment_id: created.id } });

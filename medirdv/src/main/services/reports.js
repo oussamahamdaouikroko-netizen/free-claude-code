@@ -61,7 +61,7 @@ function daily(day = toISODate()) {
 
   return {
     day: reportDay,
-    day_label: { fr: formatLong(reportDay, 'fr'), ar: formatLong(reportDay, 'ar') },
+    day_label: { fr: formatLong(reportDay, 'fr'), ar: formatLong(reportDay, 'ar'), en: formatLong(reportDay, 'en') },
     currency,
     income: income.total,
     income_count: income.count,

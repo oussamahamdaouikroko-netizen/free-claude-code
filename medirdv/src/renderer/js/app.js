@@ -44,8 +44,20 @@
     }
   }
 
+  function nextLanguage(lang) {
+    if (lang === 'fr') return 'ar';
+    if (lang === 'ar') return 'en';
+    return 'fr';
+  }
+
+  function nextLanguageLabel(lang) {
+    if (lang === 'fr') return 'العربية';
+    if (lang === 'ar') return 'English';
+    return 'Français';
+  }
+
   function languageToggle() {
-    const target = App.language === 'fr' ? 'ar' : 'fr';
+    const target = nextLanguage(App.language);
     return h(
       'button',
       {
@@ -57,7 +69,7 @@
           else await renderAuth(authMode, App.bootInfo || {});
         },
       },
-      App.language === 'fr' ? 'العربية' : 'Français',
+      nextLanguageLabel(App.language),
     );
   }
 
@@ -236,12 +248,12 @@
             {
               class: 'btn sm',
               onClick: () => {
-                setLanguageEverywhere(App.language === 'fr' ? 'ar' : 'fr');
+                setLanguageEverywhere(nextLanguage(App.language));
                 rerender();
               },
             },
             '🌐',
-            h('span', {}, App.language === 'fr' ? 'العربية' : 'Français'),
+            h('span', {}, nextLanguageLabel(App.language)),
           ),
           h(
             'button',

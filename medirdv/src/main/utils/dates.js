@@ -55,8 +55,13 @@ const MONTHS_AR = [
   'جانفي', 'فيفري', 'مارس', 'أفريل', 'ماي', 'جوان',
   'جويلية', 'أوت', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر',
 ];
+const MONTHS_EN = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
 const DAYS_FR = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
 const DAYS_AR = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+const DAYS_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 /** 22/10/2026 */
 function formatFR(isoDate) {
@@ -65,18 +70,24 @@ function formatFR(isoDate) {
   return `${d}/${m}/${y}`;
 }
 
-/** jeudi 22 octobre 2026 */
+/** jeudi 22 octobre 2026 / Thursday, 22 October 2026 */
 function formatLong(isoDate, lang = 'fr') {
   if (!isValidISODate(isoDate)) return '';
   const [, m, d] = isoDate.split('-').map(Number);
-  const dayName = lang === 'ar' ? DAYS_AR[weekday(isoDate)] : DAYS_FR[weekday(isoDate)];
+  const wd = weekday(isoDate);
+  if (lang === 'en') {
+    return `${DAYS_EN[wd]}, ${d} ${MONTHS_EN[m - 1]} ${isoDate.slice(0, 4)}`;
+  }
+  const dayName = lang === 'ar' ? DAYS_AR[wd] : DAYS_FR[wd];
   const monthName = lang === 'ar' ? MONTHS_AR[m - 1] : MONTHS_FR[m - 1];
   return `${dayName} ${d} ${monthName} ${isoDate.slice(0, 4)}`;
 }
 
 /** Nom du jour seul. */
 function weekdayName(isoDate, lang = 'fr') {
-  return lang === 'ar' ? DAYS_AR[weekday(isoDate)] : DAYS_FR[weekday(isoDate)];
+  const wd = weekday(isoDate);
+  if (lang === 'en') return DAYS_EN[wd];
+  return lang === 'ar' ? DAYS_AR[wd] : DAYS_FR[wd];
 }
 
 /** YYYY-MM */
@@ -105,6 +116,8 @@ module.exports = {
   monthRange,
   MONTHS_FR,
   MONTHS_AR,
+  MONTHS_EN,
   DAYS_FR,
   DAYS_AR,
+  DAYS_EN,
 };

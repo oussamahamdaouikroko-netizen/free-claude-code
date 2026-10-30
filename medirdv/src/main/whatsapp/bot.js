@@ -143,7 +143,7 @@ function rememberedLanguage(phone) {
     return lastLanguage.get(key) || null;
   }
   const pending = getPending(phone);
-  if (pending?.lang === 'ar' || pending?.lang === 'fr') return pending.lang;
+  if (pending?.lang === 'ar' || pending?.lang === 'fr' || pending?.lang === 'en') return pending.lang;
   return null;
 }
 
@@ -215,7 +215,12 @@ function buildDayButtons(days = [], hasMore = false, nextOffset = 0, lang = 'fr'
   if (hasMore) {
     buttons.push({
       id: `day_more:${nextOffset}`,
-      text: lang === 'ar' ? '🔄 المزيد من الأيام' : '🔄 Plus de dates',
+      text:
+        lang === 'ar'
+          ? '🔄 المزيد من الأيام'
+          : lang === 'en'
+            ? '🔄 More dates'
+            : '🔄 Plus de dates',
     });
   }
   return buttons;
@@ -761,15 +766,22 @@ function keepAwaitingName(phone, pending, lang) {
 }
 
 function buildCancelButtons(appointmentId, lang) {
-  return lang === 'ar'
-    ? [
-        { id: `cancel_yes:${appointmentId}`, text: '✅ نعم، ألغِ الموعد' },
-        { id: `cancel_no:${appointmentId}`, text: '❌ لا، احتفظ بالموعد' },
-      ]
-    : [
-        { id: `cancel_yes:${appointmentId}`, text: '✅ Oui, annuler le rendez-vous' },
-        { id: `cancel_no:${appointmentId}`, text: '❌ Non, garder le rendez-vous' },
-      ];
+  if (lang === 'ar') {
+    return [
+      { id: `cancel_yes:${appointmentId}`, text: '✅ نعم، ألغِ الموعد' },
+      { id: `cancel_no:${appointmentId}`, text: '❌ لا، احتفظ بالموعد' },
+    ];
+  }
+  if (lang === 'en') {
+    return [
+      { id: `cancel_yes:${appointmentId}`, text: '✅ Yes, cancel appointment' },
+      { id: `cancel_no:${appointmentId}`, text: '❌ No, keep appointment' },
+    ];
+  }
+  return [
+    { id: `cancel_yes:${appointmentId}`, text: '✅ Oui, annuler le rendez-vous' },
+    { id: `cancel_no:${appointmentId}`, text: '❌ Non, garder le rendez-vous' },
+  ];
 }
 
 function parseCallbackToken(raw) {
@@ -1253,7 +1265,9 @@ function handle({ phone, text, callbackData = '', delivery = 'sent', isMedia = f
       const replyText =
         lang === 'ar'
           ? `✅ تم تأكيد حضوركم لموعد يوم ${confirmed.day} (الدور رقم ${confirmed.queue_number}). شكرا لكم!`
-          : `✅ Votre présence au rendez-vous du ${confirmed.day} (tour n° ${confirmed.queue_number}) est bien confirmée. Merci !`;
+          : lang === 'en'
+            ? `✅ Your attendance for the appointment on ${confirmed.day} (queue #${confirmed.queue_number}) is confirmed. Thank you!`
+            : `✅ Votre présence au rendez-vous du ${confirmed.day} (tour n° ${confirmed.queue_number}) est bien confirmée. Merci !`;
       return {
         reply: replyText,
         lang,

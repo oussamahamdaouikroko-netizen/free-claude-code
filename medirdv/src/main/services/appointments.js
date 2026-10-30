@@ -1106,7 +1106,7 @@ function dayStats(day = toISODate(), departmentId = null) {
     return {
       day,
       department_id: dKey,
-      day_label: { fr: formatLong(day, 'fr'), ar: formatLong(day, 'ar') },
+      day_label: { fr: formatLong(day, 'fr'), ar: formatLong(day, 'ar'), en: formatLong(day, 'en') },
       total: row.total || 0,
       booked: row.booked || 0,
       done: row.done || 0,
@@ -1130,7 +1130,7 @@ function dayStats(day = toISODate(), departmentId = null) {
     return {
       day,
       department_id: null,
-      day_label: { fr: formatLong(day, 'fr'), ar: formatLong(day, 'ar') },
+      day_label: { fr: formatLong(day, 'fr'), ar: formatLong(day, 'ar'), en: formatLong(day, 'en') },
       total: row.total || 0,
       booked: row.booked || 0,
       done: row.done || 0,
@@ -1145,7 +1145,7 @@ function dayStats(day = toISODate(), departmentId = null) {
   return {
     day,
     department_id: null,
-    day_label: { fr: formatLong(day, 'fr'), ar: formatLong(day, 'ar') },
+    day_label: { fr: formatLong(day, 'fr'), ar: formatLong(day, 'ar'), en: formatLong(day, 'en') },
     total: row.total || 0,
     booked: row.booked || 0,
     done: row.done || 0,

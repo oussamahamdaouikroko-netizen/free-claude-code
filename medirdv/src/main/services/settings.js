@@ -13,6 +13,7 @@ const { DEFAULT_SETTINGS } = require('../db/seed');
 const DAY_LABELS = {
   fr: ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'],
   ar: ['أحد', 'اثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة', 'سبت'],
+  en: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
 };
 
 const clampInt = (value, min, max, fallback) => {
@@ -123,7 +124,7 @@ const VALIDATORS = {
   default_consultation_fee: (v) => String(clampInt(v, 0, 1000000, 0)),
   autostart_enabled: (v) => String(asFlag(v)),
   autostart_initialized: (v) => String(asFlag(v)),
-  language: (v) => (v === 'ar' ? 'ar' : 'fr'),
+  language: (v) => (v === 'ar' ? 'ar' : v === 'en' ? 'en' : 'fr'),
   daily_capacity: (v) => String(clampInt(v, 1, 500, 15)),
   working_days: (v) => {
     const raw = Array.isArray(v) ? v.join(',') : String(v ?? '');
@@ -149,7 +150,7 @@ const VALIDATORS = {
   avg_session_minutes: (v) => String(clampInt(v, 5, 180, 15)),
   queue_notify_enabled: (v) => String(asFlag(v)),
   bot_enabled: (v) => String(asFlag(v)),
-  bot_language: (v) => (v === 'ar' ? 'ar' : 'fr'),
+  bot_language: (v) => (v === 'ar' ? 'ar' : v === 'en' ? 'en' : 'fr'),
   bot_choose_day_enabled: (v) => String(asFlag(v)),
   bot_available_days_count: (v) => String(clampInt(v, 3, 14, 7)),
   reminder_enabled: (v) => String(asFlag(v)),
@@ -319,7 +320,9 @@ function getWorkSchedule() {
 
 function formatEndLabel(endHHMM, startHHMM, lang = 'fr') {
   if (endHHMM === '00:00' && startHHMM !== '00:00') {
-    return lang === 'ar' ? '00:00 (12 ليلاً)' : '00:00 (minuit)';
+    if (lang === 'ar') return '00:00 (12 ليلاً)';
+    if (lang === 'en') return '00:00 (midnight)';
+    return '00:00 (minuit)';
   }
   return endHHMM;
 }
@@ -327,24 +330,26 @@ function formatEndLabel(endHHMM, startHHMM, lang = 'fr') {
 function formatScheduleSummary(lang = 'fr') {
   const s = getWorkSchedule();
   if (s.is24h) {
-    return lang === 'ar' ? '24/24 ساعة بدون توقف' : 'Ouvert 24h/24 sans interruption';
+    if (lang === 'ar') return '24/24 ساعة بدون توقف';
+    if (lang === 'en') return 'Open 24/7 non-stop';
+    return 'Ouvert 24h/24 sans interruption';
   }
   const s1End = formatEndLabel(s.shift1End, s.shift1Start, lang);
   if (!s.twoShifts) {
     return `${s.shift1Start} – ${s1End}`;
   }
   const s2End = formatEndLabel(s.shift2End, s.shift2Start, lang);
-  return lang === 'ar'
-    ? `${s.shift1Start} – ${s1End} | الفترة 2: ${s.shift2Start} – ${s2End}`
-    : `${s.shift1Start} – ${s1End} · 2e séance : ${s.shift2Start} – ${s2End}`;
+  if (lang === 'ar') return `${s.shift1Start} – ${s1End} | الفترة 2: ${s.shift2Start} – ${s2End}`;
+  if (lang === 'en') return `${s.shift1Start} – ${s1End} · 2nd shift: ${s.shift2Start} – ${s2End}`;
+  return `${s.shift1Start} – ${s1End} · 2e séance : ${s.shift2Start} – ${s2End}`;
 }
 
 function formatBreakSummary(lang = 'fr') {
   const s = getWorkSchedule();
   if (s.is24h || !s.breakEnabled || s.breakMinutes <= 0) return '';
-  return lang === 'ar'
-    ? `راحة الطبيب: ${s.breakStart} – ${s.breakEnd}`
-    : `Pause du médecin : ${s.breakStart} – ${s.breakEnd}`;
+  if (lang === 'ar') return `راحة الطبيب: ${s.breakStart} – ${s.breakEnd}`;
+  if (lang === 'en') return `Doctor break: ${s.breakStart} – ${s.breakEnd}`;
+  return `Pause du médecin : ${s.breakStart} – ${s.breakEnd}`;
 }
 
 function isMinuteInside(minOfDay, startHHMM, endHHMM) {

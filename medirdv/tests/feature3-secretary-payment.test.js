@@ -21,6 +21,7 @@ test('Feature 3 — Secretary one-click payment confirmation, double-click safet
   try {
     const today = toISODate();
     const thisMonth = monthKey(today);
+    require('../src/main/services/settings').set('working_days', '0,1,2,3,4,5,6');
 
     // Setup clinic admin + create secretary, doctor, and nurse users
     auth.setup({ password: 'adminPassword123', confirm: 'adminPassword123' });
@@ -51,6 +52,7 @@ test('Feature 3 — Secretary one-click payment confirmation, double-click safet
       specialty: 'Cardiologie',
       consultation_fee: 2500,
       daily_capacity: 20,
+      working_days: '0,1,2,3,4,5,6',
     });
 
     const p1 = patients.create({ full_name: 'أحمد بن علي', phone: '0558100001' });
