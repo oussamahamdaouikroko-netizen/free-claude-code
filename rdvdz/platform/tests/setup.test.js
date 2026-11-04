@@ -49,6 +49,43 @@ test('l’installateur ne casse jamais une configuration existante', async () =>
   assert.match(source, /changez-moi\|example/);
 });
 
+test('les commandes ne passent par le shell que si Windows l’exige', async () => {
+  // Régression réelle : `shell: true` + `C:\Program Files\nodejs\node.exe`
+  // fait couper la commande au premier espace → « code 1 » sans explication.
+  const source = await read('setup.mjs');
+  assert.ok(
+    source.includes("const needsShell = isWindows && /\\.cmd$|\\.bat$/i.test(command);"),
+    'le shell doit être limité aux scripts .cmd/.bat',
+  );
+  assert.match(source, /shell: needsShell/);
+  assert.doesNotMatch(source, /shell: isWindows/, 'le shell ne doit plus être global');
+  // Et le dossier de travail doit être explicite, sinon `scripts/migrate.js`
+  // est cherché à la racine du projet.
+  assert.match(source, /cwd: options\.cwd \?\? PLATFORM/);
+});
+
+test('un échec est traduit en action concrète, pas en trace technique', async () => {
+  const { explainFailure } = await import('../../setup.mjs');
+  assert.match(explainFailure('Error: EACCES: permission denied', 'node', []), /Documents|droits d’écriture/);
+  assert.match(explainFailure('npm ERR! network ETIMEDOUT', 'npm', ['ci']), /connexion à Internet/);
+  assert.match(explainFailure('EBUSY: resource busy or locked', 'node', []), /en cours d’utilisation/);
+  assert.match(explainFailure('listen EADDRINUSE 0.0.0.0:8080', 'node', []), /PORT=/);
+  assert.match(explainFailure('CONFIG_INVALID: APP_SECRET', 'node', []), /\.env\.local/);
+  // Une erreur inconnue ne produit pas de conseil inventé.
+  assert.equal(explainFailure('TypeError: x is not a function', 'node', []), null);
+});
+
+test('chaque échec écrit un journal lisible à côté du script', async () => {
+  const source = await read('setup.mjs');
+  assert.match(source, /setup-error\.log/);
+  assert.match(source, /journal d’installation/);
+  assert.match(source, /process\.versions\.node/);
+  // Le .bat doit le réafficher : une fenêtre cmd défile trop vite.
+  const batch = await read('setup.bat');
+  assert.match(batch, /type "%~dp0setup-error\.log"/);
+  assert.match(batch, /del "%~dp0setup-error\.log"/);
+});
+
 test('setup.bat conduit à Node.js au lieu d’échouer sèchement', async () => {
   const batch = await read('setup.bat');
   assert.match(batch, /nodejs\.org\/fr\/download/);

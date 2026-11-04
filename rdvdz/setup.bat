@@ -1,13 +1,11 @@
 @echo off
 REM ===========================================================================
 REM  RDV DZ - installateur Windows
-REM  Double-cliquez sur ce fichier. Tout se fait ici : verification de Node,
-REM  installation, configuration, base de donnees, verification, demarrage.
+REM  Double-cliquez sur ce fichier, puis tapez 1 et Entree.
 REM ===========================================================================
 setlocal EnableExtensions
 
 title RDV DZ - installation
-
 cd /d "%~dp0"
 
 echo.
@@ -21,28 +19,44 @@ REM --- Node.js present ? -----------------------------------------------------
 where node >nul 2>nul
 if errorlevel 1 goto no_node
 
-for /f "delims=" %%v in ('node -v') do set NODE_VERSION=%%v
+for /f "delims=" %%v in ('node -v 2^>nul') do set NODE_VERSION=%%v
 echo   Node.js detecte : %NODE_VERSION%
+
+where npm >nul 2>nul
+if errorlevel 1 goto no_npm
+
+REM --- Lancement de l'installateur -------------------------------------------
 echo.
-
-REM --- Lancement de l'installateur ------------------------------------------
 node "%~dp0setup.mjs" %*
-set EXIT_CODE=%ERRORLEVEL%
+set "EXIT_CODE=%ERRORLEVEL%"
 
-if "%EXIT_CODE%"=="0" goto end
-if "%EXIT_CODE%"=="1" goto failed
-goto end
+if "%EXIT_CODE%"=="0" goto success
+goto failed
 
 :no_node
+echo.
 echo   [!] Node.js n'est pas installe sur cet ordinateur.
 echo.
-echo       Telechargez la version LTS (installeur .msi, choix par defaut) :
+echo       1. La page de telechargement va s'ouvrir.
+echo       2. Telechargez la version LTS (fichier .msi).
+echo       3. Installez-la en laissant TOUTES les options par defaut.
+echo       4. FERMEZ cette fenetre noire.
+echo       5. Double-cliquez de nouveau sur setup.bat.
+echo.
+echo   Ouverture de https://nodejs.org/fr/download ...
+start "" "https://nodejs.org/fr/download"
+echo.
+pause
+exit /b 1
+
+:no_npm
+echo.
+echo   [!] Node.js est present mais npm ne l'est pas.
+echo.
+echo       Reinstallez Node.js LTS en laissant les options par defaut :
 echo         https://nodejs.org/fr/download
+echo       Puis fermez cette fenetre et relancez setup.bat.
 echo.
-echo       Apres l'installation, FERMEZ cette fenetre puis
-echo       double-cliquez de nouveau sur setup.bat.
-echo.
-echo   Ouverture de la page de telechargement...
 start "" "https://nodejs.org/fr/download"
 echo.
 pause
@@ -50,15 +64,31 @@ exit /b 1
 
 :failed
 echo.
-echo   L'installation s'est arretee sur une erreur (code %EXIT_CODE%).
-echo   Lisez le message ci-dessus : il indique quoi faire.
+echo   ---------------------------------------------------------------
+echo    L'installation s'est arretee (code %EXIT_CODE%).
+echo    Voici le detail, pour eviter de remonter dans la fenetre :
+echo   ---------------------------------------------------------------
+echo.
+if exist "%~dp0setup-error.log" (
+  type "%~dp0setup-error.log"
+) else (
+  echo    Aucun journal n'a pu etre ecrit.
+  echo    Relancez en faisant un clic droit sur setup.bat
+  echo    puis "Executer en tant qu'administrateur".
+)
+echo.
+echo   ---------------------------------------------------------------
+echo    Un fichier setup-error.log a ete cree dans le dossier rdvdz.
+echo    Vous pouvez l'envoyer pour obtenir de l'aide.
+echo   ---------------------------------------------------------------
 echo.
 pause
 exit /b %EXIT_CODE%
 
-:end
-REM Si le serveur a ete lance, on arrive ici apres Ctrl+C : on garde la fenetre
-REM ouverte pour que l'utilisateur puisse lire le journal.
+:success
+if exist "%~dp0setup-error.log" del "%~dp0setup-error.log" >nul 2>nul
+echo.
+echo   Installation terminee.
 echo.
 pause
 exit /b 0

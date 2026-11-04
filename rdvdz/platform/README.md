@@ -38,8 +38,8 @@ réelle ne doit transiter par cet environnement.
 ## Vérification
 
 ```bash
-npm run check       # tout : 188 tests + syntaxe + schéma + types
-npm test            # 188 tests (API + front) sur PGlite en mémoire
+npm run check       # tout : 191 tests + syntaxe + schéma + types
+npm test            # 191 tests (API + front) sur PGlite en mémoire
 npm run test:schema # cohérence migrations ↔ code
 npm run typecheck   # tsc --noEmit (checkJs désactivé : le code est du JS pur)
 node scripts/check-syntax.mjs  # `node --check` sur les 69 fichiers livrés

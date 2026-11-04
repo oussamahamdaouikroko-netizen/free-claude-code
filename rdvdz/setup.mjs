@@ -55,7 +55,13 @@ const c = {
   cyan: (s) => (color ? `\u001b[36m${s}\u001b[39m` : s),
 };
 
-const say = (message = '') => process.stdout.write(`${message}\n`);
+const LOG_FILE = path.join(HERE, 'setup-error.log');
+const transcript = [];
+
+const say = (message = '') => {
+  transcript.push(message);
+  process.stdout.write(`${message}\n`);
+};
 const step = (message) => say(`\n${c.cyan('▶')} ${c.bold(message)}`);
 const ok = (message) => say(`  ${c.green('✔')} ${message}`);
 const warn = (message) => say(`  ${c.yellow('!')} ${message}`);
@@ -79,34 +85,121 @@ async function exists(target) {
   }
 }
 
-/** Lance une commande et hérite de la sortie (npm affiche ses propres progrès). */
+/**
+ * Lance une commande et hérite de la sortie.
+ *
+ * Point délicat sous Windows : `process.execPath` vaut
+ * `C:\Program Files\nodejs\node.exe`. Avec `shell: true`, Windows coupe la
+ * ligne au premier espace et tente d'exécuter `C:\Program` → échec immédiat
+ * « code 1 » sans explication. On n'active donc le shell **que** pour `npm`,
+ * qui est un `.cmd` et en a besoin, et on cite son chemin.
+ */
 function run(command, args, options = {}) {
+  const needsShell = isWindows && /\.cmd$|\.bat$/i.test(command);
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const child = spawn(needsShell ? `"${command}"` : command, args, {
+      // Le dossier de travail est ESSENTIEL : `scripts/migrate.js` est relatif
+      // à `platform/`. Sans lui, Node le cherche à la racine du projet et
+      // échoue sur « Cannot find module ».
       cwd: options.cwd ?? PLATFORM,
-      stdio: options.quiet ? ['ignore', 'pipe', 'pipe'] : 'inherit',
-      shell: isWindows,
+      // Sortie toujours capturée : c'est elle qui permet de diagnostiquer
+      // l'échec. Elle est aussi réaffichée en direct, pour que l'utilisateur
+      // voie la progression de npm.
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: needsShell,
+      windowsHide: true,
       env: { ...process.env, ...(options.env ?? {}) },
     });
     let stdout = '';
     let stderr = '';
-    if (options.quiet) {
-      child.stdout.on('data', (chunk) => {
-        stdout += chunk;
-      });
-      child.stderr.on('data', (chunk) => {
-        stderr += chunk;
-      });
-    }
-    child.on('error', reject);
+    child.stdout?.on('data', (chunk) => {
+      stdout += chunk;
+      if (!options.quiet) process.stdout.write(chunk);
+    });
+    child.stderr?.on('data', (chunk) => {
+      stderr += chunk;
+      if (!options.quiet) process.stderr.write(chunk);
+    });
+    child.on('error', (error) => {
+      reject(
+        new SetupError(
+          `Impossible de lancer « ${command} » : ${error.message}`,
+          command === npm && isWindows
+            ? [
+                'npm est introuvable. Node.js est peut-être installé sans npm, ou le PATH',
+                'n’est pas à jour dans cette fenêtre.',
+                'Fermez la fenêtre, rouvrez setup.bat et réessayez.',
+                'Sinon, réinstallez Node.js LTS avec les options par défaut : https://nodejs.org/fr/download',
+              ].join('\n')
+            : null,
+        ),
+      );
+    });
     child.on('close', (code) => {
-      if (code === 0) resolve({ stdout, stderr });
-      else {
-        const tail = `${stderr}\n${stdout}`.trim().split('\n').slice(-6).join('\n');
-        reject(new SetupError(`« ${command} ${args.join(' ')} » a échoué (code ${code}).`, tail));
+      if (code === 0) {
+        resolve({ stdout, stderr });
+        return;
       }
+      const detail = `${stderr}\n${stdout}`.trim();
+      reject(
+        new SetupError(
+          `« ${command} ${args.join(' ')} » a échoué (code ${code}).`,
+          explainFailure(`${stderr}\n${stdout}`, command, args) ??
+            (detail ? detail.split('\n').slice(-8).join('\n') : null),
+        ),
+      );
     });
   });
+}
+
+/** Traduit les erreurs techniques courantes en action concrète. */
+export function explainFailure(output, command, args) {
+  const text = String(output);
+  if (/EACCES|EPERM|operation not permitted/i.test(text)) {
+    return isWindows
+      ? [
+          'Windows (ou l’antivirus) interdit l’écriture dans ce dossier.',
+          'Déplacez le projet dans vos Documents, par exemple :',
+          '  C:\\Users\\<votre nom>\\Documents\\rdvdz',
+          'puis relancez setup.bat.',
+        ].join('\n')
+      : [
+          'Les droits d’écriture manquent dans ce dossier.',
+          'Déplacez le projet dans votre dossier personnel, puis relancez :',
+          '  node setup.mjs',
+        ].join('\n');
+  }
+  if (/ENOTFOUND|ECONNRESET|EAI_AGAIN|network|ETIMEDOUT/i.test(text)) {
+    return [
+      'Pas de connexion à Internet, ou le registre npm est bloqué.',
+      'Vérifiez la connexion (un pare-feu d’entreprise peut bloquer npm) puis relancez.',
+    ].join('\n');
+  }
+  if (/EBUSY|resource busy|being used by another process/i.test(text)) {
+    return [
+      'Un fichier du projet est en cours d’utilisation.',
+      'Fermez les fenêtres de l’application déjà ouvertes, puis relancez setup.bat.',
+    ].join('\n');
+  }
+  if (/401|403|proxy|registry/i.test(text) && /npm/i.test(command)) {
+    return [
+      'Le téléchargement des dépendances a été refusé par le registre npm.',
+      'Essayez :  npm config set registry https://registry.npmjs.org/',
+    ].join('\n');
+  }
+  if (/EADDRINUSE/i.test(text)) {
+    return [
+      'Le port est déjà utilisé. Modifiez PORT= dans platform\\.env.local (8081 par exemple).',
+    ].join('\n');
+  }
+  if (/CONFIG_INVALID/.test(text)) {
+    return [
+      'La configuration est invalide. Supprimez platform/.env.local puis relancez',
+      'setup.bat : un nouveau fichier sera généré avec des secrets valides.',
+    ].join('\n');
+  }
+  void args;
+  return null;
 }
 
 /** `npm` sur Windows est un `.cmd` : il faut passer par le shell. */
@@ -196,12 +289,17 @@ async function probeHealth(port) {
 }
 
 function openBrowser(url) {
-  const command = isWindows ? 'cmd' : process.platform === 'darwin' ? 'open' : 'xdg-open';
-  const args = isWindows ? ['/c', 'start', '""', url] : [url];
-  spawn(command, args, { stdio: 'ignore', detached: true, shell: isWindows }).on(
-    'error',
-    () => {},
-  );
+  // `shell: false` ici aussi : passer par le shell casserait sur les espaces.
+  const [command, args] = isWindows
+    ? ['cmd.exe', ['/c', 'start', '', url]]
+    : [process.platform === 'darwin' ? 'open' : 'xdg-open', [url]];
+  try {
+    spawn(command, args, { stdio: 'ignore', detached: true, windowsHide: true })
+      .on('error', () => {})
+      .unref();
+  } catch {
+    // Ouvrir le navigateur est un confort : l'URL est affichée dans tous les cas.
+  }
 }
 
 /* --------------------------------- étapes --------------------------------- */
@@ -502,20 +600,55 @@ async function main() {
   say(`  Mot de passe des comptes de démo : ${c.bold('Demo#2026-Demo')}\n`);
 }
 
-main().catch((error) => {
-  say('');
-  if (error instanceof SetupError) {
-    say(`  ${c.red('✖')} ${c.bold(error.message)}`);
-    if (error.hint) {
-      say('');
-      for (const line of String(error.hint).split('\n')) say(`    ${line}`);
+/**
+ * Point d'entrée.
+ *
+ * Le module est importable (les tests vérifient ses fonctions) : il ne doit
+ * donc **rien exécuter** à l'import. Sans cette garde, `import()` déclenche le
+ * menu interactif et bloque indéfiniment.
+ */
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch(async (error) => {
+    say('');
+    if (error instanceof SetupError) {
+      say(`  ${c.red('✖')} ${c.bold(error.message)}`);
+      if (error.hint) {
+        say('');
+        for (const line of String(error.hint).split('\n')) say(`    ${line}`);
+      }
+    } else {
+      say(`  ${c.red('✖')} Erreur inattendue : ${error.message}`);
+      if (error.stack) say(c.dim(error.stack.split('\n').slice(1, 4).join('\n')));
     }
-  } else {
-    say(`  ${c.red('✖')} Erreur inattendue : ${error.message}`);
-    if (error.stack) say(c.dim(error.stack.split('\n').slice(1, 4).join('\n')));
-  }
-  say('');
-  say(c.dim('  Détails complets dans le journal ci-dessus.'));
-  say('');
-  process.exitCode = 1;
-});
+
+    // Le message défile souvent hors de l'écran d'une fenêtre cmd : on le garde
+    // aussi dans un fichier, que setup.bat réaffiche après l'échec.
+    const report = [
+      'RDV DZ — journal d’installation',
+      `Date    : ${new Date().toISOString()}`,
+      `Système : ${process.platform} ${process.arch}`,
+      `Node    : ${process.versions.node}`,
+      `Dossier : ${HERE}`,
+      '',
+      '--- sortie complète ---',
+      ...transcript,
+      '',
+      '--- erreur ---',
+      error instanceof SetupError
+        ? `${error.message}\n${error.hint ?? ''}`
+        : (error.stack ?? error.message),
+      '',
+    ].join('\n');
+
+    try {
+      await writeFile(LOG_FILE, report, 'utf8');
+      say('');
+      say(c.dim(`  Détails écrits dans : ${LOG_FILE}`));
+    } catch {
+      say('');
+      say(c.dim('  (impossible d’écrire le journal — lancez setup.bat en administrateur)'));
+    }
+    say('');
+    process.exitCode = 1;
+  });
+}

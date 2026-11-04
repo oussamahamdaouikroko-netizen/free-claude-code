@@ -3,7 +3,7 @@
 Chaque ligne correspond à un test **exécuté** dans `platform/` (`npm test`).
 Aucun élément n'est déclaré « fait » sans une ligne ici.
 
-Dernière exécution : **188 tests, 188 réussis**, `npm run test:schema` conforme
+Dernière exécution : **191 tests, 191 réussis**, `npm run test:schema` conforme
 (version de schéma 11).
 
 ```bash
@@ -26,7 +26,7 @@ node tests/web.test.js        # un seul fichier
 | `tests/desktop-sync.test.js` | 15 | appairage, HMAC, pull/push, conflits, rejeu |
 | `tests/web.test.js` | 24 | rendu des vues front, échappement, i18n, sécurités navigateur |
 | `tests/web-e2e.test.js` | 9 | parcours complet dans un vrai DOM (jsdom) |
-| `tests/setup.test.js` | 9 | installateur : zéro dépendance, version minimale cohérente, `.bat` sans logique dupliquée |
+| `tests/setup.test.js` | 12 | installateur : zéro dépendance, version minimale cohérente, `.bat` sans logique dupliquée |
 
 ## 2. Sécurité (front compris)
 

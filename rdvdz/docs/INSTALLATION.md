@@ -71,7 +71,7 @@ Mot de passe : `Demo#2026-Demo` — **données fictives, paiements simulés**.
 
 ```bash
 cd platform
-npm run check     # 188 tests + syntaxe + schéma + types (≈ 40 s)
+npm run check     # 191 tests + syntaxe + schéma + types (≈ 40 s)
 ```
 
 Le script d'installation exécute déjà `check-schema` et `check-syntax` ; la suite
@@ -87,6 +87,15 @@ complète de tests n'est lancée qu'à la demande, pour ne pas imposer 40 second
 | `Le dossier platform/ est introuvable` | archive décompressée partiellement | re-décompresser le dossier entier |
 | `EACCES` / `EPERM` sous Windows | antivirus ou dossier protégé | déplacer le projet dans `C:\Users\<vous>\Documents\rdvdz` |
 | `npm` introuvable alors que Node est installé | `PATH` non rechargé | fermer la fenêtre et rouvrir `setup.bat` |
+
+### En cas d'échec : `setup-error.log`
+
+À chaque erreur, l'installateur écrit **`setup-error.log`** dans le dossier
+`rdvdz/` (à côté de `setup.bat`), et le `.bat` le réaffiche à l'écran — une
+fenêtre `cmd` défile trop vite pour lire un message. Ce fichier contient la
+sortie complète, la version de Node, le système et l'erreur exacte. Envoyez-le
+pour obtenir de l'aide. Il est supprimé automatiquement après une installation
+réussie.
 
 ## Ce que le script ne fait **pas**
 
