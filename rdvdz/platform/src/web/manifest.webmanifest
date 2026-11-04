@@ -1,0 +1,17 @@
+{
+  "name": "RDV DZ — Rendez-vous médicaux",
+  "short_name": "RDV DZ",
+  "description": "Annuaire de médecins, réservation en ligne et téléconsultation en Algérie.",
+  "lang": "fr",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f8fb",
+  "theme_color": "#0B63C5",
+  "categories": ["health", "medical"],
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

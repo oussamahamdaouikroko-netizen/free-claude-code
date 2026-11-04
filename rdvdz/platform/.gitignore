@@ -1,0 +1,16 @@
+# Dépendances
+node_modules/
+
+# Données locales (base PGlite de développement, documents chiffrés, exports)
+.data/
+*.pglite
+
+# Secrets d'environnement — jamais versionnés
+.env
+.env.local
+.env.*.local
+
+# Divers
+*.log
+check-web.mjs
+coverage/

@@ -1,0 +1,8 @@
+# RDV DZ — aucune donnée personnelle ne doit être indexée.
+User-agent: *
+Disallow: /api/
+Disallow: /admin
+Disallow: /ops
+Disallow: /account
+Disallow: /bookings
+Allow: /

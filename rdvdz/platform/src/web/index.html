@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="fr" dir="ltr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>RDV DZ — Prenez rendez-vous chez un médecin</title>
+    <meta name="description" content="RDV DZ : annuaire de médecins, réservation en ligne et téléconsultation en Algérie." />
+    <meta name="theme-color" content="#0B63C5" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Aller au contenu</a>
+
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="brand" href="#/" aria-label="RDV DZ — accueil">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 3v18M3 12h18" stroke-linecap="round" />
+            </svg>
+          </span>
+          <span class="brand-text">
+            <strong>RDV DZ</strong>
+            <small data-i18n="brand.tagline">Rendez-vous médicaux</small>
+          </span>
+        </a>
+
+        <nav class="main-nav" aria-label="Navigation principale" aria-labelledby="nav-label">
+          <span id="nav-label" class="sr-only" hidden>Navigation</span>
+          <a href="#/" data-nav="search" data-i18n="nav.find">Trouver un médecin</a>
+          <a href="#/bookings" data-nav="bookings" data-auth="patient" data-i18n="nav.bookings">Mes rendez-vous</a>
+          <a href="#/teleconsult" data-nav="teleconsult" data-auth="patient" data-i18n="nav.teleconsult">Téléconsultation</a>
+          <a href="#/doctor" data-nav="doctor" data-auth="doctor" data-i18n="nav.doctor">Mon agenda</a>
+          <a href="#/ops" data-nav="ops" data-auth="ops" data-i18n="nav.ops">Console</a>
+          <a href="#/admin" data-nav="admin" data-auth="admin" data-i18n="nav.admin">Administration</a>
+        </nav>
+
+        <div class="header-actions">
+          <button class="lang-toggle" type="button" data-action="toggle-lang" title="Français / العربية">
+            <span aria-hidden="true">ع</span><span aria-hidden="true">/</span><span>FR</span>
+          </button>
+          <a class="btn btn-ghost" href="#/login" data-auth="anonymous" data-i18n="nav.login">Connexion</a>
+          <button class="btn btn-ghost" type="button" data-action="logout" data-auth="authenticated" data-i18n="nav.logout">
+            Déconnexion
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main" class="container" tabindex="-1">
+      <div id="view" class="view" aria-live="polite">
+        <div class="skeleton">
+          <div class="skeleton-line w40"></div>
+          <div class="skeleton-line"></div>
+          <div class="skeleton-card"></div>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <p data-i18n="footer.legal">
+          Ce service ne remplace pas une consultation présentielle. En cas d'urgence, appelez le 14.
+        </p>
+        <p class="muted">
+          <span data-i18n="footer.data">Données de santé hébergées en Algérie · loi 18-07</span>
+          · <a href="#/privacy" data-i18n="footer.privacy">Confidentialité</a>
+        </p>
+      </div>
+    </footer>
+
+    <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

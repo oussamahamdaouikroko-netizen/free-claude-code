@@ -22,6 +22,7 @@ const chat = require('./services/chat');
 const bot = require('./whatsapp/bot');
 const sheets = require('./export/sheets');
 const auth = require('./services/auth');
+const sync = require('./sync');
 const { prescriptionHtml, certificateHtml } = require('./print');
 const { AppError } = require('./utils/common');
 const { toISODate } = require('./utils/dates');
@@ -385,6 +386,36 @@ function createHandlers(context) {
       };
       if (!printReceipt) return { ok: true, fallback: true, html: certificateHtml(doc) };
       await printReceipt(doc, 'certificate');
+      return { ok: true };
+    },
+
+    /* ---------------------- synchronisation RDV DZ ------------------------- */
+    // Module optionnel : aucune connexion réseau tant que `sync_enabled` = 0.
+    'sync:status': () => sync.status(),
+    'sync:configure': (payload) => {
+      settings.setMany({
+        sync_api_url: payload?.api_url ?? '',
+        sync_device_id: payload?.device_id ?? '',
+        sync_secret: payload?.secret ?? '',
+        sync_product: payload?.product ?? 'MEDIRDV',
+      });
+      return sync.status();
+    },
+    'sync:enable': (payload) => {
+      settings.set('sync_enabled', payload?.enabled === false ? '0' : '1');
+      if (settings.getBool('sync_enabled')) sync.start({ patients, appointments });
+      else sync.stop();
+      return sync.status();
+    },
+    'sync:now': async () => sync.syncOnce({ patients, appointments }),
+    'sync:logs': (payload) => {
+      const limit = Math.min(200, Math.max(1, Number(payload?.limit) || 50));
+      return getDb()
+        .prepare('SELECT * FROM sync_log ORDER BY id DESC LIMIT ?')
+        .all(limit);
+    },
+    'sync:queue-hold': (payload) => {
+      sync.enqueue('appointment', 'reserve', payload || {});
       return { ok: true };
     },
 

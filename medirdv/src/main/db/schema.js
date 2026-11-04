@@ -9,7 +9,7 @@
  * and medical certificates.
  */
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const MIGRATION_1 = `
 CREATE TABLE IF NOT EXISTS settings (
@@ -268,7 +268,76 @@ CREATE TABLE IF NOT EXISTS medical_certificates (
 CREATE INDEX IF NOT EXISTS idx_cert_patient ON medical_certificates(patient_id);
 `;
 
-const MIGRATIONS = [MIGRATION_1];
+/**
+ * v2 — synchronisation RDV DZ (ADDITIF UNIQUEMENT).
+ *
+ * Cette migration n'ajoute que des tables et des colonnes NULLables :
+ *  - aucune colonne existante n'est modifiée ni supprimée ;
+ *  - aucune donnée n'est réécrite ;
+ *  - si le module de synchronisation n'est jamais activé, ces tables restent
+ *    vides et l'application se comporte exactement comme avant.
+ *
+ * `sync_id` identifie une ligne locale de façon stable et unique côté
+ * plateforme, indépendamment de l'auto-incrément SQLite.
+ */
+const MIGRATION_2 = `
+-- Compteur monotone utilisé comme curseur de synchronisation.
+CREATE TABLE IF NOT EXISTS sync_state (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+-- File sortante : ce que le poste veut envoyer à la plateforme.
+CREATE TABLE IF NOT EXISTS sync_outbox (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  entity      TEXT NOT NULL,               -- appointment | patient_identity | payment_note | consultation_request
+  local_id    INTEGER,                     -- identifiant local (facultatif)
+  remote_id   TEXT,                        -- identifiant plateforme (uuid)
+  operation   TEXT NOT NULL,               -- create | update | status
+  payload     TEXT NOT NULL,               -- JSON
+  status      TEXT NOT NULL DEFAULT 'pending'
+              CHECK (status IN ('pending', 'sent', 'failed', 'conflict')),
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  last_error  TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_sync_outbox_status ON sync_outbox(status, id);
+CREATE INDEX IF NOT EXISTS idx_sync_outbox_entity ON sync_outbox(entity);
+
+-- File entrante : réservations reçues de la plateforme, rejouables.
+CREATE TABLE IF NOT EXISTS sync_inbox (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  remote_id    TEXT NOT NULL,
+  kind         TEXT NOT NULL,              -- BOOKING | CANCELLATION | CONSULTATION | PAYMENT_NOTE
+  payload      TEXT NOT NULL,              -- JSON
+  status       TEXT NOT NULL DEFAULT 'pending'
+               CHECK (status IN ('pending', 'applied', 'failed', 'skipped')),
+  appointment_id INTEGER REFERENCES appointments(id) ON DELETE SET NULL,
+  attempts     INTEGER NOT NULL DEFAULT 0,
+  last_error   TEXT,
+  received_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  applied_at   TEXT
+);
+-- Une réservation distante ne peut être appliquée qu'une seule fois.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_sync_inbox_remote ON sync_inbox(remote_id);
+CREATE INDEX IF NOT EXISTS idx_sync_inbox_status ON sync_inbox(status, id);
+
+-- Journal lisible par le support (jamais de données médicales).
+CREATE TABLE IF NOT EXISTS sync_log (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  direction  TEXT NOT NULL CHECK (direction IN ('in', 'out')),
+  entity     TEXT NOT NULL,
+  local_id   INTEGER,
+  remote_id  TEXT,
+  status     TEXT NOT NULL CHECK (status IN ('ok', 'conflict', 'error')),
+  detail     TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_sync_log_created ON sync_log(created_at DESC, id DESC);
+`;
+
+const MIGRATIONS = [MIGRATION_1, MIGRATION_2];
 
 function migrate(db) {
   const current = db.pragma('user_version', { simple: true });

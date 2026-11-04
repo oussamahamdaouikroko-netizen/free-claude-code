@@ -1,0 +1,30 @@
+{
+  "name": "@rdvdz/api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "RDV DZ — API centrale (réservation, téléconsultation, paiements, branches, synchronisation DENTARDV/MEDIRDV)",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "migrate": "node scripts/migrate.js",
+    "seed": "node scripts/seed-demo.js",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test --test-concurrency=1 \"tests/*.test.js\"",
+    "test:schema": "node scripts/check-schema.js",
+    "check": "node --test --test-concurrency=1 \"tests/*.test.js\" && node scripts/check-syntax.mjs && node scripts/check-schema.js && tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.2.17",
+    "fastify": "^5.2.0",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.7.2"
+  }
+}

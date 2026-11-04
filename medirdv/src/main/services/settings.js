@@ -66,6 +66,19 @@ const VALIDATORS = {
   backup_enabled: (v) => String(asFlag(v)),
   backup_keep: (v) => String(clampInt(v, 1, 365, 30)),
   last_backup_at: (v) => String(v ?? '').slice(0, 40),
+  // --- Synchronisation RDV DZ (module optionnel, désactivé par défaut) -----
+  sync_enabled: (v) => String(asFlag(v)),
+  sync_api_url: (v) => {
+    const url = String(v ?? '').trim();
+    if (url && !/^https?:\/\/[^\s]+$/i.test(url)) throw new Error('SETTING_INVALID:sync_api_url');
+    return url.slice(0, 200);
+  },
+  sync_device_id: (v) => String(v ?? '').trim().slice(0, 80),
+  sync_secret: (v) => String(v ?? '').trim().slice(0, 200),
+  sync_product: (v) => (v === 'DENTARDV' ? 'DENTARDV' : 'MEDIRDV'),
+  sync_interval_seconds: (v) => String(clampInt(v, 60, 3600, 60)),
+  sync_last_error: (v) => String(v ?? '').slice(0, 200),
+  sync_last_success_at: (v) => String(v ?? '').slice(0, 40),
 };
 
 /** Keys the renderer is allowed to write. */
@@ -99,6 +112,9 @@ function all() {
   for (const row of rows) out[row.key] = row.value;
   delete out.password_hash;
   delete out.password_salt;
+  // Le secret d'appareil n'est jamais renvoyé au renderer après l'appairage.
+  out.sync_secret_set = Boolean(getRaw('sync_secret'));
+  delete out.sync_secret;
   out.has_password = Boolean(getRaw('password_hash'));
   out.working_days = getWorkingDays();
   return out;

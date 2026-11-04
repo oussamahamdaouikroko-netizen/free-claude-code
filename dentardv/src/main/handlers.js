@@ -22,6 +22,7 @@ const chat = require('./services/chat');
 const bot = require('./whatsapp/bot');
 const sheets = require('./export/sheets');
 const auth = require('./services/auth');
+const sync = require('./sync');
 const { AppError } = require('./utils/common');
 const { toISODate } = require('./utils/dates');
 
@@ -326,6 +327,38 @@ function createHandlers(context) {
     'print:daily-report': async (payload) => {
       if (!printReceipt) throw new AppError('PRINT_UNAVAILABLE');
       await printReceipt(reports.daily(payload?.day), 'report');
+      return { ok: true };
+    },
+
+    /* ---------------------- synchronisation RDV DZ ------------------------- */
+    // Module optionnel : aucune connexion réseau tant que `sync_enabled` = 0.
+    'sync:status': () => sync.status(),
+    'sync:configure': (payload) => {
+      settings.setMany({
+        sync_api_url: payload?.api_url ?? '',
+        sync_device_id: payload?.device_id ?? '',
+        sync_secret: payload?.secret ?? '',
+        sync_product: payload?.product ?? 'DENTARDV',
+      });
+      return sync.status();
+    },
+    'sync:enable': (payload) => {
+      settings.set('sync_enabled', payload?.enabled === false ? '0' : '1');
+      if (settings.getBool('sync_enabled')) sync.start({ patients, appointments });
+      else sync.stop();
+      return sync.status();
+    },
+    'sync:now': async () => sync.syncOnce({ patients, appointments }),
+    'sync:logs': (payload) => {
+      const limit = Math.min(200, Math.max(1, Number(payload?.limit) || 50));
+      return require('./db')
+        .getDb()
+        .prepare('SELECT * FROM sync_log ORDER BY id DESC LIMIT ?')
+        .all(limit);
+    },
+    'sync:queue-hold': (payload) => {
+      // Réservation d'un créneau en attente de paiement en ligne.
+      sync.enqueue('appointment', 'reserve', payload || {});
       return { ok: true };
     },
 
