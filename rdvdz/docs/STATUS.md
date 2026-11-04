@@ -3,9 +3,9 @@
 Ce fichier est mis à jour **à chaque phase**. Il ne déclare comme fait que ce
 qui est couvert par un test exécuté (`npm test` dans `platform/`).
 
-Dernière exécution (`platform/`) : `npm test` → **179 tests, 179 réussis**
-(146 API + 24 vues front + 9 parcours navigateur jsdom) ; `npm run test:schema`
-→ schéma conforme (version 11) ; `node scripts/check-syntax.mjs` → 68 fichiers
+Dernière exécution (`platform/`) : `npm test` → **188 tests, 188 réussis**
+(146 API + 24 vues front + 9 parcours navigateur jsdom + 9 installateur) ; `npm run test:schema`
+→ schéma conforme (version 11) ; `node scripts/check-syntax.mjs` → 69 fichiers
 valides ; `npm run typecheck` → aucune erreur. Raccourci : `npm run check`.
 Détail des commandes : `platform/README.md`.
 
@@ -125,7 +125,8 @@ Détail des commandes : `platform/README.md`.
 | Suite de tests automatisés | ✅ |
 | Tests AR / FR | ✅ |
 | Matrice de sécurité | ✅ |
-| Documentation installation / déploiement | ✅ |
+| Documentation installation / déploiement | ✅ (`docs/INSTALLATION.md`) |
+| Installateur double-clic Windows (`setup.bat`) + script multiplateforme (`setup.mjs`) | ✅ |
 | Sauvegarde / restauration | ✅ scripts |
 | `docs/09-GO-LIVE-CHECKLIST.md` | ✅ |
 

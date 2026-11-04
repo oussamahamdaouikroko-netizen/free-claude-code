@@ -45,7 +45,7 @@ un blocage, pas une recommandation.
 
 ## 3. Vérifications applicatives (avec preuve)
 
-- [ ] `cd platform && npm test` → **179/179**.
+- [ ] `cd platform && npm test` → **188/188**.
 - [ ] `curl -s https://<hôte>/api/v1/health` → `{"status":"ok"}`.
 - [ ] `curl -sI https://<hôte>/` → CSP `default-src 'self'`, `X-Frame-Options`,
       `Referrer-Policy`, `X-Content-Type-Options`.

@@ -5,6 +5,9 @@ processus, base PostgreSQL (production) ou PGlite/WASM (développement, tests).
 
 ## Démarrage rapide (sans serveur de base)
 
+**Installation en un clic** : `setup.bat` (Windows) ou `node setup.mjs` — voir
+`docs/INSTALLATION.md`. Manuellement :
+
 ```bash
 cd platform
 npm install
@@ -35,11 +38,11 @@ réelle ne doit transiter par cet environnement.
 ## Vérification
 
 ```bash
-npm run check       # tout : 179 tests + syntaxe + schéma + types
-npm test            # 179 tests (API + front) sur PGlite en mémoire
+npm run check       # tout : 188 tests + syntaxe + schéma + types
+npm test            # 188 tests (API + front) sur PGlite en mémoire
 npm run test:schema # cohérence migrations ↔ code
 npm run typecheck   # tsc --noEmit (checkJs désactivé : le code est du JS pur)
-node scripts/check-syntax.mjs  # `node --check` sur les 68 fichiers livrés
+node scripts/check-syntax.mjs  # `node --check` sur les 69 fichiers livrés
 ```
 
 `checkJs` est volontairement à `false` : le code est du JavaScript exécuté tel

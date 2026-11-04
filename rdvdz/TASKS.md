@@ -122,6 +122,8 @@ un test**. Les identifiants `T-xx` sont utilisés dans les messages de commit.
 - [x] T-131 Tests de concurrence (réservation simultanée)
 - [x] T-132 Tests de sécurité (webhook forgé, injection, XSS, lien expiré)
 - [x] T-133 Tests d'interface (rendu AR/FR, absence de secret dans le build)
+- [x] T-136 Installateur double-clic (`setup.bat` → `setup.mjs`) : vérifications, secrets générés, base, migrations, démo, démarrage, port occupé expliqué
+- [x] T-137 `build-exe.mjs` : production d'un `setup.exe` autonome (à exécuter sous Windows, refusé ailleurs)
 - [x] T-135 Tests du front : échappement `h`/`raw`, parité des clés FR/AR, absence d'URL absolue, aucun jeton en stockage
 - [x] T-134 `docs/10-TEST-MATRIX.md` à jour
 
