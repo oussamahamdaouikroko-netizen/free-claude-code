@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Studio — Video Portfolio</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%230b0b0c'/><circle cx='50' cy='50' r='16' fill='%23ff5a3c'/></svg>" />
+<meta name="robots" content="noindex" />
+<meta name="theme-color" content="#08080a" />
+<link rel="stylesheet" href="assets/css/site.css" />
+<link rel="stylesheet" href="assets/css/studio.css" />
+</head>
+<body>
+<header class="sbar">
+  <div class="sbar-left">
+    <span class="sbar-mark">●</span>
+    <strong>Studio</strong>
+    <span class="mode" id="modeBadge">checking…</span>
+  </div>
+  <div class="sbar-right">
+    <a class="sbtn" href="index.html?draft=1" target="_blank" rel="noopener">Preview ↗</a>
+    <a class="sbtn" href="index.html" target="_blank" rel="noopener">Open site ↗</a>
+    <button class="sbtn sbtn-primary" id="saveBtn">Save</button>
+  </div>
+</header>
+
+<nav class="stabs">
+  <button class="stab is-active" data-tab="brand">Brand</button>
+  <button class="stab" data-tab="videos">Videos <span class="count" id="videoCount">0</span></button>
+  <button class="stab" data-tab="publish">Publish</button>
+</nav>
+
+<div class="toast" id="toast" hidden></div>
+
+<main class="swrap">
+
+  <!-- ============ BRAND ============ -->
+  <section class="spanel is-active" id="tab-brand">
+    <div class="sgrid">
+      <div class="scol">
+        <div class="scard">
+          <h3>Identity</h3>
+          <div class="logorow">
+            <div class="logo-preview" id="logoPreview">?</div>
+            <div class="logo-actions">
+              <label class="sbtn sbtn-small">
+                Upload logo
+                <input type="file" id="logoInput" accept="image/png,image/jpeg,image/svg+xml,image/webp" hidden />
+              </label>
+              <button class="sbtn sbtn-small sbtn-ghost" id="logoClear">Remove</button>
+              <p class="hint">Square PNG or SVG, 512×512 works best.</p>
+            </div>
+          </div>
+
+          <label class="field"><span>Name</span><input id="fName" placeholder="Your Name" /></label>
+          <label class="field"><span>What you do</span><input id="fRole" placeholder="Videographer & Editor" /></label>
+          <label class="field"><span>Tagline</span><input id="fTagline" placeholder="I turn moments into films." /></label>
+          <label class="field"><span>About / bio</span><textarea id="fBio" rows="5" placeholder="A few lines about you and the work you do."></textarea></label>
+        </div>
+
+        <div class="scard">
+          <h3>Contact</h3>
+          <label class="field"><span>Email</span><input id="fEmail" type="email" placeholder="you@example.com" /></label>
+          <label class="field"><span>Location</span><input id="fLocation" placeholder="Algiers, Algeria" /></label>
+          <label class="field"><span>Clients (comma separated)</span><input id="fClients" placeholder="Nike, Local brand, Wedding studio" /></label>
+          <label class="field"><span>Gear</span><input id="fGear" placeholder="Sony A7 IV, DJI Mini 4, DaVinci Resolve" /></label>
+        </div>
+      </div>
+
+      <div class="scol">
+        <div class="scard">
+          <h3>Look &amp; feel</h3>
+          <div class="field">
+            <span>Accent colour</span>
+            <div class="swatches" id="swatches"></div>
+            <input id="fAccent" type="color" class="colorinput" />
+          </div>
+          <label class="check"><input type="checkbox" id="fShowReels" checked /> <span>Show the Reels section on the site</span></label>
+        </div>
+
+        <div class="scard">
+          <h3>Social links</h3>
+          <div id="socialList" class="repeater"></div>
+          <button class="sbtn sbtn-small" id="addSocial">+ Add link</button>
+        </div>
+
+        <div class="scard">
+          <h3>Live preview</h3>
+          <p class="hint">The preview uses what you have edited but not yet published.</p>
+          <div class="mini">
+            <div class="mini-topbar"><span></span><span></span><span></span></div>
+            <div class="mini-body">
+              <div class="mini-logo" id="miniLogo">?</div>
+              <div class="mini-name" id="miniName">Your Name</div>
+              <div class="mini-role" id="miniRole">Videographer</div>
+              <div class="mini-cards"><i></i><i></i><i></i></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ VIDEOS ============ -->
+  <section class="spanel" id="tab-videos">
+    <div class="dropzone" id="dropzone">
+      <div class="dz-icon">⇪</div>
+      <strong>Drop your videos here</strong>
+      <p>MP4, WebM or MOV. Short reels upload fastest — big files can take a minute.</p>
+      <label class="sbtn sbtn-primary">Choose files<input type="file" id="fileInput" accept="video/*" multiple hidden /></label>
+      <div class="dz-note" id="dzNote"></div>
+    </div>
+
+    <div class="videotools">
+      <div class="urladd">
+        <input id="urlInput" placeholder="…or paste a video link (.mp4 / .webm URL)" />
+        <button class="sbtn sbtn-small" id="addUrlBtn">Add link</button>
+      </div>
+      <div class="uploadqueue" id="queue"></div>
+    </div>
+
+    <div class="vlist" id="vlist"></div>
+  </section>
+
+  <!-- ============ PUBLISH ============ -->
+  <section class="spanel" id="tab-publish">
+    <div class="sgrid">
+      <div class="scol">
+        <div class="scard">
+          <h3>1 · Save your changes</h3>
+          <p class="hint" id="saveExplain">…</p>
+          <button class="sbtn sbtn-primary" id="saveBtn2">Save changes</button>
+          <button class="sbtn sbtn-small sbtn-ghost" id="exportBtn">Download data.json</button>
+        </div>
+
+        <div class="scard">
+          <h3>2 · Put it online (free)</h3>
+          <ol class="steps">
+            <li><strong>Netlify Drop</strong> (easiest): open <a href="https://app.netlify.com/drop" target="_blank" rel="noopener">netlify.com/drop</a> and drag this whole folder in. You get a free live link in seconds.</li>
+            <li><strong>GitHub Pages</strong>: push the folder to a GitHub repo → Settings → Pages → deploy from branch. Free forever, auto-updates on every push.</li>
+            <li><strong>Cloudflare Pages</strong>: same idea, very fast, free plan.</li>
+          </ol>
+          <p class="hint">Full step-by-step instructions are in <code>README.md</code>.</p>
+        </div>
+      </div>
+
+      <div class="scol">
+        <div class="scard">
+          <h3>3 · Publish straight from the browser (GitHub)</h3>
+          <p class="hint">Optional. Uploads your videos + settings to a GitHub repo without any command line, then GitHub Pages serves the site.</p>
+          <label class="field"><span>GitHub token (fine-grained, “Contents: write” on that repo)</span><input id="ghToken" type="password" placeholder="github_pat_…" autocomplete="off" /></label>
+          <div class="twocol">
+            <label class="field"><span>Owner</span><input id="ghOwner" placeholder="your-username" /></label>
+            <label class="field"><span>Repo</span><input id="ghRepo" placeholder="my-portfolio" /></label>
+          </div>
+          <div class="twocol">
+            <label class="field"><span>Branch</span><input id="ghBranch" placeholder="main" /></label>
+            <label class="field"><span>Folder in repo</span><input id="ghPath" placeholder="(leave empty for root)" /></label>
+          </div>
+          <button class="sbtn sbtn-primary" id="ghPublish">Publish to GitHub</button>
+          <p class="hint">The token is stored only in this browser (localStorage). GitHub rejects files over 100 MB.</p>
+          <div class="ghlog" id="ghlog"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="assets/js/studio.js"></script>
+</body>
+</html>

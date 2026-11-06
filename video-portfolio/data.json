@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "site": {
+    "name": "Your Name",
+    "role": "Videographer & Editor",
+    "tagline": "I turn moments into films — from a 15-second reel to a full story.",
+    "bio": "I'm a videographer and editor based in Algiers. I shoot weddings, brands and events, and I cut short vertical reels that actually get watched.\n\nEverything you see here was shot and edited by me. Replace these sample clips with your own from the Studio page — it takes two minutes.",
+    "email": "hello@example.com",
+    "location": "Algiers, Algeria",
+    "clients": "Local brands · Weddings · Creators",
+    "gear": "Sony A7 IV · DJI Mini 4 · DaVinci Resolve",
+    "logo": "",
+    "accent": "#ff5a3c",
+    "showReels": true,
+    "socials": [
+      {
+        "label": "Instagram",
+        "url": "https://instagram.com/"
+      },
+      {
+        "label": "YouTube",
+        "url": "https://youtube.com/"
+      },
+      {
+        "label": "TikTok",
+        "url": "https://tiktok.com/"
+      }
+    ]
+  },
+  "videos": [
+    {
+      "id": "demo-reel-street",
+      "title": "Market Light",
+      "type": "reel",
+      "category": "Street",
+      "year": "2025",
+      "client": "Personal",
+      "src": "demo/reel-street.mp4",
+      "poster": "demo/reel-street.jpg",
+      "featured": false
+    },
+    {
+      "id": "demo-reel-skate",
+      "title": "After Hours",
+      "type": "reel",
+      "category": "Sport",
+      "year": "2025",
+      "client": "Skate shop",
+      "src": "demo/reel-skate.mp4",
+      "poster": "demo/reel-skate.jpg",
+      "featured": false
+    },
+    {
+      "id": "demo-reel-coffee",
+      "title": "Slow Pour",
+      "type": "reel",
+      "category": "Product",
+      "year": "2024",
+      "client": "Coffee brand",
+      "src": "demo/reel-coffee.mp4",
+      "poster": "demo/reel-coffee.jpg",
+      "featured": false
+    },
+    {
+      "id": "demo-film-desert",
+      "title": "Dunes",
+      "type": "film",
+      "category": "Travel",
+      "year": "2025",
+      "client": "Personal",
+      "src": "demo/film-desert.mp4",
+      "poster": "demo/film-desert.jpg",
+      "featured": true
+    },
+    {
+      "id": "demo-film-wedding",
+      "title": "First Dance",
+      "type": "film",
+      "category": "Wedding",
+      "year": "2025",
+      "client": "Yasmine & Karim",
+      "src": "demo/film-wedding.mp4",
+      "poster": "demo/film-wedding.jpg",
+      "featured": false
+    },
+    {
+      "id": "demo-film-product",
+      "title": "Drop 01",
+      "type": "film",
+      "category": "Commercial",
+      "year": "2024",
+      "client": "Sneaker label",
+      "src": "demo/film-product.mp4",
+      "poster": "demo/film-product.jpg",
+      "featured": false
+    }
+  ]
+}
