@@ -160,8 +160,33 @@ jobs:
           npx electron smoke.js 2>&1 | tee smoke.log
           status=${PIPESTATUS[0]}
           echo "--- smoke-result.txt ---"
-          cat smoke-result.txt 2>/dev/null || true
-          if [ "$status" -ne 0 ] || ! grep -q "SMOKE RESULT: PASS" smoke-result.txt; then
+          cat smoke-result.txt 2>/dev/null || cat smoke.log
+          {
+            echo "===== smoke-result.txt ====="
+            cat smoke-result.txt 2>/dev/null || true
+            echo "===== smoke.log (tail) ====="
+            tail -n 40 smoke.log 2>/dev/null || true
+          } > /tmp/mdc-win-diag.txt
+
+          # Publish the cause through the Checks API: environments that cannot
+          # download artifacts or logs can still read annotations.
+          node -e "
+            const fs=require('fs');
+            const text=fs.readFileSync('/tmp/mdc-win-diag.txt','utf8').slice(0,6000);
+            fs.writeFileSync('/tmp/check.json', JSON.stringify({
+              name:'windows-smoke-diagnostics',
+              head_sha:process.env.GITHUB_SHA,
+              status:'completed',
+              conclusion:'neutral',
+              output:{title:'Electron smoke diagnostics',summary:text}
+            }));
+          " || true
+          curl -sS -X POST -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/${GITHUB_REPOSITORY}/check-runs"             --data-binary @/tmp/check.json >/dev/null 2>&1 || echo "note: diagnostics check not created"
+
+          grep -iE "error|cannot|undefined|not a function|no such|failed" /tmp/mdc-win-diag.txt | head -n 6 | while IFS= read -r line; do
+            echo "::error title=Electron smoke::$line"
+          done
+          if [ "$status" -ne 0 ] || ! grep -q "SMOKE RESULT: PASS" smoke-result.txt 2>/dev/null; then
             echo "::error title=Electron smoke test::The bundled server did not work inside Electron"
             exit 1
           fi
