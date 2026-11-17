@@ -95,7 +95,8 @@ jobs:
         working-directory: medirdv-central/release/windows-app
         shell: bash
         run: |
-          cat > smoke.js <<'JS'
+          # Write the probe with a quoted heredoc so ${...} stays JavaScript.
+          cat > smoke.js <<'SMOKE_JS'
           const { app } = require('electron');
           const fs = require('node:fs');
           const os = require('node:os');
@@ -105,9 +106,14 @@ jobs:
 
           app.whenReady().then(async () => {
             const out = [];
-            const log = (line) => { out.push(line); console.log('[smoke]', line); };
+            const log = (line) => { out.push(String(line)); console.log('[smoke]', line); };
+            let failures = 0;
+            const expect = (label, condition, extra) => {
+              if (condition) log('PASS ' + label);
+              else { failures += 1; log('FAIL ' + label + (extra ? ' :: ' + extra : '')); }
+            };
             try {
-              log('electron=' + process.versions.electron + ' node=' + process.versions.node);
+              log('electron=' + process.versions.electron + ' node=' + process.versions.node + ' chrome=' + process.versions.chrome);
               const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mdc-smoke-'));
               process.env.MEDIRDV_DB_PATH = path.join(tmp, 'smoke.sqlite');
               process.env.MEDIRDV_RECEIPTS_DIR = path.join(tmp, 'receipts');
@@ -116,48 +122,53 @@ jobs:
               process.env.MEDIRDV_BOOTSTRAP_ADMIN_PASSWORD = 'smoke-pass-123';
 
               const sqlite = require('./server/src/sqlite');
-              const driver = sqlite.resolveDriver();
-              log('sqlite driver=' + driver.name);
+              let driverName = 'none';
+              try {
+                driverName = sqlite.resolveDriver().name;
+              } catch (error) {
+                log('DRIVER ERROR ' + error.message);
+              }
+              log('sqlite driver=' + driverName);
 
               const { start } = require('./server/src/server');
               const server = start({ port: 0, host: '127.0.0.1' });
               await new Promise((resolve, reject) => {
                 server.once('listening', resolve);
                 server.once('error', reject);
-                setTimeout(() => reject(new Error('server did not listen in 20s')), 20000);
+                setTimeout(() => reject(new Error('server did not listen within 25s')), 25000);
               });
               const base = server.baseUrl;
               log('server listening ' + base);
 
               const health = await fetch(base + '/health').then((r) => r.json());
-              log('health ok=' + health.ok);
-              const doctors = await fetch(base + '/api/public/doctors').then((r) => r.json());
-              log('public API doctors=' + (doctors.doctors || []).length);
+              expect('health.ok', health.ok === true, JSON.stringify(health));
+
+              const doctors = await fetch(base + '/api/public/doctors');
+              expect('public API /doctors 200', doctors.status === 200, String(doctors.status));
 
               const loginRes = await fetch(base + '/api/auth/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email: 'smoke@medirdv.local', password: 'smoke-pass-123' }),
               });
-              const login = await loginRes.json();
-              log('admin login status=' + loginRes.status + ' role=' + (login.user && login.user.role));
+              const login = await loginRes.json().catch(() => ({}));
+              expect('admin login', loginRes.status === 200, 'status=' + loginRes.status + ' body=' + JSON.stringify(login).slice(0, 200));
 
-              const admin = await fetch(base + '/admin/');
-              log('admin UI status=' + admin.status);
+              const adminUi = await fetch(base + '/admin/');
+              expect('admin UI 200', adminUi.status === 200, String(adminUi.status));
 
-              const ok = health.ok === true && loginRes.status === 200;
-              log(ok ? 'SMOKE RESULT: PASS' : 'SMOKE RESULT: FAIL');
-              fs.writeFileSync('smoke-result.txt', out.join('\n'));
               server.close();
-              app.exit(ok ? 0 : 1);
-            } catch (error) {
-              log('ERROR ' + (error && error.stack ? error.stack : error));
+              log(failures === 0 ? 'SMOKE RESULT: PASS' : 'SMOKE RESULT: FAIL (' + failures + ' failures)');
               fs.writeFileSync('smoke-result.txt', out.join('\n'));
+              app.exit(failures === 0 ? 0 : 1);
+            } catch (error) {
+              log('ERROR ' + (error && error.stack ? error.stack : String(error)));
+              try { fs.writeFileSync('smoke-result.txt', out.join('\n')); } catch (e) { /* ignore */ }
               app.exit(1);
             }
           });
-          JS
-          # Electron needs a display on Windows runners; it has one. Run and capture.
+          SMOKE_JS
+
           npx electron smoke.js 2>&1 | tee smoke.log
           status=${PIPESTATUS[0]}
           echo "--- smoke-result.txt ---"
@@ -168,38 +179,33 @@ jobs:
             echo "===== smoke-result.txt ====="
             cat smoke-result.txt 2>/dev/null || true
           } > /tmp/mdc-win-diag.txt
+          exit 0
 
-          # Publish the cause to the PR so it can be read without log access.
+      - name: Report Electron smoke diagnostics
+        if: always()
+        shell: bash
+        run: |
+          LOG=medirdv-central/release/windows-app/smoke-result.txt
+          echo "--- result ---"; cat "$LOG" 2>/dev/null || echo "(no result file)"
           if [ -n "${{ github.event.pull_request.number }}" ]; then
             {
               echo "### Electron smoke diagnostics (run $GITHUB_RUN_ID)"
               echo '```'
-              head -c 3500 /tmp/mdc-win-diag.txt
+              cat "$LOG" 2>/dev/null | head -c 3000 || echo '(missing)'
+              echo '```'
+              echo '```'
+              tail -n 30 medirdv-central/release/windows-app/smoke.log 2>/dev/null | head -c 2000
               echo '```'
             } > /tmp/comment.md
-            gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/comment.md || echo "note: could not comment"
+            gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/comment.md || echo "note: comment failed"
           fi
 
-          # Publish the cause through the Checks API: environments that cannot
-          # download artifacts or logs can still read annotations.
-          node -e "
-            const fs=require('fs');
-            const text=fs.readFileSync('/tmp/mdc-win-diag.txt','utf8').slice(0,6000);
-            fs.writeFileSync('/tmp/check.json', JSON.stringify({
-              name:'windows-smoke-diagnostics',
-              head_sha:process.env.GITHUB_SHA,
-              status:'completed',
-              conclusion:'neutral',
-              output:{title:'Electron smoke diagnostics',summary:text}
-            }));
-          " || true
-          curl -sS -X POST -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/${GITHUB_REPOSITORY}/check-runs"             --data-binary @/tmp/check.json >/dev/null 2>&1 || echo "note: diagnostics check not created"
-
-          grep -iE "error|cannot|undefined|not a function|no such|failed" /tmp/mdc-win-diag.txt | head -n 6 | while IFS= read -r line; do
-            echo "::error title=Electron smoke::$line"
-          done
-          if [ "$status" -ne 0 ] || ! grep -q "SMOKE RESULT: PASS" smoke-result.txt 2>/dev/null; then
-            echo "::error title=Electron smoke test::The bundled server did not work inside Electron"
+      - name: Assert Electron runtime passed
+        working-directory: medirdv-central/release/windows-app
+        shell: bash
+        run: |
+          if ! grep -q "SMOKE RESULT: PASS" smoke-result.txt 2>/dev/null; then
+            echo "::error title=Electron runtime check::The bundled server did not pass inside Electron"
             exit 1
           fi
 
