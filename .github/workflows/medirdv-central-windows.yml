@@ -162,11 +162,16 @@ jobs:
           echo "--- smoke-result.txt ---"
           cat smoke-result.txt 2>/dev/null || cat smoke.log
           {
+            echo "===== smoke.log (tail) ====="
+            tail -n 60 smoke.log 2>/dev/null || true
             echo "===== smoke-result.txt ====="
             cat smoke-result.txt 2>/dev/null || true
-            echo "===== smoke.log (tail) ====="
-            tail -n 40 smoke.log 2>/dev/null || true
           } > /tmp/mdc-win-diag.txt
+
+          # Surface the cause as a workflow annotation (visible without log access).
+          head -c 900 /tmp/mdc-win-diag.txt | tr '\n' ' ' | sed 's/%/%25/g' | while IFS= read -r line; do
+            echo "::error title=Electron smoke diagnostics::$line"
+          done
 
           # Publish the cause through the Checks API: environments that cannot
           # download artifacts or logs can still read annotations.
