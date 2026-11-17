@@ -120,13 +120,13 @@ jobs:
               process.env.MEDIRDV_BOOTSTRAP_ADMIN_EMAIL = 'smoke@medirdv.local';
               process.env.MEDIRDV_BOOTSTRAP_ADMIN_PASSWORD = 'smoke-pass-123';
 
-              const sqlite = require('./server/src/sqlite');
+              const sqlite = require(path.join(process.cwd(), 'server', 'src', 'sqlite'));
               let driverName = 'none';
               try { driverName = sqlite.resolveDriver().name; }
               catch (error) { log('DRIVER ERROR ' + error.message); }
               log('sqlite driver=' + driverName);
 
-              const { start } = require('./server/src/server');
+              const { start } = require(path.join(process.cwd(), 'server', 'src', 'server'));
               const server = start({ port: 0, host: '127.0.0.1' });
               await new Promise((resolve, reject) => {
                 server.once('listening', resolve);
