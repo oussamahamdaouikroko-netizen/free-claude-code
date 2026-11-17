@@ -89,12 +89,11 @@ jobs:
           yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
           echo "sdk.dir=$SDK" > /tmp/sdk-location.txt
 
-      - name: Install Capacitor
+      - name: Install app dependencies
+        working-directory: medirdv-central/release/android-app
         run: |
-          npm install --no-audit --no-fund @capacitor/core@8 @capacitor/cli@8 @capacitor/android@8
-          echo "--- capacitor versions ---"
+          npm install --no-audit --no-fund
           npx cap --version
-          cat package.json | grep -A3 dependencies || true
 
       - name: Prepare app bundle, config and icons
         shell: bash
@@ -143,7 +142,8 @@ jobs:
           set -o pipefail
           chmod +x gradlew
           printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
-          ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tail -n 80
+          set -o pipefail
+          ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tee gradle.log | tail -n 80
 
       - name: Collect APK
         shell: bash
@@ -192,7 +192,7 @@ jobs:
         shell: bash
         working-directory: medirdv-central/release/android-app
         run: |
-          for log in cap-add.log; do
+          for log in cap-add.log gradle.log; do
             if [ -f "$log" ]; then
               echo "::group::$log"
               sed -e 's/%/%25/g' -e 's/\r//g' "$log" | tail -n 60

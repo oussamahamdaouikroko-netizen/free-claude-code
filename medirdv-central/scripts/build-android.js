@@ -92,6 +92,32 @@ fs.writeFileSync(
   )
 );
 
+/* ------------------------------ package.json ------------------------------ */
+// The Capacitor CLI requires its own npm package at the project root.
+fs.writeFileSync(
+  path.join(OUT, 'package.json'),
+  JSON.stringify(
+    {
+      name: 'medirdv-patient-app',
+      version: pkg.version,
+      private: true,
+      description: 'Medirdv Patient — Android application (Capacitor)',
+      scripts: {
+        sync: 'cap sync android',
+        'build:apk': 'cd android && ./gradlew assembleRelease',
+      },
+      dependencies: {
+        '@capacitor/core': '^8.6.2',
+        '@capacitor/android': '^8.6.2',
+      },
+      devDependencies: { '@capacitor/cli': '^8.6.2' },
+      capacitor: { android: { minVersion: 23, targetVersion: 35 } },
+    },
+    null,
+    2
+  )
+);
+
 /* --------------------------------- icons --------------------------------- */
 // Generate Android mipmap densities from build/icon.png using our zlib PNG
 // encoder, so the APK ships a real launcher icon without extra dependencies.
@@ -135,13 +161,14 @@ fs.writeFileSync(
 
 \`\`\`bash
 cd release/android-app
-npm install
-npx cap add android
-npx cap sync android
-# copy generated launcher icons into the platform
+npm install                 # installs the Capacitor CLI + platform
+npx cap add android         # requires this directory to be an npm package
 npx cap sync android
 cd android && ./gradlew assembleRelease
 \`\`\`
+
+Launcher icons are generated into \`android-res/\` and copied into
+\`android/app/src/main/res/\` by CI after \`cap add\`.
 
 The generated launcher icons live in \`android-res/\`; CI copies them into
 \`android/app/src/main/res/\` after \`cap add\`.
