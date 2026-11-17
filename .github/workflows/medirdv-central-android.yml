@@ -191,25 +191,50 @@ jobs:
       - name: Report build diagnostics
         if: always()
         shell: bash
-        working-directory: medirdv-central/release/android-app
         run: |
+          LOGDIR="medirdv-central/release/android-app"
+          OUT=/tmp/ci-diag.txt
+          : > "$OUT"
           for log in cap-add.log gradle.log; do
-            if [ -f "$log" ]; then
-              echo "::group::$log"
-              sed -e 's/%/%25/g' -e 's/\r//g' "$log" | tail -n 60
-              echo "::endgroup::"
-              # Also emit each decisive line as an annotation so the cause is
-              # visible in the Checks UI without downloading artifacts.
-              grep -iE "error|fail|missing|not found|cannot|unable|exception" "$log" \
-                | head -n 10 \
-                | sed -e 's/%/%25/g' -e 's/\r//g' \
-                | while IFS= read -r line; do echo "::error title=android build::$line"; done
+            echo "===== $log =====" >> "$OUT"
+            if [ -f "$LOGDIR/$log" ]; then
+              tail -n 40 "$LOGDIR/$log" >> "$OUT" 2>&1
+            else
+              echo "(missing)" >> "$OUT"
             fi
           done
-          echo "--- capacitor.config.json ---"
-          cat capacitor.config.json 2>/dev/null || true
-          echo "--- package.json deps ---"
-          node -e "console.log(JSON.stringify(require('./package.json').dependencies||{},null,1))" 2>/dev/null || true
+          echo "===== environment =====" >> "$OUT"
+          node --version >> "$OUT" 2>&1
+          java -version >> "$OUT" 2>&1
+          echo "SDK=${ANDROID_SDK_ROOT:-unset}" >> "$OUT"
+          ls "${ANDROID_SDK_ROOT:-/nonexistent}" >> "$OUT" 2>&1 || true
+          echo "===== tree =====" >> "$OUT"
+          find "$LOGDIR" -maxdepth 2 -name "*.json" -o -maxdepth 2 -name "*.gradle*" >> "$OUT" 2>&1 || true
+          echo "===== end =====" >> "$OUT"
+
+          echo "Diagnostics captured at $OUT"
+          cat "$OUT"
+
+          # Make the tail visible through the Checks API, which is the only
+          # channel reachable from environments that cannot download logs.
+          sha="$GITHUB_SHA"
+          title=$(head -c 40 "$OUT" | tr '\n' ' ')
+          body=$(head -c 600 "$OUT" | tr '\n' ' ')
+          curl -sS -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/check-runs" \
+            -d "$(node -e "
+              const fs=require('fs');
+              const text=fs.readFileSync('/tmp/ci-diag.txt','utf8').slice(0,6000);
+              process.stdout.write(JSON.stringify({
+                name:'android-diagnostics',
+                head_sha:process.env.GITHUB_SHA,
+                status:'completed',
+                conclusion:'neutral',
+                output:{title:'Android build diagnostics',summary:text}
+              }));
+            ")" >/dev/null 2>&1 || echo "note: diagnostics check-run not created"
 
       - name: Upload build diagnostics
         if: always()
