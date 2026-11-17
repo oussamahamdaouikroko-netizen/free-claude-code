@@ -186,18 +186,36 @@ jobs:
         shell: bash
         run: |
           LOG=medirdv-central/release/windows-app/smoke-result.txt
+          SLOG=medirdv-central/release/windows-app/smoke.log
           echo "--- result ---"; cat "$LOG" 2>/dev/null || echo "(no result file)"
+          echo "--- smoke.log ---"; tail -n 40 "$SLOG" 2>/dev/null || echo "(no smoke.log)"
+
+          {
+            echo "### Electron smoke diagnostics (run $GITHUB_RUN_ID)"
+            echo
+            echo "**smoke-result.txt**"
+            echo '```'
+            head -c 2500 "$LOG" 2>/dev/null || echo '(missing result file)'
+            echo '```'
+            echo "**smoke.log tail**"
+            echo '```'
+            tail -n 25 "$SLOG" 2>/dev/null | head -c 2000 || echo '(missing smoke.log)'
+            echo '```'
+          } > /tmp/comment.md
+
+          # Report to the commit (works for PR and branch pushes alike) and,
+          # when available, to the PR thread.
+          jq -Rs '{body: .}' /tmp/comment.md > /tmp/comment.json
+          curl -sS -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" \
+            --data-binary @/tmp/comment.json >/dev/null 2>&1 \
+            && echo "diagnostics posted as a commit comment" \
+            || echo "note: commit comment failed"
+
           if [ -n "${{ github.event.pull_request.number }}" ]; then
-            {
-              echo "### Electron smoke diagnostics (run $GITHUB_RUN_ID)"
-              echo '```'
-              cat "$LOG" 2>/dev/null | head -c 3000 || echo '(missing)'
-              echo '```'
-              echo '```'
-              tail -n 30 medirdv-central/release/windows-app/smoke.log 2>/dev/null | head -c 2000
-              echo '```'
-            } > /tmp/comment.md
-            gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/comment.md || echo "note: comment failed"
+            gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/comment.md || echo "note: PR comment failed"
           fi
 
       - name: Assert Electron runtime passed
