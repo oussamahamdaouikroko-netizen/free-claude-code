@@ -1,0 +1,59 @@
+# MediRDV — Windows installer (NSIS) built with electron-builder.
+# The whole app is offline: nothing is downloaded at runtime.
+
+appId: dz.medirdv.desktop
+productName: MediRDV
+copyright: Copyright © 2026 MediRDV
+
+directories:
+  output: release
+  buildResources: assets
+
+files:
+  - src/**/*
+  - package.json
+  - "!**/*.map"
+  - "!**/README*"
+  - "!**/.github/**"
+  - "!**/test/**"
+
+asar: true
+
+asarUnpack:
+  - node_modules/better-sqlite3/**
+  - node_modules/@whiskeysockets/**
+  - node_modules/whatsapp-rust-bridge/**
+  - node_modules/libsignal/**
+  - node_modules/sharp/**
+  - node_modules/@img/**
+
+npmRebuild: true
+afterPack: scripts/after-pack.js
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: assets/icon.png
+  artifactName: MediRDV-Setup-${version}.${ext}
+  legalTrademarks: MediRDV
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: MediRDV
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+  installerLanguages:
+    - fr_FR
+    - ar_SA
+  language: "1036"
+  license: LICENSE
+
+portable:
+  artifactName: MediRDV-Portable-${version}.${ext}

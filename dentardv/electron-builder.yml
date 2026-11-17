@@ -1,0 +1,69 @@
+# DentaRDV — Windows installer (NSIS) built with electron-builder.
+# The whole app is offline: nothing is downloaded at runtime.
+
+appId: dz.dentardv.desktop
+productName: DentaRDV
+copyright: Copyright © 2026 DentaRDV
+
+directories:
+  output: release
+  # Not "build": that folder is ignored by some tooling/snapshots, and the icon
+  # must be committed next to the sources.
+  buildResources: assets
+
+# Only what the app needs at runtime. Tests, demo server and docs stay out.
+files:
+  - src/**/*
+  - package.json
+  - "!**/*.map"
+  - "!**/README*"
+  - "!**/.github/**"
+  - "!**/test/**"
+
+asar: true
+
+# Native / ESM packages must live outside the asar archive.
+asarUnpack:
+  - node_modules/better-sqlite3/**
+  - node_modules/@whiskeysockets/**
+  - node_modules/whatsapp-rust-bridge/**
+  - node_modules/libsignal/**
+  # sharp (pulled by Baileys for image thumbnails) ships N-API .node/.wasm files
+  - node_modules/sharp/**
+  - node_modules/@img/**
+
+# Rebuild better-sqlite3 against the Electron ABI on the build machine.
+npmRebuild: true
+
+# Guarantee the packaged better-sqlite3 loads under Electron (see the script).
+afterPack: scripts/after-pack.js
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: assets/icon.png
+  artifactName: DentaRDV-Setup-${version}.${ext}
+  legalTrademarks: DentaRDV
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: DentaRDV
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+  installerLanguages:
+    - fr_FR
+    - ar_SA
+  language: "1036"
+  license: LICENSE
+
+# Portable build (useful for a USB stick) can be produced with:
+#   npx electron-builder --win portable
+portable:
+  artifactName: DentaRDV-Portable-${version}.${ext}

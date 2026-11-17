@@ -1,0 +1,49 @@
+name: Publish DentaRDV marketing kit
+
+# The sales kit is a folder of 9 files (prices, flyer, quote, scripts, prospect
+# tracker, photo). Sending a dentist seven separate links is useless: this
+# workflow packs the folder into ONE .zip and attaches it to a release, so the
+# download is a single click and never drifts from the sources in the repo.
+#
+# Run it from the Actions tab: « Publish DentaRDV marketing kit » → Run workflow.
+# Re-running simply replaces the asset (--clobber).
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag that receives DentaRDV-Marketing-Kit.zip"
+        required: true
+        default: "v1.1.0"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dentardv-marketing-kit
+  cancel-in-progress: false
+
+jobs:
+  kit:
+    name: Build and attach the ZIP
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build the archive
+        run: |
+          set -euo pipefail
+          cd dentardv/docs
+          # -9: smallest file, the photo stays inside the archive.
+          zip -r -9 "$GITHUB_WORKSPACE/DentaRDV-Marketing-Kit.zip" marketing
+          echo "--- content ---"
+          unzip -l "$GITHUB_WORKSPACE/DentaRDV-Marketing-Kit.zip"
+          # Guard: the kit is useless if a file disappears from the folder.
+          for f in README.md PRIX.md SCRIPT-VENTE.md ANNONCE.md PLAN-90-JOURS.md \
+                   PROSPECTS.csv FLYER-A4.html OFFRE-DEVIS.html hero.jpg; do
+            unzip -l "$GITHUB_WORKSPACE/DentaRDV-Marketing-Kit.zip" "marketing/$f" > /dev/null
+          done
+
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ inputs.tag }}" DentaRDV-Marketing-Kit.zip --clobber
