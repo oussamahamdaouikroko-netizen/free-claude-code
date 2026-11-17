@@ -1,5 +1,22 @@
 # Medirdv Central — Operator Manuals (Part 10/17)
 
+## A0. First launch (desktop app)
+
+The Windows application runs its own local server, so the very first launch
+shows a **setup screen**: enter your name, email and password. That account is
+the super administrator for this computer. Nothing is generated for you.
+
+- Forgot the password? Dashboard header → **Mot de passe** (while signed in).
+- Still on the 1.1.0 build? Uninstall and install 1.2.0 (data is preserved), or
+  set new credentials without touching records:
+
+  ```bash
+  node scripts/reset-admin.js --data "<data folder>" \
+       --email you@example.dz --password "your-new-password"
+  ```
+
+  *Help → Data folder…* in the app shows the exact path.
+
 ## A. Administrator manual
 
 ### Onboarding a new doctor (the Part 17 workflow)

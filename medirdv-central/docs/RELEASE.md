@@ -5,7 +5,7 @@
 | Platform | File | Status |
 |---|---|---|
 | Windows (central admin) | `Medirdv-Central-Setup-1.0.0.exe` (97.2 MB) | **Built** — attached to release `medirdv-central-v1.0.0` |
-| Android (patients) | `Medirdv-Patient.apk` (3.3 MB) | **Built** — attached to release `medirdv-central-v1.0.0` |
+| Android (patients) | `Medirdv-Patient.apk` (3.3 MB) | **Built** — attached to release `medirdv-central-v1.2.0` |
 | Web admin | `http://<host>/admin/` | Runs from `npm start` (no build step) |
 | Patient web | `http://<host>/` | Runs from `npm start` (no build step) |
 
@@ -40,6 +40,13 @@ git push origin medirdv-central-v1.0.0
 Both workflows run the test suite first, then build, upload the artifact, and
 attach it to the GitHub Release for the tag. If either build fails, the job
 fails and nothing is published.
+
+## First launch
+
+The dashboard shows a **setup screen** where you choose your own email and
+password. No account is created automatically and no credentials are ever
+generated in secret. Once an administrator exists, the setup endpoint refuses
+further use (HTTP 409) so an existing installation cannot be taken over.
 
 ## Windows installer notes
 
