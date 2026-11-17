@@ -44,11 +44,21 @@ fails and nothing is published.
 ## Windows installer notes
 
 - NSIS, `oneClick: false` (user chooses install dir), desktop + Start Menu
-  shortcuts, uninstall entry, `deleteAppDataOnUninstall: false` so settings and
-  the saved server URL survive reinstalls and upgrades.
-- The app is a thin shell: it loads `MEDIRDV_CENTRAL_URL` (default
-  `http://localhost:8080/admin/`). Set the environment variable (or use the
-  in-app settings once implemented) to point at production.
+  shortcuts, uninstall entry, `deleteAppDataOnUninstall: false` so data and
+  settings survive reinstalls and upgrades.
+- **No server is required to start.** By default the app runs *standalone*:
+  it starts the bundled Medirdv Central server on a free local port and opens
+  the dashboard. Data is stored per-user in
+  `%APPDATA%\Medirdv Central\data\medirdv-central.sqlite`.
+- The first run generates a local administrator account in
+  `administrator.json`. You can view or change it from **Account → Local
+  administrator…**.
+- **Network deployments** use *connected* mode: **File → Use a shared server…**
+  saves `{ mode: "remote", centralUrl }` in `settings.json` and every client
+  then shares one authoritative database (Part 18.4). Switch back at any time
+  with **File → Use local database**.
+- Build variants: `node scripts/build-windows.js --mode standalone` (default)
+  or `--mode connected --api-base https://central.example.dz`.
 - Code signing: not configured. When a certificate is available, set
   `CSC_LINK`/`CSC_KEY_PASSWORD` in CI — unsigned builds will show SmartScreen
   warnings.
@@ -58,8 +68,11 @@ fails and nothing is published.
 - Capacitor project, `appId: dz.medirdv.patient`, `appName: Medirdv`.
 - Permissions are limited to `INTERNET` and (when push is configured)
   `POST_NOTIFICATIONS`. No location, camera, or broad storage access.
-- `cleartext: false` — the app refuses plain HTTP, so set the production HTTPS
-  base URL before building.
+- `cleartext: false` — the app refuses plain HTTP.
+- **No server is baked in by default.** On first launch the app shows a
+  "connect to your Medirdv server" screen, validates the address against
+  `/health`, and stores it on the device. A build can still ship a
+  pre-configured address with `--api-base https://…` for a managed rollout.
 - Release build is unsigned (debug keystore) unless signing keys are added to
   CI secrets; add `keystore.properties` + `KEYSTORE_*` secrets for Play Store
   signing.

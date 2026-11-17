@@ -470,7 +470,16 @@ function bootstrapAdmin() {
   console.log(`[medirdv-central] Bootstrap super admin created: ${email}`);
 }
 
-function start() {
+/**
+ * Boot the HTTP server.
+ *
+ * @param {object} [options]
+ * @param {number} [options.port]  Override PORT (0 = any free port). The
+ *   Windows desktop app starts its own server this way, so the application
+ *   works standalone without an administrator configuring a server address.
+ * @returns {import('node:http').Server}
+ */
+function start(options = {}) {
   db.open();
   bootstrapAdmin();
   // Seed default specialties + payment methods (idempotent).
@@ -501,13 +510,17 @@ function start() {
     dbConn.prepare('INSERT OR IGNORE INTO payment_methods (slug, name_fr, name_ar) VALUES (?, ?, ?)').run(slug, fr, ar);
   }
 
-  const port = Number(process.env.PORT || 8080);
-  const host = process.env.HOST || '0.0.0.0';
+  const port = options.port !== undefined ? Number(options.port) : Number(process.env.PORT || 8080);
+  const host = options.host || process.env.HOST || '0.0.0.0';
   const server = http.createServer(handle);
   server.listen(port, host, () => {
-    console.log(`[medirdv-central] Patient platform: http://${host}:${port}/`);
-    console.log(`[medirdv-central] Admin dashboard:  http://${host}:${port}/admin/`);
+    const actual = server.address();
+    const shown = typeof actual === 'object' && actual ? actual.port : port;
+    server.baseUrl = `http://127.0.0.1:${shown}`;
+    console.log(`[medirdv-central] Patient platform: http://${host}:${shown}/`);
+    console.log(`[medirdv-central] Admin dashboard:  http://${host}:${shown}/admin/`);
     console.log(`[medirdv-central] WhatsApp Hub: ${whatsapp.isPlatformConfigured() ? 'configured (official Cloud API)' : 'DISABLED (click-to-chat fallback only)'}`);
+    if (typeof options.onListen === 'function') options.onListen(server);
   });
 
   // Expiry sweeper: pending bookings past their deadline expire (Part 6.2).

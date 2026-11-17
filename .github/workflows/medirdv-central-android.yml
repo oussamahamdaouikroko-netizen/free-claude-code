@@ -93,8 +93,14 @@ jobs:
       - name: Prepare app bundle, config and icons
         shell: bash
         run: |
-          API_BASE="${{ inputs.api_base || 'https://central.medirdv.dz' }}"
-          node scripts/build-android.js --api-base "$API_BASE"
+          # Leave the base unset unless explicitly provided, so the app asks
+          # the patient for the Medirdv server address on first launch.
+          API_BASE="${{ inputs.api_base }}"
+          if [ -n "$API_BASE" ]; then
+            node scripts/build-android.js --api-base "$API_BASE"
+          else
+            node scripts/build-android.js
+          fi
 
       - name: Install app dependencies
         working-directory: medirdv-central/release/android-app

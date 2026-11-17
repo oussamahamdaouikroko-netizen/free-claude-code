@@ -84,7 +84,87 @@ jobs:
 
       - name: Install wrapper dependencies
         working-directory: medirdv-central/release/windows-app
-        run: npm install --no-audit --no-fund
+        run: |
+          npm install --no-audit --no-fund
+          # Electron's embedded Node may not expose node:sqlite; the server has
+          # a better-sqlite3 fallback. Installed here so it is packaged.
+          npm install --no-audit --no-fund --save better-sqlite3@^11
+
+      - name: Smoke-test the bundled server inside Electron
+        working-directory: medirdv-central/release/windows-app
+        shell: bash
+        run: |
+          cat > smoke.js <<'JS'
+          const { app } = require('electron');
+          const fs = require('node:fs');
+          const os = require('node:os');
+          const path = require('node:path');
+
+          app.disableHardwareAcceleration();
+
+          app.whenReady().then(async () => {
+            const out = [];
+            const log = (line) => { out.push(line); console.log('[smoke]', line); };
+            try {
+              log('electron=' + process.versions.electron + ' node=' + process.versions.node);
+              const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mdc-smoke-'));
+              process.env.MEDIRDV_DB_PATH = path.join(tmp, 'smoke.sqlite');
+              process.env.MEDIRDV_RECEIPTS_DIR = path.join(tmp, 'receipts');
+              process.env.MEDIRDV_ENCRYPTION_KEY = require('node:crypto').randomBytes(32).toString('hex');
+              process.env.MEDIRDV_BOOTSTRAP_ADMIN_EMAIL = 'smoke@medirdv.local';
+              process.env.MEDIRDV_BOOTSTRAP_ADMIN_PASSWORD = 'smoke-pass-123';
+
+              const sqlite = require('./server/src/sqlite');
+              const driver = sqlite.resolveDriver();
+              log('sqlite driver=' + driver.name);
+
+              const { start } = require('./server/src/server');
+              const server = start({ port: 0, host: '127.0.0.1' });
+              await new Promise((resolve, reject) => {
+                server.once('listening', resolve);
+                server.once('error', reject);
+                setTimeout(() => reject(new Error('server did not listen in 20s')), 20000);
+              });
+              const base = server.baseUrl;
+              log('server listening ' + base);
+
+              const health = await fetch(base + '/health').then((r) => r.json());
+              log('health ok=' + health.ok);
+              const doctors = await fetch(base + '/api/public/doctors').then((r) => r.json());
+              log('public API doctors=' + (doctors.doctors || []).length);
+
+              const loginRes = await fetch(base + '/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: 'smoke@medirdv.local', password: 'smoke-pass-123' }),
+              });
+              const login = await loginRes.json();
+              log('admin login status=' + loginRes.status + ' role=' + (login.user && login.user.role));
+
+              const admin = await fetch(base + '/admin/');
+              log('admin UI status=' + admin.status);
+
+              const ok = health.ok === true && loginRes.status === 200;
+              log(ok ? 'SMOKE RESULT: PASS' : 'SMOKE RESULT: FAIL');
+              fs.writeFileSync('smoke-result.txt', out.join('\n'));
+              server.close();
+              app.exit(ok ? 0 : 1);
+            } catch (error) {
+              log('ERROR ' + (error && error.stack ? error.stack : error));
+              fs.writeFileSync('smoke-result.txt', out.join('\n'));
+              app.exit(1);
+            }
+          });
+          JS
+          # Electron needs a display on Windows runners; it has one. Run and capture.
+          npx electron smoke.js 2>&1 | tee smoke.log
+          status=${PIPESTATUS[0]}
+          echo "--- smoke-result.txt ---"
+          cat smoke-result.txt 2>/dev/null || true
+          if [ "$status" -ne 0 ] || ! grep -q "SMOKE RESULT: PASS" smoke-result.txt; then
+            echo "::error title=Electron smoke test::The bundled server did not work inside Electron"
+            exit 1
+          fi
 
       - name: Build NSIS installer
         working-directory: medirdv-central/release/windows-app

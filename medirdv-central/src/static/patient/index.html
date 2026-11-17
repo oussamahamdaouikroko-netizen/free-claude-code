@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="medirdv-api-base" content="">
+<meta name="theme-color" content="#0e7c7b">
 <title>Medirdv — Trouver un médecin / البحث عن طبيب</title>
 <link rel="stylesheet" href="app.css">
 </head>
@@ -16,6 +17,18 @@
     <button id="settings-btn" class="hidden" title="Server">⚙</button>
   </div>
 </header>
+
+<section id="connect-screen" class="connect hidden">
+  <div class="connect-card">
+    <div class="connect-logo">🩺</div>
+    <h1 id="connect-title">Connecter l'application</h1>
+    <p id="connect-hint">Saisissez l'adresse de la plateforme Medirdv.</p>
+    <input id="connect-input" inputmode="url" autocomplete="url" placeholder="https://central.medirdv.dz">
+    <button id="connect-btn">Se connecter</button>
+    <p id="connect-error" class="error"></p>
+    <p id="connect-hint2" class="muted"></p>
+  </div>
+</section>
 
 <main>
   <section class="hero">

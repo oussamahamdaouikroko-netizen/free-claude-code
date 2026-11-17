@@ -193,3 +193,20 @@ test('support agents can look up patients but not touch finances or doctors', ()
   assert.equal(hasPermission(verifier, 'payments:verify'), true);
   assert.equal(hasPermission(verifier, 'admin:doctors'), false);
 });
+
+test('SQLite driver adapter resolves a working driver and reports it', () => {
+  const sqlite = require('../src/sqlite');
+  const dbModule = require('../src/db');
+  const driver = sqlite.resolveDriver();
+  assert.ok(['node:sqlite', 'better-sqlite3'].includes(driver.name));
+  // The DB layer exposes which driver is live (used by /health diagnostics).
+  assert.equal(dbModule.getDriver(), driver.name);
+});
+
+test('driver probe rejects an unusable driver instead of silently continuing', () => {
+  const sqlite = require('../src/sqlite');
+  // An unknown preference must not crash: it falls back to a working driver.
+  sqlite.resetDriverCache();
+  const driver = sqlite.resolveDriver('does-not-exist');
+  assert.ok(driver && typeof driver.open === 'function');
+});

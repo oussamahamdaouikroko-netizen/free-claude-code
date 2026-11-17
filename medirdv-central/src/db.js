@@ -7,7 +7,7 @@
  */
 const fs = require('node:fs');
 const path = require('node:path');
-const { DatabaseSync } = require('node:sqlite');
+const { resolveDriver } = require('./sqlite');
 const { migrate } = require('./schema');
 
 let db = null;
@@ -21,7 +21,10 @@ function resolveDbPath() {
 function open(filePath) {
   const target = filePath || resolveDbPath();
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  db = new DatabaseSync(target);
+  // Driver is resolved (and probed) once; node:sqlite on the server, with a
+  // better-sqlite3 fallback for the Electron desktop build.
+  const driver = resolveDriver();
+  db = driver.open(target);
   dbPath = target;
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA synchronous = FULL');
@@ -71,4 +74,9 @@ function utcNow() {
   return new Date().toISOString();
 }
 
-module.exports = { open, getDb, getPath, close, withTransaction, utcNow, resolveDbPath };
+/** Which SQLite driver is in use (diagnostics / health endpoint). */
+function getDriver() {
+  return db && db.driver ? db.driver : null;
+}
+
+module.exports = { open, getDb, getPath, close, withTransaction, utcNow, resolveDbPath, getDriver };

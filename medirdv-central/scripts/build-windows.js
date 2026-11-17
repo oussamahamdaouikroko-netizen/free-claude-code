@@ -6,15 +6,22 @@
  * administrator, mirroring the electron-builder pattern already used by
  * `medirdv/` and `dentardv/` (Part 16: those projects are NOT touched).
  *
- * The shell loads the central dashboard from MEDIRDV_CENTRAL_URL. It is a
- * real desktop app (desktop shortcut, Start Menu, uninstaller, preserved
- * settings across upgrades) — not a browser bookmark.
+ * TWO MODES, no configuration required on first launch:
  *
- * A Windows installer can only be produced by electron-builder on Windows
- * or inside CI (`.github/workflows/medirdv-central-windows.yml`); this script
+ *  1. STANDALONE (default) — the app bundles the Medirdv Central server and
+ *     starts it on a free local port, then opens the dashboard. Installing
+ *     and double-clicking is enough: no server address, no separate install.
+ *     Data lives in %APPDATA%\Medirdv Central\data (per-user, upgrade-safe).
+ *
+ *  2. CONNECTED — for a network deployment, the administrator can point the
+ *     app at a shared central server (File → Change server). Every client
+ *     then shares one authoritative database, per Part 18.4.
+ *
+ * A Windows installer can only be produced by electron-builder on Windows or
+ * in CI (`.github/workflows/medirdv-central-windows.yml`); this script
  * prepares the project and never claims a binary exists.
  *
- * Usage: node scripts/build-windows.js [--api-base https://central.example.dz]
+ * Usage: node scripts/build-windows.js [--mode standalone|connected] [--api-base URL]
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -28,7 +35,8 @@ function argValue(flag, fallback = '') {
   return index > -1 && process.argv[index + 1] ? process.argv[index + 1] : fallback;
 }
 
-const apiBase = argValue('--api-base', process.env.MEDIRDV_CENTRAL_URL || 'https://central.medirdv.dz');
+const mode = argValue('--mode', process.env.MEDIRDV_APP_MODE || 'standalone');
+const serverUrl = argValue('--api-base', process.env.MEDIRDV_CENTRAL_URL || 'https://central.medirdv.dz');
 
 function write(relative, content) {
   const target = path.join(OUT, relative);
@@ -36,7 +44,13 @@ function write(relative, content) {
   fs.writeFileSync(target, content);
 }
 
+fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(path.join(OUT, 'src'), { recursive: true });
+
+// Bundle the server so the app is self-contained (standalone mode).
+const bundle = path.join(OUT, 'server');
+fs.cpSync(path.join(ROOT, 'src'), bundle, { recursive: true });
+fs.copyFileSync(path.join(ROOT, 'package.json'), path.join(bundle, 'package.json'));
 
 /* ------------------------------- package.json ------------------------------ */
 write(
@@ -57,7 +71,11 @@ write(
         appId: 'dz.medirdv.central',
         productName: 'Medirdv Central',
         directories: { output: '../windows', buildResources: '../build' },
+        // Server source is bundled as an unpacked resource so node:sqlite can
+        // be required normally and data files never land inside the asar.
         files: ['src/**/*', 'package.json'],
+        extraResources: [{ from: 'server', to: 'server' }],
+        asarUnpack: [],
         win: {
           target: [{ target: 'nsis', arch: ['x64'] }],
           icon: '../build/icon.ico',
@@ -66,11 +84,14 @@ write(
         nsis: {
           oneClick: false,
           perMachine: false,
+          // Installs per-user by default so no administrator prompt is needed,
+          // but the user may still choose a machine-wide location.
           allowToChangeInstallationDirectory: true,
           createDesktopShortcut: true,
           createStartMenuShortcut: true,
           shortcutName: 'Medirdv Central',
           uninstallDisplayName: 'Medirdv Central ${version}',
+          // Data lives in %APPDATA%, so upgrades and reinstalls keep records.
           deleteAppDataOnUninstall: false,
           runAfterFinish: true,
         },
@@ -86,18 +107,28 @@ write(
   'src/main.js',
   `'use strict';
 /**
- * Medirdv Central — Windows desktop shell.
+ * Medirdv Central — Windows desktop application.
  *
- * The central database is authoritative; this app stores nothing locally
- * except the session cookie and window state (Part 18.4). All requests go to
- * the configured central server over HTTPS.
+ * Default: STANDALONE. The bundled server starts on a free local port and
+ * the dashboard opens automatically, so the application works immediately
+ * after installation with no server address to configure.
+ *
+ * Optional: CONNECTED. Point the app at a shared central server (File →
+ * "Use a shared server…"). The central database then stays authoritative.
  */
 const { app, BrowserWindow, shell, Menu, dialog } = require('electron');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
-const DEFAULT_URL = ${JSON.stringify(apiBase)};
+const DEFAULT_REMOTE = ${JSON.stringify(serverUrl)};
+const BUILD_MODE = ${JSON.stringify(mode)};
 
+let mainWindow = null;
+let embedded = null; // { server, baseUrl }
+let embeddedError = '';
+
+/* -------------------------------- settings -------------------------------- */
 function settingsPath() {
   return path.join(app.getPath('userData'), 'settings.json');
 }
@@ -115,23 +146,99 @@ function writeSettings(next) {
     fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
     fs.writeFileSync(settingsPath(), JSON.stringify(next, null, 2));
   } catch {
-    /* non-fatal: keep the default */
+    /* non-fatal */
   }
 }
 
-function centralUrl() {
+/** 'standalone' (bundled server) or 'remote' (shared server). */
+function appMode() {
   const settings = readSettings();
-  return (settings.centralUrl || process.env.MEDIRDV_CENTRAL_URL || DEFAULT_URL).replace(/\\/+$/, '');
+  if (settings.mode) return settings.mode;
+  return BUILD_MODE === 'connected' ? 'remote' : 'standalone';
 }
 
-function appUrl() {
-  return centralUrl() + '/admin/';
+function remoteUrl() {
+  const settings = readSettings();
+  return (settings.centralUrl || DEFAULT_REMOTE).replace(/\\/+$/, '');
 }
 
-let win = null;
+/* ----------------------------- embedded server ---------------------------- */
+function dataRoot() {
+  // Per-user, survives upgrades and uninstall (deleteAppDataOnUninstall=false).
+  return path.join(app.getPath('userData'), 'data');
+}
+
+function startEmbeddedServer() {
+  return new Promise((resolve) => {
+    try {
+      const serverDir = app.isPackaged
+        ? path.join(process.resourcesPath, 'server')
+        : path.join(__dirname, '..', 'server');
+
+      const data = dataRoot();
+      process.env.MEDIRDV_DB_PATH = path.join(data, 'medirdv-central.sqlite');
+      process.env.MEDIRDV_RECEIPTS_DIR = path.join(data, 'receipts');
+      process.env.MEDIRDV_TIMEZONE = 'Africa/Algiers';
+      process.env.HOST = '127.0.0.1';
+      process.env.PORT = '0';
+
+      // First run only: generate and persist an encryption key for
+      // WhatsApp tokens. Never shipped inside the installer.
+      const keyFile = path.join(data, '.encryption-key');
+      if (!fs.existsSync(keyFile)) {
+        fs.mkdirSync(data, { recursive: true });
+        fs.writeFileSync(keyFile, require('node:crypto').randomBytes(32).toString('hex'), { mode: 0o600 });
+      }
+      if (!process.env.MEDIRDV_ENCRYPTION_KEY) {
+        process.env.MEDIRDV_ENCRYPTION_KEY = fs.readFileSync(keyFile, 'utf8').trim();
+      }
+
+      // Local administrator account for the standalone app. Generated on
+      // first run and shown once, so the app is usable without a configured
+      // account (a real deployment should create named accounts instead).
+      const adminFile = path.join(data, 'administrator.json');
+      if (!fs.existsSync(adminFile)) {
+        const password = require('node:crypto').randomBytes(9).toString('base64').replace(/[^A-Za-z0-9]/g, '').slice(0, 12);
+        fs.mkdirSync(data, { recursive: true });
+        fs.writeFileSync(
+          adminFile,
+          JSON.stringify({ email: 'admin@medirdv.local', password }, null, 2),
+          { mode: 0o600 }
+        );
+      }
+      const admin = JSON.parse(fs.readFileSync(adminFile, 'utf8'));
+      process.env.MEDIRDV_BOOTSTRAP_ADMIN_EMAIL = process.env.MEDIRDV_BOOTSTRAP_ADMIN_EMAIL || admin.email;
+      process.env.MEDIRDV_BOOTSTRAP_ADMIN_PASSWORD = process.env.MEDIRDV_BOOTSTRAP_ADMIN_PASSWORD || admin.password;
+
+      const { start } = require(path.join(serverDir, 'server.js'));
+      const server = start({
+        port: 0,
+        host: '127.0.0.1',
+        onListen: (instance) => {
+          embedded = { server: instance, baseUrl: instance.baseUrl };
+          resolve(embedded);
+        },
+      });
+      server.on('error', (error) => {
+        embeddedError = String(error && error.message ? error.message : error);
+        resolve(null);
+      });
+    } catch (error) {
+      embeddedError = String(error && error.stack ? error.stack : error);
+      console.error('[medirdv-central] embedded server failed:', embeddedError);
+      resolve(null);
+    }
+  });
+}
+
+/* --------------------------------- window --------------------------------- */
+function targetUrl() {
+  if (appMode() === 'remote') return remoteUrl() + '/admin/';
+  return embedded ? embedded.baseUrl + '/admin/' : null;
+}
 
 function createWindow() {
-  win = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1440,
     height: 920,
     minWidth: 900,
@@ -139,197 +246,292 @@ function createWindow() {
     backgroundColor: '#f4f6f6',
     autoHideMenuBar: true,
     title: 'Medirdv Central',
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      spellcheck: false,
-    },
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, spellcheck: false },
   });
 
-  win.loadURL(appUrl());
+  const url = targetUrl();
+  if (url) {
+    mainWindow.loadURL(url);
+  } else {
+    showEmbeddedFailure();
+  }
 
-  // Show a real error state instead of a blank white window when the
-  // central server is unreachable (offline-safe, Part 18.4).
-  win.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+  mainWindow.webContents.on('did-fail-load', (_event, code, description, failedUrl, isMainFrame) => {
     if (!isMainFrame) return;
-    const message = [
-      'The Medirdv Central server could not be reached.',
-      '',
-      'Server: ' + url,
-      'Reason: ' + description + ' (' + code + ')',
-      '',
-      'Check your connection, or set the server address from the File menu.',
-    ].join('\\n');
+    if (appMode() === 'standalone') {
+      // The bundled server should always be reachable; surface the cause.
+      dialog.showMessageBox(mainWindow, {
+        type: 'error',
+        title: 'Medirdv Central could not start',
+        message: 'The local database service did not respond.',
+        detail: (embeddedError || description) + '\\n\\nTry: File → Restart local service.',
+        buttons: ['Retry', 'Quit'],
+      }).then(({ response }) => { if (response === 0) mainWindow.loadURL(targetUrl() || 'about:blank'); else app.quit(); });
+      return;
+    }
     dialog
-      .showMessageBox(win, {
+      .showMessageBox(mainWindow, {
         type: 'error',
         title: 'Server unreachable',
-        message: 'Medirdv Central is offline',
-        detail: message,
-        buttons: ['Retry', 'Change server…', 'Quit'],
+        message: 'The Medirdv Central server could not be reached.',
+        detail: 'Server: ' + failedUrl + '\\nReason: ' + description + ' (' + code + ')\\n\\nYou can switch back to the local database from the File menu.',
+        buttons: ['Retry', 'Use local database', 'Quit'],
         defaultId: 0,
         cancelId: 2,
       })
       .then(({ response }) => {
-        if (response === 0) win.loadURL(appUrl());
-        else if (response === 1) promptForServer();
+        if (response === 0) mainWindow.loadURL(targetUrl());
+        else if (response === 1) switchToStandalone();
         else app.quit();
       });
   });
 
-  // External links (wa.me, docs) open in the user's browser, never in-app.
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+  mainWindow.webContents.setWindowOpenHandler(({ url: openUrl }) => {
+    shell.openExternal(openUrl);
     return { action: 'deny' };
   });
-  win.webContents.on('will-navigate', (event, url) => {
-    if (!url.startsWith(centralUrl())) {
-      event.preventDefault();
-      shell.openExternal(url);
-    }
-  });
-  win.on('closed', () => {
-    win = null;
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
   });
 }
 
-async function promptForServer() {
-  const parent = win || undefined;
-  const { response, checkboxChecked } = await dialog.showMessageBox(parent, {
-    type: 'question',
-    title: 'Medirdv Central server',
-    message: 'Address of the Medirdv Central server',
-    detail: 'The administrator dashboard is served by this address. HTTPS is required.',
-    buttons: ['Save', 'Cancel'],
-    defaultId: 0,
-    cancelId: 1,
-  });
-  if (response !== 0) return;
-  void checkboxChecked;
+function showEmbeddedFailure() {
+  dialog.showMessageBox({
+    type: 'error',
+    title: 'Medirdv Central could not start',
+    message: 'The local database service failed to start.',
+    detail: (embeddedError || 'Unknown error') + '\\n\\nData folder: ' + dataRoot(),
+    buttons: ['Quit'],
+  }).then(() => app.quit());
+}
 
-  const input = await dialog.showMessageBox(parent, {
-    type: 'info',
-    title: 'Server address',
-    message: 'Current: ' + centralUrl(),
-    detail: 'Type the new address in the next dialog (example: https://central.example.dz).',
-    buttons: ['Continue', 'Cancel'],
-    defaultId: 0,
-    cancelId: 1,
-  });
-  if (input.response !== 0) return;
+async function switchToStandalone() {
+  writeSettings({ ...readSettings(), mode: 'standalone' });
+  if (!embedded) await startEmbeddedServer();
+  if (mainWindow) mainWindow.loadURL(targetUrl() || 'about:blank');
+}
 
-  // A tiny focused window is more reliable than a dialog with a text field.
+async function switchToRemote() {
   const promptWindow = new BrowserWindow({
-    parent,
+    parent: mainWindow || undefined,
     modal: true,
-    width: 460,
-    height: 190,
+    width: 520,
+    height: 260,
     resizable: false,
-    title: 'Server address',
+    title: 'Use a shared server',
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
+  promptWindow.setMenuBarVisibility(false);
   promptWindow.loadURL(
     'data:text/html;charset=utf-8,' +
       encodeURIComponent(
-        '<body style="font-family:Segoe UI,sans-serif;padding:16px">' +
-          '<p style="margin:0 0 8px">Medirdv Central server address</p>' +
-          '<input id="u" style="width:100%;padding:8px;box-sizing:border-box" value="' +
-          centralUrl() +
-          '">' +
-          '<p style="color:#666;font-size:12px;margin:8px 0">Example: https://central.example.dz</p>' +
-          '<button id="s" style="padding:8px 16px">Save</button>' +
-          '<script>document.getElementById("s").onclick=function(){' +
-          'location.href="medirdv://save?url="+encodeURIComponent(document.getElementById("u").value)}' +
+        '<body style="font-family:Segoe UI,sans-serif;padding:18px;background:#f4f6f6">' +
+          '<h3 style="margin:0 0 6px">Shared Medirdv Central server</h3>' +
+          '<p style="color:#555;font-size:13px;margin:0 0 10px">All administrators will share one database. HTTPS is required.</p>' +
+          '<input id="u" style="width:100%;padding:9px;box-sizing:border-box;border:1px solid #ccc;border-radius:6px" value="' + remoteUrl() + '">' +
+          '<p style="color:#777;font-size:12px">Example: https://central.example.dz</p>' +
+          '<div style="display:flex;gap:8px">' +
+          '<button id="s" style="padding:9px 18px;background:#0e7c7b;color:#fff;border:0;border-radius:6px;cursor:pointer">Connect</button>' +
+          '<button id="c" style="padding:9px 18px;border:1px solid #ccc;background:#fff;border-radius:6px;cursor:pointer">Cancel</button>' +
+          '</div>' +
+          '<script>' +
+          'document.getElementById("s").onclick=function(){location.href="medirdv://remote?url="+encodeURIComponent(document.getElementById("u").value)};' +
+          'document.getElementById("c").onclick=function(){location.href="medirdv://cancel"};' +
           '</script></body>'
       )
   );
   promptWindow.webContents.on('will-navigate', (event, url) => {
-    if (!url.startsWith('medirdv://save')) return;
+    if (!url.startsWith('medirdv://')) return;
     event.preventDefault();
-    const value = new URL(url).searchParams.get('url') || '';
-    const clean = value.trim().replace(/\\/+$/, '');
-    if (!/^https?:\\/\\//i.test(clean)) {
-      dialog.showMessageBox(parent, { type: 'warning', message: 'Please enter a full URL starting with https://' });
+    if (url.startsWith('medirdv://cancel')) {
+      promptWindow.destroy();
       return;
     }
-    writeSettings({ ...readSettings(), centralUrl: clean });
+    const value = (new URL(url).searchParams.get('url') || '').trim().replace(/\\/+$/, '');
+    if (!/^https?:\\/\\//i.test(value)) {
+      dialog.showMessageBox({ type: 'warning', message: 'Enter a full address starting with https://' });
+      return;
+    }
+    writeSettings({ ...readSettings(), mode: 'remote', centralUrl: value });
     promptWindow.destroy();
-    if (win) win.loadURL(appUrl());
+    if (mainWindow) mainWindow.loadURL(targetUrl());
+  });
+}
+
+function dataFolderInfo() {
+  const admin = (() => {
+    try {
+      return JSON.parse(fs.readFileSync(path.join(dataRoot(), 'administrator.json'), 'utf8'));
+    } catch {
+      return null;
+    }
+  })();
+  return [
+    'Mode: ' + (appMode() === 'standalone' ? 'this computer (local database)' : 'shared server — ' + remoteUrl()),
+    'Data folder: ' + dataRoot(),
+    'Database: ' + path.join(dataRoot(), 'medirdv-central.sqlite'),
+    admin ? 'Local administrator: ' + admin.email : '',
+    embedded ? 'Local service: ' + embedded.baseUrl : '',
+  ].filter(Boolean).join('\\n');
+}
+
+function editLocalAdministrator() {
+  const file = path.join(dataRoot(), 'administrator.json');
+  let current = { email: 'admin@medirdv.local', password: '' };
+  try {
+    current = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    /* defaults */
+  }
+  const promptWindow = new BrowserWindow({
+    parent: mainWindow || undefined,
+    modal: true,
+    width: 520,
+    height: 300,
+    resizable: false,
+    title: 'Local administrator account',
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  promptWindow.setMenuBarVisibility(false);
+  promptWindow.loadURL(
+    'data:text/html;charset=utf-8,' +
+      encodeURIComponent(
+        '<body style="font-family:Segoe UI,sans-serif;padding:18px;background:#f4f6f6">' +
+          '<h3 style="margin:0 0 10px">Local administrator account</h3>' +
+          '<label style="font-size:13px">Email<br><input id="e" style="width:100%;padding:8px;margin:4px 0 10px;box-sizing:border-box" value="' + current.email + '"></label>' +
+          '<label style="font-size:13px">New password (leave empty to keep)<br><input id="p" type="password" style="width:100%;padding:8px;margin:4px 0 14px;box-sizing:border-box"></label>' +
+          '<p style="color:#777;font-size:12px;margin:0 0 12px">Used only for the built-in database on this computer. Applies on the next restart.</p>' +
+          '<button id="s" style="padding:9px 18px;background:#0e7c7b;color:#fff;border:0;border-radius:6px;cursor:pointer">Save</button>' +
+          '<script>document.getElementById("s").onclick=function(){' +
+          'location.href="medirdv://saveadmin?email="+encodeURIComponent(document.getElementById("e").value)+"&password="+encodeURIComponent(document.getElementById("p").value)};</script>' +
+          '</body>'
+      )
+  );
+  promptWindow.webContents.on('will-navigate', (event, url) => {
+    if (!url.startsWith('medirdv://saveadmin')) return;
+    event.preventDefault();
+    const params = new URL(url).searchParams;
+    const email = (params.get('email') || '').trim();
+    const password = params.get('password') || '';
+    if (!/^[^@\\s]+@[^@\\s]+$/.test(email)) {
+      dialog.showMessageBox({ type: 'warning', message: 'Enter a valid email address.' });
+      return;
+    }
+    try {
+      fs.mkdirSync(dataRoot(), { recursive: true });
+      fs.writeFileSync(
+        file,
+        JSON.stringify({ email, password: password || current.password }, null, 2),
+        { mode: 0o600 }
+      );
+    } catch (error) {
+      dialog.showMessageBox({ type: 'error', message: 'Could not save: ' + error.message });
+      return;
+    }
+    promptWindow.destroy();
+    dialog.showMessageBox({
+      type: 'info',
+      message: 'Saved. Restart Medirdv Central to apply.',
+      detail: password ? 'A new password will be set on restart.' : 'Password unchanged.',
+    });
   });
 }
 
 function buildMenu() {
-  const template = [
-    {
-      label: 'File',
-      submenu: [
-        { label: 'Reload', accelerator: 'CmdOrCtrl+R', click: () => win && win.reload() },
-        { label: 'Change server…', click: promptForServer },
-        { type: 'separator' },
-        { role: 'quit' },
-      ],
-    },
-    {
-      label: 'View',
-      submenu: [
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        { type: 'separator' },
-        { role: 'togglefullscreen' },
-        { label: 'Toggle developer tools', accelerator: 'F12', click: () => win && win.webContents.toggleDevTools() },
-      ],
-    },
-    {
-      label: 'Help',
-      submenu: [
-        {
-          label: 'About Medirdv Central',
-          click: () =>
-            dialog.showMessageBox(win, {
-              type: 'info',
-              title: 'About',
-              message: 'Medirdv Central ' + app.getVersion(),
-              detail:
-                'Centralized healthcare booking, WhatsApp Hub and payment verification.\\n' +
-                'Server: ' + centralUrl(),
-            }),
-        },
-      ],
-    },
-  ];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      {
+        label: 'File',
+        submenu: [
+          { label: 'Restart local service', click: async () => { embedded = null; await startEmbeddedServer(); if (mainWindow) mainWindow.loadURL(targetUrl() || 'about:blank'); } },
+          { type: 'separator' },
+          { label: 'Use local database', click: switchToStandalone },
+          { label: 'Use a shared server…', click: switchToRemote },
+          { type: 'separator' },
+          { role: 'quit' },
+        ],
+      },
+      {
+        label: 'Account',
+        submenu: [{ label: 'Local administrator…', click: editLocalAdministrator }],
+      },
+      {
+        label: 'View',
+        submenu: [
+          { role: 'reload' },
+          { role: 'resetZoom' },
+          { role: 'zoomIn' },
+          { role: 'zoomOut' },
+          { type: 'separator' },
+          { role: 'togglefullscreen' },
+        ],
+      },
+      {
+        label: 'Help',
+        submenu: [
+          { label: 'Data folder…', click: () => dialog.showMessageBox(mainWindow, { type: 'info', title: 'Where is my data?', message: 'Medirdv Central data', detail: dataFolderInfo() }) },
+          { label: 'Open data folder', click: () => shell.openPath(dataRoot()) },
+          { type: 'separator' },
+          {
+            label: 'About Medirdv Central',
+            click: () =>
+              dialog.showMessageBox(mainWindow, {
+                type: 'info',
+                title: 'About',
+                message: 'Medirdv Central ' + app.getVersion(),
+                detail: 'Centralized healthcare booking, WhatsApp Hub and payment verification.\\n\\n' + dataFolderInfo(),
+              }),
+          },
+        ],
+      },
+    ])
+  );
 }
 
+/* -------------------------------- lifecycle ------------------------------- */
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (win) {
-      if (win.isMinimized()) win.restore();
-      win.focus();
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
     }
   });
-  app.whenReady().then(() => {
+
+  app.whenReady().then(async () => {
     buildMenu();
+    if (appMode() === 'standalone') await startEmbeddedServer();
     createWindow();
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
   });
+
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
+  });
+
+  app.on('before-quit', () => {
+    if (embedded && embedded.server) {
+      try {
+        embedded.server.close();
+      } catch {
+        /* shutting down anyway */
+      }
+    }
   });
 }
 `
 );
 
-console.log('[build-windows] Electron wrapper prepared at release/windows-app/');
-console.log(`[build-windows] Default server: ${apiBase}`);
+console.log('[build-windows] Electron desktop project prepared at release/windows-app/');
+console.log(`[build-windows] Mode: ${mode}${mode === 'connected' ? ` (shared server ${serverUrl})` : ' (bundled local database)'}`);
+console.log('[build-windows] Server bundled at release/windows-app/server/');
 console.log('[build-windows] To produce the installer:');
-console.log('  node scripts/convert-icon.js            # PNG → icon.ico for NSIS');
+console.log('  node scripts/convert-icon.js');
 console.log('  cd release/windows-app && npm install && npm run dist');
 console.log(`[build-windows] Output: release/windows/Medirdv-Central-Setup-${pkg.version}.exe`);
 console.log('[build-windows] NOTE: no .exe is claimed until electron-builder succeeds.');

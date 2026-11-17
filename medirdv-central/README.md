@@ -35,6 +35,13 @@ npm start
 - Admin dashboard: <http://localhost:8080/admin/>
 - Health: <http://localhost:8080/health>
 
+## Desktop app: standalone or connected
+
+Installing `Medirdv-Central-Setup.exe` gives a **working application with no
+setup**: it starts the bundled server on this computer and opens the dashboard.
+For a multi-administrator network deployment, use *File → Use a shared server…*
+so every client shares one authoritative database.
+
 ## Scripts
 
 | Command | Purpose |

@@ -23,6 +23,9 @@ const I18N = {
     error_generic: 'Une erreur est survenue.',
     offline: 'Connexion impossible. Vérifiez votre réseau.',
     settings: 'Serveur', save: 'Enregistrer', api_base: 'Adresse du serveur Medirdv',
+    connect_title: 'Connecter l\'application', connect_hint: 'Saisissez l\'adresse de la plateforme Medirdv fournie par votre médecin ou votre clinique.',
+    connect_placeholder: 'https://central.medirdv.dz', connect_btn: 'Se connecter', connecting: 'Connexion…',
+    connect_failed: 'Connexion impossible à cette adresse.', connect_hint2: 'Cette adresse est fournie par Medirdv. Sans elle, l\'application ne peut pas afficher les médecins.',
   },
   ar: {
     hero_title: 'ابحث عن طبيب واحجز موعدك',
@@ -46,6 +49,9 @@ const I18N = {
     error_generic: 'حدث خطأ.',
     offline: 'تعذر الاتصال. تحقق من الشبكة.',
     settings: 'الخادم', save: 'حفظ', api_base: 'عنوان خادم Medirdv',
+    connect_title: 'ربط التطبيق', connect_hint: 'أدخل عنوان منصة Medirdv الذي زودك به الطبيب أو العيادة.',
+    connect_placeholder: 'https://central.medirdv.dz', connect_btn: 'اتصال', connecting: 'جارٍ الاتصال…',
+    connect_failed: 'تعذر الاتصال بهذا العنوان.', connect_hint2: 'هذا العنوان توفره Medirdv. بدونه لا يمكن للتطبيق عرض الأطباء.',
   },
 };
 
@@ -266,6 +272,56 @@ function initNativeSettings() {
   });
 }
 
+/**
+ * First run inside the Android app: no API origin is configured yet, so show
+ * an explicit connection screen instead of failing with empty results.
+ * On the web this is never shown (same-origin API).
+ */
+function needsConnection() {
+  return Boolean(window.Capacitor) && !apiBase;
+}
+
+function showConnectScreen() {
+  const screen = $('connect-screen');
+  if (!screen) return;
+  screen.classList.remove('hidden');
+  document.querySelector('main').classList.add('hidden');
+  $('connect-input').placeholder = t('connect_placeholder');
+  $('connect-title').textContent = t('connect_title');
+  $('connect-hint').textContent = t('connect_hint');
+  $('connect-hint2').textContent = t('connect_hint2');
+  $('connect-btn').textContent = t('connect_btn');
+
+  $('connect-btn').addEventListener('click', async () => {
+    const value = $('connect-input').value.trim().replace(/\/+$/, '');
+    const errorBox = $('connect-error');
+    if (!/^https?:\/\//i.test(value)) {
+      errorBox.textContent = t('connect_placeholder');
+      return;
+    }
+    errorBox.textContent = t('connecting');
+    try {
+      const res = await fetch(`${value}/health`);
+      const data = await res.json();
+      if (!data.ok) throw new Error('not ok');
+    } catch {
+      errorBox.textContent = t('connect_failed');
+      return;
+    }
+    localStorage.setItem('medirdv_api_base', value);
+    apiBase = value;
+    screen.classList.add('hidden');
+    document.querySelector('main').classList.remove('hidden');
+    applyLang();
+    await loadFilters();
+    await search();
+  });
+}
+
 applyLang();
 initNativeSettings();
-loadFilters().then(search);
+if (needsConnection()) {
+  showConnectScreen();
+} else {
+  loadFilters().then(search);
+}

@@ -51,3 +51,13 @@ button:hover { background: var(--teal-dark); }
 body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
 .topbar { padding-top: max(12px, env(safe-area-inset-top)); }
 #settings-modal label { display: grid; gap: 6px; margin: 12px 0; }
+
+/* First-run connection screen (native app) */
+.connect { min-height: 70vh; display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
+.connect-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; max-width: 420px; width: 100%; text-align: center; }
+.connect-logo { font-size: 40px; }
+.connect-card h1 { font-size: 20px; margin: 8px 0; }
+.connect-card p { color: var(--muted); font-size: 14px; }
+.connect-card input { width: 100%; margin: 12px 0; text-align: left; }
+[dir="rtl"] .connect-card input { text-align: right; }
+.connect-card button { width: 100%; }

@@ -31,7 +31,10 @@ function argValue(flag, fallback = '') {
   return index > -1 && process.argv[index + 1] ? process.argv[index + 1] : fallback;
 }
 
-const apiBase = argValue('--api-base', process.env.MEDIRDV_PUBLIC_URL || 'https://central.medirdv.dz')
+// Empty by default: the app then shows its own "connect to your Medirdv
+// server" screen on first launch instead of failing against a placeholder.
+// Provide --api-base (or MEDIRDV_PUBLIC_URL) to pre-configure a deployment.
+const apiBase = argValue('--api-base', process.env.MEDIRDV_PUBLIC_URL || '')
   .trim()
   .replace(/\/+$/, '');
 
@@ -153,7 +156,7 @@ fs.writeFileSync(
 - App name: **Medirdv**
 - Package: \`dz.medirdv.patient\`
 - Version: ${pkg.version}
-- API base baked into this build: \`${apiBase}\`
+- API base baked into this build: ${apiBase ? '`' + apiBase + '`' : '_not set — the app will ask for the server address on first launch_'}
 - UI is bundled locally (works on slow/flaky networks); data comes from the
   central API over HTTPS.
 
