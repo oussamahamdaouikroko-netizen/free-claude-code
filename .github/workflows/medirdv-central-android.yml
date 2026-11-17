@@ -68,8 +68,26 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Configure Android SDK (pre-installed on the runner)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The ubuntu-latest image ships the Android SDK; the third-party
+          # setup action proved unreliable, so configure it directly.
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          if [ ! -d "$SDK" ]; then
+            echo "::error::Android SDK not found (looked in $SDK)"
+            exit 1
+          fi
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$SDK/platform-tools" >> "$GITHUB_PATH"
+          echo "Using SDK at $SDK"
+          ls "$SDK" || true
+          ls "$SDK/platforms" 2>/dev/null || true
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          echo "sdk.dir=$SDK" > /tmp/sdk-location.txt
 
       - name: Install Capacitor
         run: npm install --no-audit --no-fund @capacitor/core@8 @capacitor/cli@8 @capacitor/android@8
@@ -117,7 +135,8 @@ jobs:
         run: |
           set -o pipefail
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tail -n 60
+          printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
+          ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tail -n 80
 
       - name: Collect APK
         shell: bash
