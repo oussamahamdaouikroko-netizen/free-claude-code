@@ -1,0 +1,311 @@
+name: Build Medirdv Central for Windows
+
+# Produces release/windows/Medirdv-Central-Setup-<version>.exe (Electron + NSIS).
+#
+# Triggers:
+#  - pull_request  (builds so reviewers can download the installer)
+#  - push to main/master and to medirdv-central-v* tags
+#  - workflow_dispatch (manual, once this file is on the default branch)
+#
+# The installer is uploaded as an artifact on every run, and attached to a
+# GitHub Release when a tag is pushed or the run is dispatched with
+# `release: true`.
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["medirdv-central-v*"]
+    paths:
+      - "medirdv-central/**"
+      - ".github/workflows/medirdv-central-windows.yml"
+  pull_request:
+    paths:
+      - "medirdv-central/**"
+      - ".github/workflows/medirdv-central-windows.yml"
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Attach the built installer to a GitHub Release"
+        type: boolean
+        default: false
+      api_base:
+        description: "Central server URL baked into the desktop app"
+        type: string
+        default: "https://central.medirdv.dz"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: medirdv-central-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: medirdv-central
+
+jobs:
+  test:
+    name: Central test suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run tests
+        run: npm test
+
+  build:
+    name: Windows installer
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: medirdv-central/package.json
+
+      - name: Install build tooling
+        run: npm install --no-audit --no-fund
+
+      - name: Generate icon (.ico)
+        run: node scripts/convert-icon.js
+
+      - name: Prepare Electron wrapper
+        shell: bash
+        run: |
+          API_BASE="${{ inputs.api_base || 'https://central.medirdv.dz' }}"
+          node scripts/build-windows.js --api-base "$API_BASE"
+
+      - name: Install wrapper dependencies
+        working-directory: medirdv-central/release/windows-app
+        run: |
+          npm install --no-audit --no-fund
+          # Electron's embedded Node may not expose node:sqlite; the server has
+          # a better-sqlite3 fallback. Installed here so it is packaged.
+          npm install --no-audit --no-fund --save better-sqlite3@^11
+
+      - name: Smoke-test the bundled server inside Electron
+        working-directory: medirdv-central/release/windows-app
+        shell: bash
+        run: |
+          cat > smoke.js <<'SMOKE_JS'
+          const { app } = require('electron');
+          const fs = require('node:fs');
+          const os = require('node:os');
+          const path = require('node:path');
+
+          app.disableHardwareAcceleration();
+
+          app.whenReady().then(async () => {
+            const out = [];
+            const serverRoot = path.join(process.cwd(), 'server');
+            try {
+              out.push('cwd=' + process.cwd());
+              out.push('serverRoot=' + serverRoot);
+              out.push('exists=' + fs.existsSync(serverRoot));
+              out.push('entries=' + (fs.existsSync(serverRoot) ? fs.readdirSync(serverRoot).join(',') : 'n/a'));
+              const src = path.join(serverRoot, 'src');
+              out.push('src=' + (fs.existsSync(src) ? fs.readdirSync(src).join(',') : 'n/a'));
+            } catch (e) { out.push('listing error: ' + e.message); }
+            const log = (line) => { out.push(String(line)); console.log('[smoke]', line); };
+            let failures = 0;
+            const expect = (label, condition, extra) => {
+              if (condition) log('PASS ' + label);
+              else { failures += 1; log('FAIL ' + label + (extra ? ' :: ' + extra : '')); }
+            };
+            try {
+              log('electron=' + process.versions.electron + ' node=' + process.versions.node);
+              const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mdc-smoke-'));
+              process.env.MEDIRDV_DB_PATH = path.join(tmp, 'smoke.sqlite');
+              process.env.MEDIRDV_RECEIPTS_DIR = path.join(tmp, 'receipts');
+              process.env.MEDIRDV_ENCRYPTION_KEY = require('node:crypto').randomBytes(32).toString('hex');
+
+              const sqlite = require(path.join(process.cwd(), 'server', 'sqlite.js'));
+              let driverName = 'none';
+              try { driverName = sqlite.resolveDriver().name; }
+              catch (error) { log('DRIVER ERROR ' + error.message); }
+              log('sqlite driver=' + driverName);
+
+              const { start } = require(path.join(process.cwd(), 'server', 'server.js'));
+              const server = start({ port: 0, host: '127.0.0.1' });
+              await new Promise((resolve, reject) => {
+                server.once('listening', resolve);
+                server.once('error', reject);
+                setTimeout(() => reject(new Error('server did not listen within 25s')), 25000);
+              });
+              const base = server.baseUrl;
+              log('server listening ' + base);
+
+              const health = await fetch(base + '/health').then((r) => r.json());
+              expect('health.ok', health.ok === true, JSON.stringify(health));
+
+              const doctors = await fetch(base + '/api/public/doctors');
+              expect('public API /doctors 200', doctors.status === 200, String(doctors.status));
+
+              // First run must ask the operator to create an account.
+              const setup = await fetch(base + '/api/setup/status').then((r) => r.json());
+              expect('first run needs setup', setup.needs_setup === true, JSON.stringify(setup));
+
+              const setupRes = await fetch(base + '/api/setup/complete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: 'smoke@medirdv.local', password: 'smoke-pass-123', full_name: 'Smoke Admin' }),
+              });
+              const setupBody = await setupRes.json().catch(() => ({}));
+              expect('operator creates own admin', setupRes.status === 201, 'status=' + setupRes.status + ' body=' + JSON.stringify(setupBody).slice(0, 160));
+
+              const loginRes = await fetch(base + '/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: 'smoke@medirdv.local', password: 'smoke-pass-123' }),
+              });
+              expect('admin login', loginRes.status === 200, 'status=' + loginRes.status);
+
+              const adminUi = await fetch(base + '/admin/');
+              expect('admin UI 200', adminUi.status === 200, String(adminUi.status));
+              expect('login screen never hidden', (await adminUi.text()).includes('login-card'), 'login form missing');
+
+              // Administrator recovery must work from inside the packaged app.
+              const recPage = await fetch(base + '/admin/recover.html');
+              expect('recovery page shipped', recPage.status === 200, String(recPage.status));
+              const recStatus = await fetch(base + '/api/recovery/status').then((r) => r.json());
+              expect('recovery available locally', recStatus.available === true, JSON.stringify(recStatus));
+              const recReset = await fetch(base + '/api/recovery/reset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: 'recovered@medirdv.local', password: 'recovered-pass-123' }),
+              });
+              expect('recovery reset accepted', recReset.status === 200, 'status=' + recReset.status);
+              const recLogin = await fetch(base + '/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: 'recovered@medirdv.local', password: 'recovered-pass-123' }),
+              });
+              expect('recovered credentials log in', recLogin.status === 200, 'status=' + recLogin.status);
+              const stillThere = await fetch(base + '/api/admin/dashboard', {
+                headers: { Cookie: 'medirdv_session=' + (recLogin.headers.getSetCookie ? (recLogin.headers.getSetCookie()[0] || '').split(';')[0].split('=')[1] : '') },
+              });
+              expect('data survives recovery', stillThere.status === 200, 'status=' + stillThere.status);
+
+              server.close();
+              log(failures === 0 ? 'SMOKE RESULT: PASS' : 'SMOKE RESULT: FAIL (' + failures + ')');
+              fs.writeFileSync('smoke-result.txt', out.join('\n'));
+              app.exit(failures === 0 ? 0 : 1);
+            } catch (error) {
+              log('ERROR ' + (error && error.stack ? error.stack : String(error)));
+              try { fs.writeFileSync('smoke-result.txt', out.join('\n')); } catch (e) { /* ignore */ }
+              app.exit(1);
+            }
+          });
+          SMOKE_JS
+
+          timeout 180 npx electron smoke.js 2>&1 | tee smoke.log || true
+          echo "--- smoke-result.txt ---"
+          cat smoke-result.txt 2>/dev/null || tail -n 20 smoke.log 2>/dev/null || echo "(no output)"
+          exit 0
+
+      - name: Report Electron smoke diagnostics
+        if: always()
+        working-directory: medirdv-central/release/windows-app
+        shell: bash
+        run: |
+          RESULT="$GITHUB_WORKSPACE/medirdv-central/release/windows-app/smoke-result.txt"
+          SLOG="$GITHUB_WORKSPACE/medirdv-central/release/windows-app/smoke.log"
+          echo "----- smoke-result.txt -----"
+          cat "$RESULT" 2>/dev/null || echo "(missing)"
+          echo "----- smoke.log (tail) -----"
+          tail -n 40 "$SLOG" 2>/dev/null || echo "(missing)"
+
+          {
+            echo "### Electron smoke diagnostics — run $GITHUB_RUN_ID"
+            echo
+            echo "**smoke-result.txt**"
+            echo '```'
+            cat "$RESULT" 2>/dev/null || echo '(missing result file)'
+            echo '```'
+            echo "**smoke.log (tail)**"
+            echo '```'
+            tail -n 30 "$SLOG" 2>/dev/null || echo '(missing log)'
+            echo '```'
+          } > /tmp/comment.md
+
+          if [ -n "${{ github.event.pull_request.number }}" ]; then
+            gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/comment.md \
+              && echo "posted diagnostics to PR" || echo "note: PR comment failed"
+          fi
+
+      - name: Assert Electron runtime passed
+        working-directory: medirdv-central/release/windows-app
+        shell: bash
+        run: |
+          if grep -q "SMOKE RESULT: PASS" smoke-result.txt 2>/dev/null; then
+            echo "Electron runtime check passed"
+            exit 0
+          fi
+          PAYLOAD="$(cat smoke-result.txt 2>/dev/null | tr '\n' ' ' | head -c 700)"
+          if [ -z "$PAYLOAD" ]; then
+            PAYLOAD="$(tail -n 6 smoke.log 2>/dev/null | tr '\n' ' ' | head -c 700)"
+          fi
+          echo "::error title=Electron runtime check failed::$PAYLOAD"
+          exit 1
+
+      - name: Build NSIS installer
+        working-directory: medirdv-central/release/windows-app
+        run: npx electron-builder --win nsis --x64 --publish never
+
+      - name: Verify installer exists
+        shell: bash
+        run: |
+          ls -la release/windows/
+          count=$(ls release/windows/*.exe 2>/dev/null | wc -l)
+          if [ "$count" -lt 1 ]; then
+            echo "::error::electron-builder reported success but produced no .exe"
+            exit 1
+          fi
+
+      - name: Write checksums and release notes
+        shell: bash
+        run: |
+          cd release/windows
+          for f in *.exe; do sha256sum "$f" > "$f.sha256"; done
+          cat *.sha256
+          {
+            echo "# Medirdv Central — Windows build"
+            echo
+            echo "Version: $(node -p "require('../../package.json').version")"
+            echo "Commit: $GITHUB_SHA"
+            echo "Built: $(date -u +%FT%TZ)"
+            echo
+            cat *.sha256
+          } > BUILD-INFO.md
+          cat BUILD-INFO.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Medirdv-Central-Setup-windows
+          path: |
+            medirdv-central/release/windows/*.exe
+            medirdv-central/release/windows/*.sha256
+            medirdv-central/release/windows/BUILD-INFO.md
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/') || inputs.release == true
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('medirdv-central-build-{0}', github.run_number) }}
+          name: Medirdv Central ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            medirdv-central/release/windows/*.exe
+            medirdv-central/release/windows/*.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

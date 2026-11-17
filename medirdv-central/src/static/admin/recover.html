@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="fr" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Medirdv Central — Récupérer l'accès</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="recover-page">
+<main class="recover-wrap">
+  <h1>🩺 Récupérer l'accès administrateur</h1>
+
+  <p class="muted">
+    Définissez un nouveau mot de passe pour le compte administrateur de cet
+    ordinateur. Vos médecins, rendez-vous et paiements ne sont pas modifiés.
+  </p>
+
+  <div id="recover-unavailable" class="notice hidden">
+    <strong>La récupération n'est pas disponible sur cette installation.</strong>
+    <p>Ce serveur est partagé entre plusieurs utilisateurs. Demandez à son
+      administrateur de réinitialiser votre compte.</p>
+  </div>
+
+  <form id="recover-form" class="recover-card">
+    <label>Votre adresse email
+      <input id="recover-email" type="email" autocomplete="username" required>
+    </label>
+    <label>Nouveau mot de passe (min. 8 caractères)
+      <input id="recover-password" type="password" autocomplete="new-password" required>
+    </label>
+    <label>Confirmer le mot de passe
+      <input id="recover-password2" type="password" autocomplete="new-password" required>
+    </label>
+    <button type="submit" id="recover-submit">Enregistrer et continuer</button>
+    <p id="recover-message" class="error"></p>
+  </form>
+
+  <details class="help">
+    <summary>Où se trouve la base de données ?</summary>
+    <p>Dans l'application : menu <em>Fichier → Dossier de données…</em>.</p>
+  </details>
+</main>
+
+<script src="recover.js"></script>
+</body>
+</html>

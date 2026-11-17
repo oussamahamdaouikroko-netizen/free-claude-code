@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="fr" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="medirdv-api-base" content="">
+<meta name="theme-color" content="#0e7c7b">
+<title>Medirdv — Trouver un médecin / البحث عن طبيب</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">🩺 <strong>Medirdv</strong></div>
+  <div class="lang-switch">
+    <button id="lang-fr" class="active">FR</button>
+    <button id="lang-ar">العربية</button>
+    <button id="settings-btn" class="hidden" title="Server">⚙</button>
+  </div>
+</header>
+
+<section id="connect-screen" class="connect hidden">
+  <div class="connect-card">
+    <div class="connect-logo">🩺</div>
+    <h1 id="connect-title">Connecter l'application</h1>
+    <p id="connect-hint">Saisissez l'adresse de la plateforme Medirdv.</p>
+    <input id="connect-input" inputmode="url" autocomplete="url" placeholder="https://central.medirdv.dz">
+    <button id="connect-btn">Se connecter</button>
+    <p id="connect-error" class="error"></p>
+    <p id="connect-hint2" class="muted"></p>
+  </div>
+</section>
+
+<main>
+  <section class="hero">
+    <h1 data-i18n="hero_title">Trouvez un médecin et prenez rendez-vous</h1>
+    <p data-i18n="hero_sub">Recherchez par spécialité, wilaya ou nom. Réservation simple, paiement BaridiMob vérifié.</p>
+    <form id="search-form" class="search">
+      <input id="q-name" data-i18n-ph="search_name" placeholder="Nom du médecin…">
+      <select id="q-specialty"><option value="" data-i18n="all_specialties">Toutes spécialités</option></select>
+      <select id="q-wilaya"><option value="" data-i18n="all_wilayas">Toutes wilayas</option></select>
+      <input id="q-date" type="date" data-i18n-ph="available_on" placeholder="Disponible le…">
+      <button type="submit" data-i18n="search">Rechercher</button>
+    </form>
+  </section>
+
+  <section id="results" class="results"></section>
+
+  <section class="how">
+    <h2 data-i18n="how_title">Comment ça marche</h2>
+    <ol>
+      <li data-i18n="how_1">Choisissez un médecin et un créneau.</li>
+      <li data-i18n="how_2">Payez par BaridiMob et envoyez la référence.</li>
+      <li data-i18n="how_3">Le médecin confirme via WhatsApp.</li>
+    </ol>
+  </section>
+
+  <section class="track">
+    <h2 data-i18n="track_title">Suivre ma réservation</h2>
+    <form id="track-form">
+      <input id="track-ref" placeholder="MR-2026-000001" required>
+      <input id="track-phone" placeholder="05 XX XX XX XX" required>
+      <button type="submit" data-i18n="track">Suivre</button>
+    </form>
+    <div id="track-result"></div>
+  </section>
+</main>
+
+<!-- Booking modal -->
+<div id="booking-modal" class="modal hidden">
+  <div class="modal-card">
+    <button class="close" data-close>×</button>
+    <h2 id="bk-doctor"></h2>
+    <div id="bk-clinics"></div>
+    <label><span data-i18n="date">Date</span> <input id="bk-date" type="date"></label>
+    <div id="bk-slots" class="slots"></div>
+    <form id="bk-form">
+      <input id="bk-name" data-i18n-ph="full_name" placeholder="Nom complet" required>
+      <input id="bk-phone" data-i18n-ph="phone" placeholder="Téléphone (05…)" required>
+      <div id="bk-payment" class="payment-box"></div>
+      <button type="submit" data-i18n="confirm_booking">Confirmer la demande</button>
+    </form>
+    <div id="bk-result"></div>
+  </div>
+</div>
+
+<!-- Server configuration (native app only) -->
+<div id="settings-modal" class="modal hidden">
+  <div class="modal-card">
+    <button class="close" data-close-settings>×</button>
+    <h2 data-i18n="settings">Serveur</h2>
+    <label><span data-i18n="api_base">Adresse du serveur Medirdv</span>
+      <input id="api-base-input" placeholder="https://central.example.dz" inputmode="url">
+    </label>
+    <button id="api-base-save" data-i18n="save">Enregistrer</button>
+    <p id="settings-note" class="muted"></p>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

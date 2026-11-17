@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="fr" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="medirdv-api-base" content="">
+<title>Medirdv Central — Administration</title>
+<link rel="stylesheet" href="/admin/app.css">
+</head>
+<body>
+<div id="setup-view" class="login-wrap hidden">
+  <form id="setup-form" class="login-card">
+    <h1>🩺 Medirdv Central</h1>
+    <p class="muted">Création du compte administrateur</p>
+    <p class="muted">Ce premier compte gère votre plateforme. Choisissez vos propres identifiants — ils ne sont envoyés nulle part.</p>
+    <input id="setup-name" placeholder="Nom complet" autocomplete="name">
+    <input id="setup-email" type="email" placeholder="Votre email" autocomplete="username" required>
+    <input id="setup-password" type="password" placeholder="Mot de passe (min. 8 caractères)" autocomplete="new-password" required>
+    <input id="setup-password2" type="password" placeholder="Confirmer le mot de passe" autocomplete="new-password" required>
+    <button type="submit">Créer le compte et ouvrir</button>
+    <p id="setup-error" class="error"></p>
+  </form>
+</div>
+
+<div id="login-view" class="login-wrap">
+  <form id="login-form" class="login-card">
+    <h1>🩺 Medirdv Central</h1>
+    <p class="muted">Administration</p>
+    <input id="login-email" type="email" placeholder="Email" required>
+    <input id="login-password" type="password" placeholder="Mot de passe" required>
+    <button type="submit">Se connecter</button>
+    <p id="login-error" class="error"></p>
+    <details class="help">
+      <summary>Première utilisation / mot de passe oublié</summary>
+      <p>Ce logiciel fonctionne avec sa propre base de données sur cet ordinateur.</p>
+      <p><strong>Mot de passe oublié :</strong> dans le menu de l'application,
+        <em>Fichier → Récupérer l'accès administrateur…</em> permet de définir un
+        nouveau mot de passe sans perdre vos données.</p>
+      <p id="login-info" class="muted"></p>
+      <p><a href="recover.html" id="go-recover">Mot de passe oublié ? Récupérer l'accès…</a></p>
+    </details>
+  </form>
+</div>
+
+<div id="app-view" class="hidden">
+  <header class="topbar">
+    <strong>Medirdv Central</strong>
+    <nav>
+      <button data-tab="dashboard">Tableau de bord</button>
+      <button data-tab="doctors">Médecins</button>
+      <button data-tab="clinics">Cliniques</button>
+      <button data-tab="appointments">Rendez-vous</button>
+      <button data-tab="payments">Paiements</button>
+      <button data-tab="whatsapp">WhatsApp</button>
+      <button data-tab="analytics">Analyses</button>
+    </nav>
+    <button id="change-password">Mot de passe</button>
+    <button id="logout">Déconnexion</button>
+  </header>
+  <main id="content"></main>
+</div>
+
+<!-- Change password -->
+<div id="password-modal" class="modal hidden">
+  <form id="password-form" class="modal-card">
+    <h2>Changer le mot de passe</h2>
+    <input id="old-password" type="password" placeholder="Mot de passe actuel" autocomplete="current-password" required>
+    <input id="new-password" type="password" placeholder="Nouveau mot de passe (min. 8 caractères)" autocomplete="new-password" required>
+    <input id="new-password2" type="password" placeholder="Confirmer" autocomplete="new-password" required>
+    <button type="submit">Enregistrer</button>
+    <p id="password-error" class="error"></p>
+  </form>
+</div>
+
+<script src="/admin/app.js"></script>
+</body>
+</html>

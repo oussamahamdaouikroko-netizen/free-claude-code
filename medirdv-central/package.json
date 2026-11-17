@@ -1,0 +1,20 @@
+{
+  "name": "medirdv-central",
+  "version": "1.2.1",
+  "description": "Medirdv Central — centralized multi-doctor booking, official WhatsApp Hub and BaridiMob payment verification platform for Algeria. Independent from medirdv/ and dentardv/ desktop apps.",
+  "main": "src/server.js",
+  "license": "MIT",
+  "private": true,
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node --no-warnings src/server.js",
+    "dev": "node --no-warnings --watch src/server.js",
+    "test": "node --no-warnings --test --test-concurrency=1 tests/*.test.js",
+    "seed-demo": "node --no-warnings scripts/seed-demo.js",
+    "build:windows": "node scripts/build-windows.js",
+    "build:android": "node scripts/build-android.js"
+  }
+}
