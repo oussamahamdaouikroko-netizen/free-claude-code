@@ -204,10 +204,16 @@ jobs:
         working-directory: medirdv-central/release/windows-app
         shell: bash
         run: |
-          grep -q "SMOKE RESULT: PASS" smoke-result.txt || {
-            echo "::error title=Electron runtime check::smoke-result.txt does not report PASS"
-            exit 1
-          }
+          if grep -q "SMOKE RESULT: PASS" smoke-result.txt 2>/dev/null; then
+            echo "Electron runtime check passed"
+            exit 0
+          fi
+          PAYLOAD="$(cat smoke-result.txt 2>/dev/null | tr '\n' ' ' | head -c 700)"
+          if [ -z "$PAYLOAD" ]; then
+            PAYLOAD="$(tail -n 6 smoke.log 2>/dev/null | tr '\n' ' ' | head -c 700)"
+          fi
+          echo "::error title=Electron runtime check failed::$PAYLOAD"
+          exit 1
 
       - name: Build NSIS installer
         working-directory: medirdv-central/release/windows-app
