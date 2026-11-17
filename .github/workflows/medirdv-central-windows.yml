@@ -172,31 +172,33 @@ jobs:
 
       - name: Report Electron smoke diagnostics
         if: always()
-        shell: bash
         working-directory: medirdv-central/release/windows-app
+        shell: bash
         run: |
-          # Publish diagnostics on a dedicated branch. This is the only channel
-          # reachable both from the runner and from the restricted dev
-          # environment (artifacts/logs/annotations are not accessible there).
-          DEST=/tmp/diag-repo
-          mkdir -p "$DEST"
-          cd "$DEST"
-          git init -q
-          git config user.name "medirdv-ci"
-          git config user.email "ci@medirdv.local"
+          RESULT="$GITHUB_WORKSPACE/medirdv-central/release/windows-app/smoke-result.txt"
+          SLOG="$GITHUB_WORKSPACE/medirdv-central/release/windows-app/smoke.log"
+          echo "----- smoke-result.txt -----"
+          cat "$RESULT" 2>/dev/null || echo "(missing)"
+          echo "----- smoke.log (tail) -----"
+          tail -n 40 "$SLOG" 2>/dev/null || echo "(missing)"
+
           {
-            echo "run: $GITHUB_RUN_ID"
-            echo "sha: $GITHUB_SHA"
-            echo "ref: $GITHUB_REF"
-            echo "===== smoke-result.txt ====="
-            cat "$GITHUB_WORKSPACE/medirdv-central/release/windows-app/smoke-result.txt" 2>/dev/null || echo "(missing)"
-            echo "===== smoke.log (tail) ====="
-            tail -n 60 "$GITHUB_WORKSPACE/medirdv-central/release/windows-app/smoke.log" 2>/dev/null || echo "(missing)"
-          } > win-smoke.txt
-          cat win-smoke.txt
-          git add win-smoke.txt
-          git commit -q -m "ci diagnostics for run $GITHUB_RUN_ID"
-          git push -q --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:refs/heads/ci-diag/win-$GITHUB_RUN_ID || echo "note: diagnostics branch push failed"
+            echo "### Electron smoke diagnostics — run $GITHUB_RUN_ID"
+            echo
+            echo "**smoke-result.txt**"
+            echo '```'
+            cat "$RESULT" 2>/dev/null || echo '(missing result file)'
+            echo '```'
+            echo "**smoke.log (tail)**"
+            echo '```'
+            tail -n 30 "$SLOG" 2>/dev/null || echo '(missing log)'
+            echo '```'
+          } > /tmp/comment.md
+
+          if [ -n "${{ github.event.pull_request.number }}" ]; then
+            gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/comment.md \
+              && echo "posted diagnostics to PR" || echo "note: PR comment failed"
+          fi
 
       - name: Assert Electron runtime passed
         working-directory: medirdv-central/release/windows-app
