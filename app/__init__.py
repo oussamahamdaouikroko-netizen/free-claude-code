@@ -1,0 +1,1 @@
+"""Medirdv Central application package."""
