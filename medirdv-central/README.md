@@ -71,7 +71,7 @@ installer is packaged.
 | Click-to-Chat fallback | **Working** |
 | Connector sync API for desktop apps | **Working**, tested (desktop-side agent not bundled) |
 | FR/AR UI, admin dashboard, analytics | **Working** |
-| Windows `.exe` / Android `.apk` | **Built by CI** and attached to release `medirdv-central-v1.1.0` (see `release/RELEASE.md`) |
+| Windows `.exe` / Android `.apk` | **Built by CI** and attached to release `medirdv-central-v1.2.1` (see `docs/RELEASE.md`) |
 | BaridiMob automatic verification | **Not implemented** — no official merchant API; manual verification by design |
 | Email/SMS notifications | **Not implemented** (in-app + WhatsApp only) |
 
