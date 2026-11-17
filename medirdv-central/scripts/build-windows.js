@@ -48,9 +48,14 @@ fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(path.join(OUT, 'src'), { recursive: true });
 
 // Bundle the server so the app is self-contained (standalone mode).
+// Layout: server/<all files from src/> + server/package.json, i.e. the
+// desktop main process requires `server/server.js`.
 const bundle = path.join(OUT, 'server');
 fs.cpSync(path.join(ROOT, 'src'), bundle, { recursive: true });
-fs.copyFileSync(path.join(ROOT, 'package.json'), path.join(bundle, 'package.json'));
+fs.writeFileSync(
+  path.join(bundle, 'package.json'),
+  JSON.stringify({ name: 'medirdv-central-server', version: pkg.version, private: true, main: 'server.js' }, null, 2)
+);
 
 /* ------------------------------- package.json ------------------------------ */
 write(
