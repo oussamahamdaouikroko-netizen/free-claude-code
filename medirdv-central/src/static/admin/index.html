@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="fr" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Medirdv Central — Administration</title>
+<link rel="stylesheet" href="/admin/app.css">
+</head>
+<body>
+<div id="login-view" class="login-wrap">
+  <form id="login-form" class="login-card">
+    <h1>🩺 Medirdv Central</h1>
+    <p class="muted">Administration</p>
+    <input id="login-email" type="email" placeholder="Email" required>
+    <input id="login-password" type="password" placeholder="Mot de passe" required>
+    <button type="submit">Se connecter</button>
+    <p id="login-error" class="error"></p>
+  </form>
+</div>
+
+<div id="app-view" class="hidden">
+  <header class="topbar">
+    <strong>Medirdv Central</strong>
+    <nav>
+      <button data-tab="dashboard">Tableau de bord</button>
+      <button data-tab="doctors">Médecins</button>
+      <button data-tab="clinics">Cliniques</button>
+      <button data-tab="appointments">Rendez-vous</button>
+      <button data-tab="payments">Paiements</button>
+      <button data-tab="whatsapp">WhatsApp</button>
+      <button data-tab="analytics">Analyses</button>
+    </nav>
+    <button id="logout">Déconnexion</button>
+  </header>
+  <main id="content"></main>
+</div>
+
+<script src="/admin/app.js"></script>
+</body>
+</html>

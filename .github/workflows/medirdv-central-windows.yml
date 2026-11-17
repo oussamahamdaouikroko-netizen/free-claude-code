@@ -1,0 +1,89 @@
+name: Build Medirdv Central for Windows
+
+# Builds Medirdv-Central-Setup.exe (Electron + NSIS) on a Windows runner.
+# Trigger: push touching medirdv-central/**, PR, or manual run.
+# The installer is published as a workflow artifact (and a GitHub Release
+# when a tag medirdv-central-v* is pushed).
+on:
+  push:
+    tags: ["medirdv-central-v*"]
+    branches: [main, master]
+    paths:
+      - "medirdv-central/**"
+      - ".github/workflows/medirdv-central-windows.yml"
+  pull_request:
+    paths:
+      - "medirdv-central/**"
+      - ".github/workflows/medirdv-central-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: medirdv-central-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Central tests (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: medirdv-central
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Run central tests
+        run: npm test
+
+  build:
+    name: Windows installer
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: medirdv-central
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Prepare Electron wrapper
+        run: node scripts/build-windows.js
+      - name: Install wrapper dependencies
+        run: npm install --prefix release/windows-app
+      - name: Build NSIS installer
+        shell: bash
+        run: |
+          set +e
+          cd release/windows-app
+          npx electron-builder --win nsis --x64 --publish never 2>&1 | tee build-output.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            echo "::error::Medirdv Central installer build failed (exit $status)"
+            exit "$status"
+          fi
+          ls -la ../windows/
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Medirdv-Central-Setup-windows
+          path: medirdv-central/release/windows/Medirdv-Central-Setup-*.exe
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish release (tags only)
+        if: startsWith(github.ref, 'refs/tags/medirdv-central-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Medirdv Central ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: medirdv-central/release/windows/Medirdv-Central-Setup-*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

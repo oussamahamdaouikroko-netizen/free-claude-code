@@ -1,0 +1,101 @@
+name: Build Medirdv Patient for Android
+
+# Builds Medirdv-Patient.apk (Capacitor) on an Ubuntu runner with the
+# Android SDK. Trigger: push touching medirdv-central/**, PR, or manual run.
+on:
+  push:
+    tags: ["medirdv-central-v*"]
+    branches: [main, master]
+    paths:
+      - "medirdv-central/**"
+      - ".github/workflows/medirdv-central-android.yml"
+  pull_request:
+    paths:
+      - "medirdv-central/**"
+      - ".github/workflows/medirdv-central-android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: medirdv-central-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Central tests (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: medirdv-central
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Run central tests
+        run: npm test
+
+  build:
+    name: Android APK
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: medirdv-central
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Prepare Capacitor project
+        run: node scripts/build-android.js
+      - name: Install Capacitor dependencies
+        run: npm install --prefix release/android-app @capacitor/cli @capacitor/core @capacitor/android @capacitor/push-notifications
+      - name: Add Android platform and sync
+        run: |
+          cd release/android-app
+          npx cap add android
+          npx cap sync
+      - name: Build release APK
+        shell: bash
+        run: |
+          set +e
+          cd release/android-app/android
+          ./gradlew assembleRelease 2>&1 | tee build-output.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            echo "::error::Medirdv Patient APK build failed (exit $status)"
+            exit "$status"
+          fi
+          mkdir -p ../../android
+          cp app/build/outputs/apk/release/app-release.apk ../../android/Medirdv-Patient.apk
+          ls -la ../../android/
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Medirdv-Patient-android
+          path: medirdv-central/release/android/Medirdv-Patient.apk
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish release (tags only)
+        if: startsWith(github.ref, 'refs/tags/medirdv-central-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Medirdv Central ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: medirdv-central/release/android/Medirdv-Patient.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
