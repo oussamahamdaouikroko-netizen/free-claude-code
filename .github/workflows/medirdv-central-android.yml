@@ -106,17 +106,8 @@ jobs:
         shell: bash
         working-directory: medirdv-central/release/android-app
         run: |
-          npx cap add android > cap-add.log 2>&1
-          status=$?
-          cat cap-add.log
-          if [ $status -ne 0 ]; then
-            # Surface the real cause as a check annotation; artifacts are not
-            # the only way to debug a failed build.
-            tail -n 12 cap-add.log | sed 's/%/%25/g; s/\r//g' | while IFS= read -r line; do
-              echo "::error title=cap add android::$line"
-            done
-            exit $status
-          fi
+          set -o pipefail
+          npx cap add android 2>&1 | tee cap-add.log
 
       - name: Apply icon, permissions and app metadata
         shell: bash
@@ -195,6 +186,29 @@ jobs:
               sys.exit(1)
           print(f"APK OK: {len(names)} entries, manifest+dex+resources present")
           PY
+
+      - name: Report build diagnostics
+        if: always()
+        shell: bash
+        working-directory: medirdv-central/release/android-app
+        run: |
+          for log in cap-add.log; do
+            if [ -f "$log" ]; then
+              echo "::group::$log"
+              sed -e 's/%/%25/g' -e 's/\r//g' "$log" | tail -n 60
+              echo "::endgroup::"
+              # Also emit each decisive line as an annotation so the cause is
+              # visible in the Checks UI without downloading artifacts.
+              grep -iE "error|fail|missing|not found|cannot|unable|exception" "$log" \
+                | head -n 10 \
+                | sed -e 's/%/%25/g' -e 's/\r//g' \
+                | while IFS= read -r line; do echo "::error title=android build::$line"; done
+            fi
+          done
+          echo "--- capacitor.config.json ---"
+          cat capacitor.config.json 2>/dev/null || true
+          echo "--- package.json deps ---"
+          node -e "console.log(JSON.stringify(require('./package.json').dependencies||{},null,1))" 2>/dev/null || true
 
       - name: Upload build diagnostics
         if: always()
