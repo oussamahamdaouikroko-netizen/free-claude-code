@@ -114,10 +114,13 @@ bookings. Doctors never auto-confirm unless `auto_confirm` is explicitly set
 - **No Embedded Signup UI automation** — the dashboard accepts the identifiers
   returned by Meta's Embedded Signup and stores the token encrypted. Wiring the
   Meta JS SDK popup needs a Meta app ID/config ID (`WHATSAPP_EMBEDDED_SIGNUP_*`).
-- **No `.exe`/`.apk` binaries committed** — build scripts + CI produce them;
-  artifacts are attached to tagged releases only after the build succeeds.
-  In this development sandbox the Electron binary download host was not
-  reachable, so the Windows installer could not be produced here.
+- **`.exe`/`.apk` are CI-built, not committed** — the development sandbox
+  cannot reach Electron/Android SDK download hosts, so both are compiled on
+  GitHub Actions runners and attached to release `medirdv-central-v1.0.0`
+  (installer 97.2 MB, APK 3.3 MB, SHA-256 published). Local build scripts
+  prepare the projects; CI performs and verifies the compilation.
+- **Installers are unsigned** — Windows SmartScreen and Android "unknown
+  sources" warnings apply until signing certificates are added.
 - **No email/SMS sending** — in-app notification table + WhatsApp only.
 - **No medical records** — bookings carry identity + logistics only (Part 10).
 - **No patient self-service deletion endpoint** — specified in SECURITY.md as a

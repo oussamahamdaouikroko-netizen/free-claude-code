@@ -2,18 +2,33 @@
 
 ## Artifacts
 
-| Platform | File | Produced by |
+| Platform | File | Status |
 |---|---|---|
-| Windows (central admin) | `release/windows/Medirdv-Central-Setup-1.0.0.exe` | GitHub Actions `medirdv-central-windows.yml` |
-| Android (patients) | `release/android/Medirdv-Patient.apk` | GitHub Actions `medirdv-central-android.yml` |
-| Web admin | `http://<host>/admin/` | `npm start` (no build step) |
-| Patient web | `http://<host>/` | `npm start` (no build step) |
+| Windows (central admin) | `Medirdv-Central-Setup-1.0.0.exe` (97.2 MB) | **Built** — attached to release `medirdv-central-v1.0.0` |
+| Android (patients) | `Medirdv-Patient.apk` (3.3 MB) | **Built** — attached to release `medirdv-central-v1.0.0` |
+| Web admin | `http://<host>/admin/` | Runs from `npm start` (no build step) |
+| Patient web | `http://<host>/` | Runs from `npm start` (no build step) |
 
-The `.exe` and `.apk` are produced by CI, not committed to the repository.
-`npm run build:windows` / `npm run build:android` generate the wrapper projects
-and print the exact build commands. **No installer exists until a build
-machine or CI run produces it** — `node scripts/build-release-list.js` writes
-SHA-256 checksums only for files that actually exist.
+Installers are built by CI (`.github/workflows/medirdv-central-*.yml`), not
+committed. Local helpers:
+
+```bash
+node scripts/convert-icon.js          # build/icon.png → build/icon.ico
+node scripts/build-windows.js         # prepare the Electron desktop project
+node scripts/build-android.js         # prepare the Capacitor project + icons
+node scripts/build-release-list.js    # checksums for files that actually exist
+```
+
+## Tagging a release
+
+```bash
+git tag medirdv-central-v1.0.1
+git push origin medirdv-central-v1.0.1
+```
+
+Both workflows run the tests, build on native runners, verify the artifacts,
+and attach them to a GitHub Release for the tag. A failing build fails the
+job — nothing is published silently.
 
 ## CI release flow
 
