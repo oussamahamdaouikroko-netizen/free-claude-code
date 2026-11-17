@@ -170,6 +170,29 @@ jobs:
 
               const adminUi = await fetch(base + '/admin/');
               expect('admin UI 200', adminUi.status === 200, String(adminUi.status));
+              expect('login screen never hidden', (await adminUi.text()).includes('login-card'), 'login form missing');
+
+              // Administrator recovery must work from inside the packaged app.
+              const recPage = await fetch(base + '/admin/recover.html');
+              expect('recovery page shipped', recPage.status === 200, String(recPage.status));
+              const recStatus = await fetch(base + '/api/recovery/status').then((r) => r.json());
+              expect('recovery available locally', recStatus.available === true, JSON.stringify(recStatus));
+              const recReset = await fetch(base + '/api/recovery/reset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: 'recovered@medirdv.local', password: 'recovered-pass-123' }),
+              });
+              expect('recovery reset accepted', recReset.status === 200, 'status=' + recReset.status);
+              const recLogin = await fetch(base + '/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: 'recovered@medirdv.local', password: 'recovered-pass-123' }),
+              });
+              expect('recovered credentials log in', recLogin.status === 200, 'status=' + recLogin.status);
+              const stillThere = await fetch(base + '/api/admin/dashboard', {
+                headers: { Cookie: 'medirdv_session=' + (recLogin.headers.getSetCookie ? (recLogin.headers.getSetCookie()[0] || '').split(';')[0].split('=')[1] : '') },
+              });
+              expect('data survives recovery', stillThere.status === 200, 'status=' + stillThere.status);
 
               server.close();
               log(failures === 0 ? 'SMOKE RESULT: PASS' : 'SMOKE RESULT: FAIL (' + failures + ')');

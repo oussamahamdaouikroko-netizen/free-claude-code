@@ -7,31 +7,77 @@ const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[ch]));
 
+/**
+ * Base URL for API calls. Empty = same origin (web UI and the desktop app's
+ * embedded server). The Android/desktop shells may override it via a meta tag.
+ * Declared with `var` semantics at the top so the file never throws a
+ * ReferenceError — an undeclared identifier here previously blanked the UI.
+ */
+const apiBase = (() => {
+  const meta = document.querySelector('meta[name="medirdv-api-base"]');
+  const value = meta && meta.getAttribute('content') ? meta.getAttribute('content') : '';
+  return value.replace(/\/+$/, '');
+})();
+
 let currentTab = 'dashboard';
 
 async function api(path, options = {}) {
-  const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...options });
+  let res;
+  try {
+    res = await fetch(apiBase + path, { headers: { 'Content-Type': 'application/json' }, ...options });
+  } catch {
+    throw new Error('service local injoignable');
+  }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error?.message || 'Erreur');
+  if (!res.ok) {
+    const error = new Error((data.error && data.error.message) || 'Erreur');
+    error.status = res.status;
+    throw error;
+  }
   return data;
 }
 
-async function boot() {
-  // First run: no account exists yet, so let the operator create one.
-  const setup = await api('/api/setup/status');
-  if (setup.needs_setup) {
-    $('setup-view').classList.remove('hidden');
-    $('login-view').classList.add('hidden');
-    $('app-view').classList.add('hidden');
-    $('setup-email').focus();
-    return;
+function showOnly(viewId) {
+  for (const id of ['setup-view', 'login-view', 'app-view']) {
+    const el = $(id);
+    if (el) el.classList.toggle('hidden', id !== viewId);
   }
-  $('setup-view').classList.add('hidden');
-  const { user } = await api('/api/auth/me');
-  if (!user) { $('login-view').classList.remove('hidden'); $('app-view').classList.add('hidden'); return; }
-  $('login-view').classList.add('hidden');
-  $('app-view').classList.remove('hidden');
-  render();
+}
+
+async function boot() {
+  // Never leave a blank window: the login form is visible by default, and any
+  // failure is reported on screen instead of silently showing nothing.
+  showOnly('login-view');
+  const info = $('login-info');
+  if (info) info.textContent = 'Serveur: ' + (apiBase || window.location.origin);
+  try {
+    const setup = await api('/api/setup/status');
+    if (setup.needs_setup) {
+      showOnly('setup-view');
+      $('setup-email').focus();
+      return;
+    }
+    const { user } = await api('/api/auth/me');
+    if (!user) {
+      showOnly('login-view');
+      const err = $('login-error');
+      if (err) err.textContent = '';
+      return;
+    }
+    showOnly('app-view');
+    await render();
+  } catch (error) {
+    showOnly('login-view');
+    // 401 simply means "not signed in yet" — that is the normal first screen,
+    // not a failure worth alarming the user about.
+    if (error.status === 401 || error.status === 403) {
+      $('login-error').textContent = '';
+      return;
+    }
+    $('login-error').textContent =
+      'Impossible de joindre le service local (' + error.message + '). ' +
+      'Menu de l’application : Fichier → Redémarrer le service local.';
+  }
 }
 
 async function render() {

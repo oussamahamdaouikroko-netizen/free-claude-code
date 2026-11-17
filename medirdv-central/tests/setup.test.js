@@ -125,3 +125,72 @@ test('the admin UI exposes the first-run setup screen', async () => {
   assert.ok(html.includes('id="setup-password"'));
   assert.ok(html.includes('id="password-form"'));
 });
+
+test('local recovery resets credentials without deleting records', async () => {
+  // Simulate an account with an unknown password (the 1.1.0 problem).
+  const auth = require('../src/auth');
+  const existing = auth.getUserByEmail('patron@clinique.dz');
+  assert.ok(existing, 'previous test created the account');
+
+  const status = await req('GET', '/api/recovery/status');
+  assert.equal(status.data.available, true, 'loopback requests may recover');
+  assert.equal(status.data.email, 'patron@clinique.dz');
+
+  const reset = await req('POST', '/api/recovery/reset', {
+    body: { email: 'nouveau@clinique.dz', password: 'MotDePasseReinitialise1' },
+  });
+  assert.equal(reset.status, 200);
+
+  // Chosen credentials work; records are intact.
+  const login = await req('POST', '/api/auth/login', {
+    body: { email: 'nouveau@clinique.dz', password: 'MotDePasseReinitialise1' },
+  });
+  assert.equal(login.status, 200);
+  const db = require('../src/db');
+  assert.equal(db.getDb().prepare('SELECT COUNT(*) AS n FROM users').get().n, 1);
+});
+
+test('recovery rejects callers addressed through a public host name', async () => {
+  // `fetch` refuses to override Host, so use http.request directly: this is
+  // exactly what a reverse-proxied request looks like from the server side.
+  const http = require('node:http');
+  const { port } = new URL(base);
+  const body = JSON.stringify({ email: 'attacker@example.dz', password: 'anotherpassword1' });
+  const result = await new Promise((resolve) => {
+    const request = http.request(
+      {
+        host: '127.0.0.1',
+        port,
+        path: '/api/recovery/reset',
+        method: 'POST',
+        headers: {
+          Host: 'central.example.dz',
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        },
+      },
+      (res) => {
+        res.resume();
+        resolve(res.statusCode);
+      },
+    );
+    request.on('error', () => resolve(0));
+    request.end(body);
+  });
+  assert.equal(result, 403);
+
+  // The password chosen in the previous test still works: nothing changed.
+  const login = await req('POST', '/api/auth/login', {
+    body: { email: 'nouveau@clinique.dz', password: 'MotDePasseReinitialise1' },
+  });
+  assert.equal(login.status, 200);
+});
+
+test('recovery page is served to the desktop shell', async () => {
+  const page = await fetch(base + '/admin/recover.html');
+  assert.equal(page.status, 200);
+  const html = await page.text();
+  assert.ok(html.includes('recover-form'));
+  const script = await fetch(base + '/admin/recover.js');
+  assert.equal(script.status, 200);
+});

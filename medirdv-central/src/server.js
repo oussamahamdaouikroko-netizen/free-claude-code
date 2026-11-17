@@ -22,6 +22,7 @@ require('./env').loadEnv();
 
 const db = require('./db');
 const auth = require('./auth');
+const validate = require('./validate');
 const { AppError, statusFor, conflict } = require('./errors');
 const adminRoutes = require('./routes/admin');
 const publicRoutes = require('./routes/public');
@@ -154,6 +155,22 @@ function applySecurityHeaders(res) {
  * the app is a first-party client; the wildcard is never used together with
  * credentials.
  */
+/**
+ * True when the request comes from this machine (the desktop app talking to
+ * its own embedded server). Used to gate destructive local-only operations.
+ */
+function isLocalRequest(req) {
+  const remote = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+  const host = String(req.headers.host || '');
+  const loopbackRemote = remote === '127.0.0.1' || remote === '::1' || remote === 'localhost';
+  // A Host header that is anything but loopback means the request was
+  // addressed to a public name (reverse proxy / shared server) — never allow
+  // recovery there, even though the socket itself looks local.
+  const loopbackHost = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i.test(host);
+  if (!loopbackHost) return false;
+  return loopbackRemote && loopbackHost;
+}
+
 const CAPACITOR_ORIGINS = new Set(['https://localhost', 'capacitor://localhost', 'http://localhost']);
 
 function applyCors(req, res, pathname) {
@@ -231,6 +248,36 @@ async function handle(req, res) {
       const cookies = auth.parseCookies(req.headers.cookie);
       auth.destroySession(cookies[auth.COOKIE_NAME]);
       res.setHeader('Set-Cookie', auth.clearCookieHeader());
+      return sendJson(res, 200, { ok: true });
+    }
+    /* --------------------------- local recovery --------------------------- */
+    // Enabled only for the desktop app: loopback client AND no external bind.
+    // On a hosted deployment these return { available: false } and 403.
+    if (pathname === '/api/recovery/status' && method === 'GET') {
+      const local = isLocalRequest(req);
+      const firstAdmin = local
+        ? db.getDb().prepare("SELECT email FROM users WHERE role = 'super_admin' ORDER BY id LIMIT 1").get()
+        : null;
+      return sendJson(res, 200, { available: local, email: firstAdmin ? firstAdmin.email : null, admin: Boolean(firstAdmin) });
+    }
+    if (pathname === '/api/recovery/reset' && method === 'POST') {
+      if (!isLocalRequest(req)) throw new AppError('FORBIDDEN', 'Recovery is only available on the local installation');
+      if (rateLimited(ip, 'recovery', 5, 60 * 1000)) throw new AppError('RATE_LIMITED', 'Too many attempts');
+      const body = await readJson(req);
+      const email = validate.requireText(body.email, 'email', 160);
+      const password = validate.requireText(body.password, 'password', 200);
+      const target = db.getDb()
+        .prepare("SELECT * FROM users WHERE role = 'super_admin' ORDER BY id LIMIT 1")
+        .get();
+      if (!target) throw conflict('NOT_FOUND', 'No administrator account exists yet — open the app and create one');
+      // Keep one administrator; adopt the email the operator chose.
+      db.getDb().prepare('UPDATE users SET email = ? WHERE id = ?').run(email.toLowerCase(), target.id);
+      auth.changePassword(target.id, { newPassword: password, requireCurrent: false });
+      try {
+        logAudit({ userId: target.id, action: 'auth.recovery', entity: 'user', entityId: String(target.id), detail: email });
+      } catch {
+        /* auditing is best-effort; recovery must not fail because of it */
+      }
       return sendJson(res, 200, { ok: true });
     }
     if (pathname === '/api/setup/status' && method === 'GET') {

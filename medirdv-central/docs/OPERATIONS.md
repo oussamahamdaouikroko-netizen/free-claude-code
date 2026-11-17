@@ -1,21 +1,40 @@
 # Medirdv Central — Operator Manuals (Part 10/17)
 
-## A0. First launch (desktop app)
+## A0. First launch and account recovery (desktop app)
 
 The Windows application runs its own local server, so the very first launch
 shows a **setup screen**: enter your name, email and password. That account is
-the super administrator for this computer. Nothing is generated for you.
+the super administrator for this computer. Nothing is generated for you, and no
+credential is ever sent anywhere.
 
-- Forgot the password? Dashboard header → **Mot de passe** (while signed in).
-- Still on the 1.1.0 build? Uninstall and install 1.2.0 (data is preserved), or
-  set new credentials without touching records:
+**Forgot the password?** You do not need a command line.
 
-  ```bash
-  node scripts/reset-admin.js --data "<data folder>" \
-       --email you@example.dz --password "your-new-password"
-  ```
+1. Menu **Fichier → Récupérer l'accès administrateur…**
+2. Enter the email and the new password you want.
+3. Click **Enregistrer et continuer** — the app signs you in.
 
-  *Help → Data folder…* in the app shows the exact path.
+The same screen is linked from the login page itself
+(*Mot de passe oublié ? Récupérer l'accès…*).
+
+Recovery changes only credentials. Doctors, clinics, appointments, payments and
+receipts are untouched.
+
+**Already have a 1.1.0 installation?** Its data folder is kept across
+uninstall/reinstall, so the app correctly reports "already set up" and shows the
+*login* screen, not setup. Use the recovery entry above to choose new
+credentials. Deleting `%APPDATA%\Medirdv Central\data` also brings the setup
+screen back, but that **destroys records** — use it only on a test install.
+
+Recovery is loopback-only: it answers `403` if the request arrives through a
+public host name, so a shared server cannot be hijacked. The equivalent
+command-line helper still exists for headless deployments:
+
+```bash
+node scripts/reset-admin.js --data "<data folder>" \
+     --email you@example.dz --password "your-new-password"
+```
+
+*Fichier → Où sont mes données ?* shows the exact data folder path.
 
 ## A. Administrator manual
 

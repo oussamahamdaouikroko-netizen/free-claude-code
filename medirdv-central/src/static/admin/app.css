@@ -29,3 +29,36 @@ form.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50; }
 .modal-card { background: #fff; border-radius: 14px; padding: 20px; width: 100%; max-width: 420px; display: grid; gap: 8px; }
 .modal-card h2 { margin: 0 0 4px; font-size: 18px; }
+
+.help { margin-top: 10px; font-size: 13px; color: var(--muted); }
+.help summary { cursor: pointer; font-weight: 600; color: var(--teal); }
+.help p { margin: 6px 0; line-height: 1.4; }
+
+/* ------------------------ administrator recovery ------------------------ */
+.recover-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 28px 16px; }
+.recover-wrap { width: 100%; max-width: 460px; }
+.recover-wrap h1 { font-size: 22px; margin: 0 0 10px; }
+.recover-wrap .muted { font-size: 14px; line-height: 1.55; color: var(--muted); margin: 0 0 18px; }
+.recover-card {
+  display: grid; gap: 14px; padding: 22px; background: var(--card);
+  border: 1px solid var(--border); border-radius: 14px;
+}
+.recover-card label { display: grid; gap: 6px; font-size: 13px; font-weight: 600; }
+.recover-card input {
+  padding: 10px 12px; font: inherit; border: 1px solid var(--border);
+  border-radius: 9px; background: #fff;
+}
+.recover-card button {
+  padding: 11px 14px; font: inherit; font-weight: 600; color: #fff;
+  background: var(--teal); border: 0; border-radius: 9px; cursor: pointer;
+}
+.recover-card button:disabled { opacity: 0.6; cursor: progress; }
+.recover-wrap .error { color: #b91c1c; font-size: 13px; margin: 0; min-height: 1em; }
+.recover-wrap .success { color: #15803d; font-size: 13px; margin: 0; }
+.recover-wrap .notice {
+  padding: 14px 16px; margin-bottom: 16px; font-size: 14px; line-height: 1.5;
+  background: #fff7ed; border: 1px solid #fdba74; border-radius: 12px;
+}
+.recover-wrap .notice p { margin: 8px 0 0; }
+.recover-wrap .help { margin-top: 16px; font-size: 13px; color: var(--muted); }
+.help a { color: var(--teal); font-weight: 600; }

@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="medirdv-api-base" content="">
 <title>Medirdv Central — Administration</title>
 <link rel="stylesheet" href="/admin/app.css">
 </head>
@@ -21,7 +22,7 @@
   </form>
 </div>
 
-<div id="login-view" class="login-wrap hidden">
+<div id="login-view" class="login-wrap">
   <form id="login-form" class="login-card">
     <h1>🩺 Medirdv Central</h1>
     <p class="muted">Administration</p>
@@ -29,6 +30,15 @@
     <input id="login-password" type="password" placeholder="Mot de passe" required>
     <button type="submit">Se connecter</button>
     <p id="login-error" class="error"></p>
+    <details class="help">
+      <summary>Première utilisation / mot de passe oublié</summary>
+      <p>Ce logiciel fonctionne avec sa propre base de données sur cet ordinateur.</p>
+      <p><strong>Mot de passe oublié :</strong> dans le menu de l'application,
+        <em>Fichier → Récupérer l'accès administrateur…</em> permet de définir un
+        nouveau mot de passe sans perdre vos données.</p>
+      <p id="login-info" class="muted"></p>
+      <p><a href="recover.html" id="go-recover">Mot de passe oublié ? Récupérer l'accès…</a></p>
+    </details>
   </form>
 </div>
 
