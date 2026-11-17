@@ -175,18 +175,17 @@ jobs:
           echo "--- smoke-result.txt ---"
           cat smoke-result.txt 2>/dev/null || cat smoke.log
 
-          # Emit diagnostics as workflow annotations: these are readable through
-          # the Checks API even when job logs are unreachable.
+          # Fail with the cause embedded in the step error itself, so the
+          # reason is visible through the Checks API without log access.
+          DIAG="$(cat smoke-result.txt 2>/dev/null || tail -n 12 smoke.log 2>/dev/null || echo 'no output captured')"
           echo "electron exit status: $status"
-          cat smoke-result.txt 2>/dev/null | head -n 40 | sed 's/%/%25/g; s/\r//g' | while IFS= read -r line; do
-            echo "::error title=smoke::$line"
-          done
-          if [ ! -s smoke-result.txt ]; then
-            tail -n 20 smoke.log 2>/dev/null | sed 's/%/%25/g; s/\r//g' | while IFS= read -r line; do
-              echo "::error title=smoke-log::$line"
-            done
+          echo "--- diagnostics ---"
+          echo "$DIAG"
+          if [ "$status" -ne 0 ] || ! grep -q "SMOKE RESULT: PASS" smoke-result.txt 2>/dev/null; then
+            COMPACT="$(echo "$DIAG" | tr '\n' ' ' | sed 's/%/%25/g' | head -c 900)"
+            echo "::error title=Electron runtime check failed::$COMPACT"
+            exit 1
           fi
-          exit 0
 
       - name: Report Electron smoke diagnostics
         if: always()
@@ -229,10 +228,10 @@ jobs:
         working-directory: medirdv-central/release/windows-app
         shell: bash
         run: |
-          if ! grep -q "SMOKE RESULT: PASS" smoke-result.txt 2>/dev/null; then
-            echo "::error title=Electron runtime check::The bundled server did not pass inside Electron"
+          grep -q "SMOKE RESULT: PASS" smoke-result.txt || {
+            echo "::error title=Electron runtime check::smoke-result.txt does not report PASS"
             exit 1
-          fi
+          }
 
       - name: Build NSIS installer
         working-directory: medirdv-central/release/windows-app
