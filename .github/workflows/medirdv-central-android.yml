@@ -106,8 +106,17 @@ jobs:
         shell: bash
         working-directory: medirdv-central/release/android-app
         run: |
-          set -o pipefail
-          npx cap add android 2>&1 | tee cap-add.log
+          npx cap add android > cap-add.log 2>&1
+          status=$?
+          cat cap-add.log
+          if [ $status -ne 0 ]; then
+            # Surface the real cause as a check annotation; artifacts are not
+            # the only way to debug a failed build.
+            tail -n 12 cap-add.log | sed 's/%/%25/g; s/\r//g' | while IFS= read -r line; do
+              echo "::error title=cap add android::$line"
+            done
+            exit $status
+          fi
 
       - name: Apply icon, permissions and app metadata
         shell: bash
