@@ -95,7 +95,6 @@ jobs:
         working-directory: medirdv-central/release/windows-app
         shell: bash
         run: |
-          # Write the probe with a quoted heredoc so ${...} stays JavaScript.
           cat > smoke.js <<'SMOKE_JS'
           const { app } = require('electron');
           const fs = require('node:fs');
@@ -113,7 +112,7 @@ jobs:
               else { failures += 1; log('FAIL ' + label + (extra ? ' :: ' + extra : '')); }
             };
             try {
-              log('electron=' + process.versions.electron + ' node=' + process.versions.node + ' chrome=' + process.versions.chrome);
+              log('electron=' + process.versions.electron + ' node=' + process.versions.node);
               const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mdc-smoke-'));
               process.env.MEDIRDV_DB_PATH = path.join(tmp, 'smoke.sqlite');
               process.env.MEDIRDV_RECEIPTS_DIR = path.join(tmp, 'receipts');
@@ -123,11 +122,8 @@ jobs:
 
               const sqlite = require('./server/src/sqlite');
               let driverName = 'none';
-              try {
-                driverName = sqlite.resolveDriver().name;
-              } catch (error) {
-                log('DRIVER ERROR ' + error.message);
-              }
+              try { driverName = sqlite.resolveDriver().name; }
+              catch (error) { log('DRIVER ERROR ' + error.message); }
               log('sqlite driver=' + driverName);
 
               const { start } = require('./server/src/server');
@@ -152,13 +148,13 @@ jobs:
                 body: JSON.stringify({ email: 'smoke@medirdv.local', password: 'smoke-pass-123' }),
               });
               const login = await loginRes.json().catch(() => ({}));
-              expect('admin login', loginRes.status === 200, 'status=' + loginRes.status + ' body=' + JSON.stringify(login).slice(0, 200));
+              expect('admin login', loginRes.status === 200, 'status=' + loginRes.status);
 
               const adminUi = await fetch(base + '/admin/');
               expect('admin UI 200', adminUi.status === 200, String(adminUi.status));
 
               server.close();
-              log(failures === 0 ? 'SMOKE RESULT: PASS' : 'SMOKE RESULT: FAIL (' + failures + ' failures)');
+              log(failures === 0 ? 'SMOKE RESULT: PASS' : 'SMOKE RESULT: FAIL (' + failures + ')');
               fs.writeFileSync('smoke-result.txt', out.join('\n'));
               app.exit(failures === 0 ? 0 : 1);
             } catch (error) {
@@ -169,17 +165,9 @@ jobs:
           });
           SMOKE_JS
 
-          # Guard against a hanging GUI process.
-          timeout 180 npx electron smoke.js 2>&1 | tee smoke.log
-          status=${PIPESTATUS[0]}
+          timeout 180 npx electron smoke.js 2>&1 | tee smoke.log || true
           echo "--- smoke-result.txt ---"
-          cat smoke-result.txt 2>/dev/null || cat smoke.log
-
-          echo "electron exit status: $status"
-          echo "--- diagnostics ---"
           cat smoke-result.txt 2>/dev/null || tail -n 20 smoke.log 2>/dev/null || echo "(no output)"
-          # Never fail here: the diagnostics step must run first, and the
-          # assertion step decides whether the build continues.
           exit 0
 
       - name: Report Electron smoke diagnostics
