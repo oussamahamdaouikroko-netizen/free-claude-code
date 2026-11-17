@@ -24,3 +24,8 @@ th { background: #eef4f4; }
 .error { color: #b3261e; }
 form.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
 .badge { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #e6f4f4; }
+
+/* Modal (password change) */
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50; }
+.modal-card { background: #fff; border-radius: 14px; padding: 20px; width: 100%; max-width: 420px; display: grid; gap: 8px; }
+.modal-card h2 { margin: 0 0 4px; font-size: 18px; }

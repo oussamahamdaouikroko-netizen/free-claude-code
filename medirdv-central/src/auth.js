@@ -87,6 +87,32 @@ function login(email, password) {
   return user;
 }
 
+/** How many accounts exist. 0 means the platform is un-provisioned. */
+function countUsers() {
+  return getDb().prepare('SELECT COUNT(*) AS n FROM users').get().n;
+}
+
+/**
+ * Change a user's password. Requires the current password unless the caller
+ * is an authenticated super administrator performing an explicit reset.
+ */
+function changePassword(userId, { currentPassword = null, newPassword, requireCurrent = true }) {
+  const user = getUserById(userId);
+  if (!user) throw unauthorized();
+  if (requireCurrent) {
+    if (!currentPassword || !verifyPassword(currentPassword, user.password_hash)) {
+      throw unauthorized('Current password is incorrect');
+    }
+  }
+  requirePassword(newPassword);
+  getDb()
+    .prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?')
+    .run(hashPassword(newPassword), utcNow(), userId);
+  // Any other session for this account is invalidated on password change.
+  getDb().prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+  return getUserById(userId);
+}
+
 function createSession(userId, { ip = '', userAgent = '' } = {}) {
   const id = randomToken(32);
   const now = new Date();
@@ -155,6 +181,8 @@ module.exports = {
   hasPermission,
   requirePermission,
   createUser,
+  countUsers,
+  changePassword,
   getUserById,
   getUserByEmail,
   login,

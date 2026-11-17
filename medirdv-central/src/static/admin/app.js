@@ -17,6 +17,16 @@ async function api(path, options = {}) {
 }
 
 async function boot() {
+  // First run: no account exists yet, so let the operator create one.
+  const setup = await api('/api/setup/status');
+  if (setup.needs_setup) {
+    $('setup-view').classList.remove('hidden');
+    $('login-view').classList.add('hidden');
+    $('app-view').classList.add('hidden');
+    $('setup-email').focus();
+    return;
+  }
+  $('setup-view').classList.add('hidden');
   const { user } = await api('/api/auth/me');
   if (!user) { $('login-view').classList.remove('hidden'); $('app-view').classList.add('hidden'); return; }
   $('login-view').classList.add('hidden');
@@ -180,6 +190,50 @@ function bindTabActions() {
     $('retry-result').textContent = `${results.filter((r) => r.ok).length}/${results.length} réussis`;
   });
 }
+
+$('setup-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = $('setup-email').value.trim();
+  const password = $('setup-password').value;
+  const confirm = $('setup-password2').value;
+  const errorBox = $('setup-error');
+  errorBox.textContent = '';
+  if (password.length < 8) { errorBox.textContent = 'Le mot de passe doit contenir au moins 8 caractères.'; return; }
+  if (password !== confirm) { errorBox.textContent = 'Les mots de passe ne correspondent pas.'; return; }
+  try {
+    await api('/api/setup/complete', {
+      method: 'POST',
+      body: JSON.stringify({ email, password, full_name: $('setup-name').value.trim() || 'Administrator' }),
+    });
+    await boot();
+  } catch (error) {
+    errorBox.textContent = error.message;
+  }
+});
+
+$('change-password').addEventListener('click', () => {
+  $('password-error').textContent = '';
+  $('password-form').reset();
+  $('password-modal').classList.remove('hidden');
+});
+$('password-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const newPassword = $('new-password').value;
+  if (newPassword.length < 8) { $('password-error').textContent = 'Au moins 8 caractères.'; return; }
+  if (newPassword !== $('new-password2').value) { $('password-error').textContent = 'Les mots de passe ne correspondent pas.'; return; }
+  try {
+    await api('/api/auth/password', {
+      method: 'POST',
+      body: JSON.stringify({ current_password: $('old-password').value, new_password: newPassword }),
+    });
+    // Password change invalidates the session: sign in again.
+    $('password-modal').classList.add('hidden');
+    alert('Mot de passe modifié. Veuillez vous reconnecter.');
+    boot();
+  } catch (error) {
+    $('password-error').textContent = error.message;
+  }
+});
 
 $('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();

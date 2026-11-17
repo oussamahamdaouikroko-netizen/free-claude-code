@@ -22,7 +22,7 @@ require('./env').loadEnv();
 
 const db = require('./db');
 const auth = require('./auth');
-const { AppError, statusFor } = require('./errors');
+const { AppError, statusFor, conflict } = require('./errors');
 const adminRoutes = require('./routes/admin');
 const publicRoutes = require('./routes/public');
 const whatsappRoutes = require('./routes/whatsapp');
@@ -231,6 +231,41 @@ async function handle(req, res) {
       const cookies = auth.parseCookies(req.headers.cookie);
       auth.destroySession(cookies[auth.COOKIE_NAME]);
       res.setHeader('Set-Cookie', auth.clearCookieHeader());
+      return sendJson(res, 200, { ok: true });
+    }
+    if (pathname === '/api/setup/status' && method === 'GET') {
+      return sendJson(res, 200, { needs_setup: auth.countUsers() === 0 });
+    }
+    if (pathname === '/api/setup/complete' && method === 'POST') {
+      // Self-hosted first run: the person installing the software creates the
+      // first administrator. Only possible while no account exists, so this
+      // endpoint cannot be used to hijack a provisioned instance.
+      if (rateLimited(ip, 'setup', 5, 60 * 1000)) throw new AppError('RATE_LIMITED', 'Too many attempts');
+      if (auth.countUsers() > 0) {
+        throw conflict('ALREADY_SETUP', 'This Medirdv Central instance is already set up');
+      }
+      const body = await readJson(req);
+      const user = auth.createUser({
+        email: body.email,
+        password: body.password,
+        fullName: body.full_name || 'Administrator',
+        role: 'super_admin',
+      });
+      const session = auth.createSession(user.id, { ip, userAgent: req.headers['user-agent'] || '' });
+      res.setHeader('Set-Cookie', auth.sessionCookieHeader(session.id, session.expiresAt));
+      logAudit({ userId: user.id, action: 'setup.complete', entity: 'user', entityId: String(user.id), detail: user.email });
+      return sendJson(res, 201, { ok: true, user: { id: user.id, email: user.email, role: user.role } });
+    }
+    if (pathname === '/api/auth/password' && method === 'POST') {
+      const user = requireUser(req);
+      const body = await readJson(req);
+      auth.changePassword(user.id, {
+        currentPassword: body.current_password,
+        newPassword: body.new_password,
+        requireCurrent: true,
+      });
+      res.setHeader('Set-Cookie', auth.clearCookieHeader());
+      logAudit({ userId: user.id, action: 'auth.password_change', entity: 'user', entityId: String(user.id) });
       return sendJson(res, 200, { ok: true });
     }
     if (pathname === '/api/auth/me' && method === 'GET') {

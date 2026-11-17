@@ -198,22 +198,10 @@ function startEmbeddedServer() {
         process.env.MEDIRDV_ENCRYPTION_KEY = fs.readFileSync(keyFile, 'utf8').trim();
       }
 
-      // Local administrator account for the standalone app. Generated on
-      // first run and shown once, so the app is usable without a configured
-      // account (a real deployment should create named accounts instead).
-      const adminFile = path.join(data, 'administrator.json');
-      if (!fs.existsSync(adminFile)) {
-        const password = require('node:crypto').randomBytes(9).toString('base64').replace(/[^A-Za-z0-9]/g, '').slice(0, 12);
-        fs.mkdirSync(data, { recursive: true });
-        fs.writeFileSync(
-          adminFile,
-          JSON.stringify({ email: 'admin@medirdv.local', password }, null, 2),
-          { mode: 0o600 }
-        );
-      }
-      const admin = JSON.parse(fs.readFileSync(adminFile, 'utf8'));
-      process.env.MEDIRDV_BOOTSTRAP_ADMIN_EMAIL = process.env.MEDIRDV_BOOTSTRAP_ADMIN_EMAIL || admin.email;
-      process.env.MEDIRDV_BOOTSTRAP_ADMIN_PASSWORD = process.env.MEDIRDV_BOOTSTRAP_ADMIN_PASSWORD || admin.password;
+      // No administrator is created automatically. On first launch the
+      // dashboard shows a setup screen where the operator chooses their own
+      // email and password (see /api/setup/status). Never invent credentials
+      // the user cannot know.
 
       const { start } = require(path.join(serverDir, 'server.js'));
       const server = start({
@@ -365,82 +353,12 @@ async function switchToRemote() {
 }
 
 function dataFolderInfo() {
-  const admin = (() => {
-    try {
-      return JSON.parse(fs.readFileSync(path.join(dataRoot(), 'administrator.json'), 'utf8'));
-    } catch {
-      return null;
-    }
-  })();
   return [
     'Mode: ' + (appMode() === 'standalone' ? 'this computer (local database)' : 'shared server — ' + remoteUrl()),
     'Data folder: ' + dataRoot(),
     'Database: ' + path.join(dataRoot(), 'medirdv-central.sqlite'),
-    admin ? 'Local administrator: ' + admin.email : '',
     embedded ? 'Local service: ' + embedded.baseUrl : '',
   ].filter(Boolean).join('\\n');
-}
-
-function editLocalAdministrator() {
-  const file = path.join(dataRoot(), 'administrator.json');
-  let current = { email: 'admin@medirdv.local', password: '' };
-  try {
-    current = JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    /* defaults */
-  }
-  const promptWindow = new BrowserWindow({
-    parent: mainWindow || undefined,
-    modal: true,
-    width: 520,
-    height: 300,
-    resizable: false,
-    title: 'Local administrator account',
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
-  });
-  promptWindow.setMenuBarVisibility(false);
-  promptWindow.loadURL(
-    'data:text/html;charset=utf-8,' +
-      encodeURIComponent(
-        '<body style="font-family:Segoe UI,sans-serif;padding:18px;background:#f4f6f6">' +
-          '<h3 style="margin:0 0 10px">Local administrator account</h3>' +
-          '<label style="font-size:13px">Email<br><input id="e" style="width:100%;padding:8px;margin:4px 0 10px;box-sizing:border-box" value="' + current.email + '"></label>' +
-          '<label style="font-size:13px">New password (leave empty to keep)<br><input id="p" type="password" style="width:100%;padding:8px;margin:4px 0 14px;box-sizing:border-box"></label>' +
-          '<p style="color:#777;font-size:12px;margin:0 0 12px">Used only for the built-in database on this computer. Applies on the next restart.</p>' +
-          '<button id="s" style="padding:9px 18px;background:#0e7c7b;color:#fff;border:0;border-radius:6px;cursor:pointer">Save</button>' +
-          '<script>document.getElementById("s").onclick=function(){' +
-          'location.href="medirdv://saveadmin?email="+encodeURIComponent(document.getElementById("e").value)+"&password="+encodeURIComponent(document.getElementById("p").value)};</script>' +
-          '</body>'
-      )
-  );
-  promptWindow.webContents.on('will-navigate', (event, url) => {
-    if (!url.startsWith('medirdv://saveadmin')) return;
-    event.preventDefault();
-    const params = new URL(url).searchParams;
-    const email = (params.get('email') || '').trim();
-    const password = params.get('password') || '';
-    if (!/^[^@\\s]+@[^@\\s]+$/.test(email)) {
-      dialog.showMessageBox({ type: 'warning', message: 'Enter a valid email address.' });
-      return;
-    }
-    try {
-      fs.mkdirSync(dataRoot(), { recursive: true });
-      fs.writeFileSync(
-        file,
-        JSON.stringify({ email, password: password || current.password }, null, 2),
-        { mode: 0o600 }
-      );
-    } catch (error) {
-      dialog.showMessageBox({ type: 'error', message: 'Could not save: ' + error.message });
-      return;
-    }
-    promptWindow.destroy();
-    dialog.showMessageBox({
-      type: 'info',
-      message: 'Saved. Restart Medirdv Central to apply.',
-      detail: password ? 'A new password will be set on restart.' : 'Password unchanged.',
-    });
-  });
 }
 
 function buildMenu() {
@@ -456,10 +374,6 @@ function buildMenu() {
           { type: 'separator' },
           { role: 'quit' },
         ],
-      },
-      {
-        label: 'Account',
-        submenu: [{ label: 'Local administrator…', click: editLocalAdministrator }],
       },
       {
         label: 'View',

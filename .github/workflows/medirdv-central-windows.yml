@@ -126,8 +126,6 @@ jobs:
               process.env.MEDIRDV_DB_PATH = path.join(tmp, 'smoke.sqlite');
               process.env.MEDIRDV_RECEIPTS_DIR = path.join(tmp, 'receipts');
               process.env.MEDIRDV_ENCRYPTION_KEY = require('node:crypto').randomBytes(32).toString('hex');
-              process.env.MEDIRDV_BOOTSTRAP_ADMIN_EMAIL = 'smoke@medirdv.local';
-              process.env.MEDIRDV_BOOTSTRAP_ADMIN_PASSWORD = 'smoke-pass-123';
 
               const sqlite = require(path.join(process.cwd(), 'server', 'sqlite.js'));
               let driverName = 'none';
@@ -151,12 +149,23 @@ jobs:
               const doctors = await fetch(base + '/api/public/doctors');
               expect('public API /doctors 200', doctors.status === 200, String(doctors.status));
 
+              // First run must ask the operator to create an account.
+              const setup = await fetch(base + '/api/setup/status').then((r) => r.json());
+              expect('first run needs setup', setup.needs_setup === true, JSON.stringify(setup));
+
+              const setupRes = await fetch(base + '/api/setup/complete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: 'smoke@medirdv.local', password: 'smoke-pass-123', full_name: 'Smoke Admin' }),
+              });
+              const setupBody = await setupRes.json().catch(() => ({}));
+              expect('operator creates own admin', setupRes.status === 201, 'status=' + setupRes.status + ' body=' + JSON.stringify(setupBody).slice(0, 160));
+
               const loginRes = await fetch(base + '/api/auth/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email: 'smoke@medirdv.local', password: 'smoke-pass-123' }),
               });
-              const login = await loginRes.json().catch(() => ({}));
               expect('admin login', loginRes.status === 200, 'status=' + loginRes.status);
 
               const adminUi = await fetch(base + '/admin/');
