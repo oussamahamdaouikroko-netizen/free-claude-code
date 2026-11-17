@@ -89,17 +89,18 @@ jobs:
           yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
           echo "sdk.dir=$SDK" > /tmp/sdk-location.txt
 
-      - name: Install app dependencies
-        working-directory: medirdv-central/release/android-app
-        run: |
-          npm install --no-audit --no-fund
-          npx cap --version
 
       - name: Prepare app bundle, config and icons
         shell: bash
         run: |
           API_BASE="${{ inputs.api_base || 'https://central.medirdv.dz' }}"
           node scripts/build-android.js --api-base "$API_BASE"
+
+      - name: Install app dependencies
+        working-directory: medirdv-central/release/android-app
+        run: |
+          npm install --no-audit --no-fund
+          npx cap --version
 
       - name: Add Android platform
         shell: bash

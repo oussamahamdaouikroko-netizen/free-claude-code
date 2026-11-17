@@ -6,3 +6,6 @@ release/
 *.sqlite-shm
 *.log
 .env
+
+# Generated build scaffolding (recreated by scripts/build-*.js)
+medirdv-central/release/android-app/node_modules/
