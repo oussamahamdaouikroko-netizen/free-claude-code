@@ -90,7 +90,11 @@ jobs:
           echo "sdk.dir=$SDK" > /tmp/sdk-location.txt
 
       - name: Install Capacitor
-        run: npm install --no-audit --no-fund @capacitor/core@8 @capacitor/cli@8 @capacitor/android@8
+        run: |
+          npm install --no-audit --no-fund @capacitor/core@8 @capacitor/cli@8 @capacitor/android@8
+          echo "--- capacitor versions ---"
+          npx cap --version
+          cat package.json | grep -A3 dependencies || true
 
       - name: Prepare app bundle, config and icons
         shell: bash
@@ -99,8 +103,11 @@ jobs:
           node scripts/build-android.js --api-base "$API_BASE"
 
       - name: Add Android platform
+        shell: bash
         working-directory: medirdv-central/release/android-app
-        run: npx cap add android
+        run: |
+          set -o pipefail
+          npx cap add android 2>&1 | tee cap-add.log
 
       - name: Apply icon, permissions and app metadata
         shell: bash
@@ -179,6 +186,18 @@ jobs:
               sys.exit(1)
           print(f"APK OK: {len(names)} entries, manifest+dex+resources present")
           PY
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-diagnostics
+          path: |
+            medirdv-central/release/android-app/cap-add.log
+            medirdv-central/release/android-app/package.json
+            medirdv-central/release/android-app/capacitor.config.json
+          if-no-files-found: warn
+          retention-days: 7
 
       - uses: actions/upload-artifact@v4
         with:
