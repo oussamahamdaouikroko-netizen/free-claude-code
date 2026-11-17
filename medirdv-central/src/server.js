@@ -127,12 +127,7 @@ function serveStatic(res, urlPath) {
     'Content-Type': MIME[ext] || 'application/octet-stream',
     'Cache-Control': 'no-store',
     // Defence in depth for the inline-free vanilla UI (no inline scripts/styles).
-    'Content-Security-Policy':
-      "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; " +
-      "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
-    'X-Content-Type-Options': 'nosniff',
-    'Referrer-Policy': 'no-referrer',
-    'X-Frame-Options': 'DENY',
+    'Content-Security-Policy': CSP,
   });
   fs.createReadStream(filePath).pipe(res);
   return true;
@@ -144,6 +139,40 @@ function parseQuery(url) {
   return query;
 }
 
+const CSP = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; " +
+  "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+
+function applySecurityHeaders(res) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Frame-Options', 'DENY');
+}
+
+/**
+ * Allowed CORS origins come from MEDIRDV_ALLOWED_ORIGINS (comma separated).
+ * Capacitor's native WebView origins are always allowed for the API because
+ * the app is a first-party client; the wildcard is never used together with
+ * credentials.
+ */
+const CAPACITOR_ORIGINS = new Set(['https://localhost', 'capacitor://localhost', 'http://localhost']);
+
+function applyCors(req, res, pathname) {
+  const origin = req.headers.origin;
+  if (!origin || !pathname.startsWith('/api/')) return false;
+  const configured = String(process.env.MEDIRDV_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const isAllowed = CAPACITOR_ORIGINS.has(origin) || configured.includes(origin);
+  if (!isAllowed) return false;
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Filename, X-Transaction-Ref');
+  res.setHeader('Access-Control-Max-Age', '600');
+  return true;
+}
+
 /* ---------------------------------- router --------------------------------- */
 async function handle(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -151,6 +180,18 @@ async function handle(req, res) {
   const query = parseQuery(url);
   const method = req.method;
   const ip = req.socket.remoteAddress || 'unknown';
+
+  // Apply security headers to every response (API and static).
+  applySecurityHeaders(res);
+  // CORS: the Android app (Capacitor origin) calls this API cross-origin.
+  // Only explicitly allowed origins are echoed; credentials ride on cookies
+  // for the web UIs, and the native app authenticates via its own session.
+  if (applyCors(req, res, pathname)) {
+    if (method === 'OPTIONS') {
+      res.writeHead(204);
+      return res.end();
+    }
+  }
 
   try {
     /* ------------------------------- health ------------------------------- */

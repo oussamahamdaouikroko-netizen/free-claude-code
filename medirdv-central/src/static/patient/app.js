@@ -21,6 +21,8 @@ const I18N = {
     submit_ref: 'Envoyer la référence', receipt: 'Reçu (JPG/PNG/PDF)',
     whatsapp_open: 'Ouvrir WhatsApp', awaiting: 'En attente de confirmation du médecin.',
     error_generic: 'Une erreur est survenue.',
+    offline: 'Connexion impossible. Vérifiez votre réseau.',
+    settings: 'Serveur', save: 'Enregistrer', api_base: 'Adresse du serveur Medirdv',
   },
   ar: {
     hero_title: 'ابحث عن طبيب واحجز موعدك',
@@ -42,6 +44,8 @@ const I18N = {
     submit_ref: 'إرسال المرجع', receipt: 'الإيصال (JPG/PNG/PDF)',
     whatsapp_open: 'فتح واتساب', awaiting: 'بانتظار تأكيد الطبيب.',
     error_generic: 'حدث خطأ.',
+    offline: 'تعذر الاتصال. تحقق من الشبكة.',
+    settings: 'الخادم', save: 'حفظ', api_base: 'عنوان خادم Medirdv',
   },
 };
 
@@ -53,6 +57,21 @@ let idempotencyKey = null;
 
 const t = (key) => (I18N[lang] && I18N[lang][key]) || I18N.fr[key] || key;
 const $ = (id) => document.getElementById(id);
+
+/**
+ * API base URL.
+ *  - Web: same origin (empty prefix).
+ *  - Android APK: set via <meta name="medirdv-api-base"> by the build script,
+ *    overridable at runtime from the app's Settings screen.
+ */
+function resolveApiBase() {
+  const meta = document.querySelector('meta[name="medirdv-api-base"]');
+  const saved = localStorage.getItem('medirdv_api_base') || '';
+  const base = saved || (meta ? meta.content.trim() : '');
+  return base.replace(/\/+$/, '');
+}
+let apiBase = resolveApiBase();
+const apiUrl = (path) => `${apiBase}${path}`;
 
 /** Escape untrusted text before templating (XSS defence in depth). */
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -70,7 +89,12 @@ function applyLang() {
 }
 
 async function api(path, options = {}) {
-  const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...options });
+  let res;
+  try {
+    res = await fetch(apiUrl(path), { headers: { 'Content-Type': 'application/json' }, ...options });
+  } catch {
+    throw new Error(t('offline'));
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error?.message || t('error_generic'));
   return data;
@@ -181,7 +205,7 @@ async function submitBooking(event) {
       const file = $('pay-file').files[0];
       if (!file) { alert(t('receipt')); return; }
       const buf = await file.arrayBuffer();
-      const res = await fetch(`/api/public/payments/${result.payment.id}/submit`, {
+      const res = await fetch(apiUrl(`/api/public/payments/${result.payment.id}/submit`), {
         method: 'POST',
         headers: { 'X-Filename': file.name, 'X-Transaction-Ref': $('pay-ref').value },
         body: buf,
@@ -216,5 +240,32 @@ $('bk-form').addEventListener('submit', submitBooking);
 $('bk-date').addEventListener('change', loadSlots);
 document.querySelector('[data-close]').addEventListener('click', () => $('booking-modal').classList.add('hidden'));
 
+/** Native-app server settings: only shown in the APK, never on the web. */
+function initNativeSettings() {
+  const isNative = Boolean(window.Capacitor) || Boolean(apiBase);
+  const btn = $('settings-btn');
+  if (!isNative || !btn) return;
+  btn.classList.remove('hidden');
+  btn.addEventListener('click', () => {
+    $('api-base-input').value = apiBase;
+    $('settings-note').textContent = '';
+    $('settings-modal').classList.remove('hidden');
+  });
+  document.querySelector('[data-close-settings]').addEventListener('click', () => $('settings-modal').classList.add('hidden'));
+  $('api-base-save').addEventListener('click', () => {
+    const value = $('api-base-input').value.trim().replace(/\/+$/, '');
+    if (value && !/^https:\/\//.test(value) && !/^http:\/\/localhost/.test(value)) {
+      $('settings-note').textContent = 'HTTPS required.';
+      return;
+    }
+    if (value) localStorage.setItem('medirdv_api_base', value);
+    else localStorage.removeItem('medirdv_api_base');
+    apiBase = resolveApiBase();
+    $('settings-modal').classList.add('hidden');
+    loadFilters().then(search);
+  });
+}
+
 applyLang();
+initNativeSettings();
 loadFilters().then(search);

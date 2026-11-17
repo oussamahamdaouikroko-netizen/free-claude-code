@@ -1,13 +1,20 @@
 name: Build Medirdv Central for Windows
 
-# Builds Medirdv-Central-Setup.exe (Electron + NSIS) on a Windows runner.
-# Trigger: push touching medirdv-central/**, PR, or manual run.
-# The installer is published as a workflow artifact (and a GitHub Release
-# when a tag medirdv-central-v* is pushed).
+# Produces release/windows/Medirdv-Central-Setup-<version>.exe (Electron + NSIS).
+#
+# Triggers:
+#  - pull_request  (builds so reviewers can download the installer)
+#  - push to main/master and to medirdv-central-v* tags
+#  - workflow_dispatch (manual, once this file is on the default branch)
+#
+# The installer is uploaded as an artifact on every run, and attached to a
+# GitHub Release when a tag is pushed or the run is dispatched with
+# `release: true`.
+
 on:
   push:
-    tags: ["medirdv-central-v*"]
     branches: [main, master]
+    tags: ["medirdv-central-v*"]
     paths:
       - "medirdv-central/**"
       - ".github/workflows/medirdv-central-windows.yml"
@@ -16,6 +23,15 @@ on:
       - "medirdv-central/**"
       - ".github/workflows/medirdv-central-windows.yml"
   workflow_dispatch:
+    inputs:
+      release:
+        description: "Attach the built installer to a GitHub Release"
+        type: boolean
+        default: false
+      api_base:
+        description: "Central server URL baked into the desktop app"
+        type: string
+        default: "https://central.medirdv.dz"
 
 permissions:
   contents: write
@@ -24,66 +40,102 @@ concurrency:
   group: medirdv-central-windows-${{ github.ref }}
   cancel-in-progress: true
 
+defaults:
+  run:
+    working-directory: medirdv-central
+
 jobs:
   test:
-    name: Central tests (Linux)
+    name: Central test suite
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: medirdv-central
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Run central tests
+      - name: Run tests
         run: npm test
 
   build:
     name: Windows installer
     needs: test
     runs-on: windows-latest
-    timeout-minutes: 35
-    defaults:
-      run:
-        working-directory: medirdv-central
+    timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: medirdv-central/package.json
+
+      - name: Install build tooling
+        run: npm install --no-audit --no-fund
+
+      - name: Generate icon (.ico)
+        run: node scripts/convert-icon.js
+
       - name: Prepare Electron wrapper
-        run: node scripts/build-windows.js
-      - name: Install wrapper dependencies
-        run: npm install --prefix release/windows-app
-      - name: Build NSIS installer
         shell: bash
         run: |
-          set +e
-          cd release/windows-app
-          npx electron-builder --win nsis --x64 --publish never 2>&1 | tee build-output.log
-          status=${PIPESTATUS[0]}
-          if [ "$status" -ne 0 ]; then
-            echo "::error::Medirdv Central installer build failed (exit $status)"
-            exit "$status"
+          API_BASE="${{ inputs.api_base || 'https://central.medirdv.dz' }}"
+          node scripts/build-windows.js --api-base "$API_BASE"
+
+      - name: Install wrapper dependencies
+        working-directory: medirdv-central/release/windows-app
+        run: npm install --no-audit --no-fund
+
+      - name: Build NSIS installer
+        working-directory: medirdv-central/release/windows-app
+        run: npx electron-builder --win nsis --x64 --publish never
+
+      - name: Verify installer exists
+        shell: bash
+        run: |
+          ls -la release/windows/
+          count=$(ls release/windows/*.exe 2>/dev/null | wc -l)
+          if [ "$count" -lt 1 ]; then
+            echo "::error::electron-builder reported success but produced no .exe"
+            exit 1
           fi
-          ls -la ../windows/
-      - name: Upload installer artifact
-        uses: actions/upload-artifact@v4
+
+      - name: Write checksums and release notes
+        shell: bash
+        run: |
+          cd release/windows
+          for f in *.exe; do sha256sum "$f" > "$f.sha256"; done
+          cat *.sha256
+          {
+            echo "# Medirdv Central — Windows build"
+            echo
+            echo "Version: $(node -p "require('../../package.json').version")"
+            echo "Commit: $GITHUB_SHA"
+            echo "Built: $(date -u +%FT%TZ)"
+            echo
+            cat *.sha256
+          } > BUILD-INFO.md
+          cat BUILD-INFO.md
+
+      - uses: actions/upload-artifact@v4
         with:
           name: Medirdv-Central-Setup-windows
-          path: medirdv-central/release/windows/Medirdv-Central-Setup-*.exe
+          path: |
+            medirdv-central/release/windows/*.exe
+            medirdv-central/release/windows/*.sha256
+            medirdv-central/release/windows/BUILD-INFO.md
           if-no-files-found: error
-          retention-days: 30
-      - name: Publish release (tags only)
-        if: startsWith(github.ref, 'refs/tags/medirdv-central-v')
+          retention-days: 90
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/') || inputs.release == true
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('medirdv-central-build-{0}', github.run_number) }}
           name: Medirdv Central ${{ github.ref_name }}
-          draft: false
-          prerelease: false
           generate_release_notes: true
-          files: medirdv-central/release/windows/Medirdv-Central-Setup-*.exe
+          files: |
+            medirdv-central/release/windows/*.exe
+            medirdv-central/release/windows/*.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

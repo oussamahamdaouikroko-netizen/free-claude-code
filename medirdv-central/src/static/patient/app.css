@@ -45,3 +45,9 @@ button:hover { background: var(--teal-dark); }
   .hero h1 { font-size: 22px; }
   #track-form { flex-direction: column; }
 }
+
+/* Native app (APK) adjustments: safe areas and status-bar spacing. */
+.hidden { display: none !important; }
+body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.topbar { padding-top: max(12px, env(safe-area-inset-top)); }
+#settings-modal label { display: grid; gap: 6px; margin: 12px 0; }

@@ -2,9 +2,10 @@
 <html lang="fr" dir="ltr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="medirdv-api-base" content="">
 <title>Medirdv — Trouver un médecin / البحث عن طبيب</title>
-<link rel="stylesheet" href="/patient/app.css">
+<link rel="stylesheet" href="app.css">
 </head>
 <body>
 <header class="topbar">
@@ -12,6 +13,7 @@
   <div class="lang-switch">
     <button id="lang-fr" class="active">FR</button>
     <button id="lang-ar">العربية</button>
+    <button id="settings-btn" class="hidden" title="Server">⚙</button>
   </div>
 </header>
 
@@ -68,6 +70,19 @@
   </div>
 </div>
 
-<script src="/patient/app.js"></script>
+<!-- Server configuration (native app only) -->
+<div id="settings-modal" class="modal hidden">
+  <div class="modal-card">
+    <button class="close" data-close-settings>×</button>
+    <h2 data-i18n="settings">Serveur</h2>
+    <label><span data-i18n="api_base">Adresse du serveur Medirdv</span>
+      <input id="api-base-input" placeholder="https://central.example.dz" inputmode="url">
+    </label>
+    <button id="api-base-save" data-i18n="save">Enregistrer</button>
+    <p id="settings-note" class="muted"></p>
+  </div>
+</div>
+
+<script src="app.js"></script>
 </body>
 </html>

@@ -16,6 +16,8 @@ const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'medirdv-central-'));
 process.env.MEDIRDV_DB_PATH = path.join(tmpDir, 'test.sqlite');
 process.env.MEDIRDV_RECEIPTS_DIR = path.join(tmpDir, 'receipts');
 process.env.MEDIRDV_ENCRYPTION_KEY = crypto.randomBytes(32).toString('hex');
+// Ephemeral port so the suite never collides with a running dev server.
+process.env.PORT = '0';
 process.env.WHATSAPP_VERIFY_TOKEN = 'test-verify-token';
 process.env.WHATSAPP_APP_SECRET = 'test-app-secret';
 process.env.MEDIRDV_BOOTSTRAP_ADMIN_EMAIL = 'admin@medirdv.dz';
@@ -376,4 +378,35 @@ test('invalid receipt content is rejected (extension spoofing)', async () => {
     body: Buffer.from('not an image'),
   });
   assert.equal(res.status, 400);
+});
+
+test('CORS: Capacitor app origin is allowed for API calls, unknown origins are not', async () => {
+  // Allowed: the native app's WebView origin.
+  const ok = await fetch(`${base}/api/public/specialties`, { headers: { Origin: 'https://localhost' } });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.headers.get('access-control-allow-origin'), 'https://localhost');
+
+  // Preflight succeeds for the native origin.
+  const preflight = await fetch(`${base}/api/public/bookings`, {
+    method: 'OPTIONS',
+    headers: {
+      Origin: 'https://localhost',
+      'Access-Control-Request-Method': 'POST',
+      'Access-Control-Request-Headers': 'content-type,x-transaction-ref',
+    },
+  });
+  assert.equal(preflight.status, 204);
+  assert.match(preflight.headers.get('access-control-allow-headers') || '', /X-Transaction-Ref/i);
+
+  // Unknown third-party origin gets no CORS grant.
+  const bad = await fetch(`${base}/api/public/specialties`, { headers: { Origin: 'https://evil.example' } });
+  assert.equal(bad.headers.get('access-control-allow-origin'), null);
+});
+
+test('patient page uses relative assets and exposes the native API base hook', async () => {
+  const html = await (await fetch(`${base}/`)).text();
+  assert.ok(html.includes('href="app.css"'), 'relative stylesheet path required for the APK');
+  assert.ok(html.includes('src="app.js"'), 'relative script path required for the APK');
+  assert.ok(html.includes('name="medirdv-api-base"'));
+  assert.ok(html.includes('viewport-fit=cover'), 'safe-area handling for Android');
 });
