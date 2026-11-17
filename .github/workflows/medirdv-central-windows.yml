@@ -105,6 +105,15 @@ jobs:
 
           app.whenReady().then(async () => {
             const out = [];
+            const serverRoot = path.join(process.cwd(), 'server');
+            try {
+              out.push('cwd=' + process.cwd());
+              out.push('serverRoot=' + serverRoot);
+              out.push('exists=' + fs.existsSync(serverRoot));
+              out.push('entries=' + (fs.existsSync(serverRoot) ? fs.readdirSync(serverRoot).join(',') : 'n/a'));
+              const src = path.join(serverRoot, 'src');
+              out.push('src=' + (fs.existsSync(src) ? fs.readdirSync(src).join(',') : 'n/a'));
+            } catch (e) { out.push('listing error: ' + e.message); }
             const log = (line) => { out.push(String(line)); console.log('[smoke]', line); };
             let failures = 0;
             const expect = (label, condition, extra) => {
