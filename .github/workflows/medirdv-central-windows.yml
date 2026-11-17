@@ -175,16 +175,12 @@ jobs:
           echo "--- smoke-result.txt ---"
           cat smoke-result.txt 2>/dev/null || cat smoke.log
 
-          # Fail with the cause embedded in the step error itself, so the
-          # reason is visible through the Checks API without log access.
-          DIAG="$(cat smoke-result.txt 2>/dev/null || tail -n 12 smoke.log 2>/dev/null || echo 'no output captured')"
           echo "electron exit status: $status"
           echo "--- diagnostics ---"
-          echo "$DIAG"
-          if [ "$status" -ne 0 ] || ! grep -q "SMOKE RESULT: PASS" smoke-result.txt 2>/dev/null; then
-            echo "smoke did not pass; details published by the diagnostics step"
-            exit 0
-          fi
+          cat smoke-result.txt 2>/dev/null || tail -n 20 smoke.log 2>/dev/null || echo "(no output)"
+          # Never fail here: the diagnostics step must run first, and the
+          # assertion step decides whether the build continues.
+          exit 0
 
       - name: Report Electron smoke diagnostics
         if: always()
